@@ -147,7 +147,8 @@ cp setting.example.json setting.json
 |-----|----------|----------|
 | OpenAI协议 | `openai` | `https://api.openai.com/v1` |
 | Anthropic协议 | `anthropic` | 无需填写 |
-内置默认DeepSeek
+
+内置模型默认DeepSeek，完全可以自行修改。
 
 API Key 支持环境变量：`"${ENV_VAR_NAME}"`
 
