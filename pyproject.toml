@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "stock-agent"
+version = "0.1.0"
+description = "A-share short-term stock analysis AI Agent with memory, pattern recognition, and backtesting"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "stock-agent contributors"},
+]
+keywords = ["stock", "a-share", "ai-agent", "technical-analysis", "backtesting"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+]
+dependencies = [
+    "duckdb>=1.0.0",
+    "akshare>=1.14.0",
+    "baostock>=0.8.8",
+    "pandas>=2.0.0",
+    "openai>=1.0.0",
+    "anthropic>=0.30.0",
+    "beautifulsoup4>=4.9.0",
+    "lxml>=4.9.0",
+    "curl_cffi>=0.5.0",
+    "sentence-transformers>=2.2.0",
+    "rank_bm25>=0.2.2",
+    "numpy>=1.24.0",
+    "mplfinance>=0.12.10b0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+    "mypy>=1.0",
+    "pre-commit>=3.0",
+]
+
+[project.scripts]
+stock-agent = "agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "src*"]
+
+[tool.setuptools]
+py-modules = ["config"]
+
+# ── Ruff ──────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"agent/tools.py" = ["E402", "F401", "F811"]
+"scripts/*.py" = ["E402"]
+
+# ── mypy ──────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.10"
+allow_untyped_defs = true
+ignore_missing_imports = true
+warn_return_any = false
+warn_unused_configs = true
+
+# ── pytest ────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests that require real database or network",
+]
+addopts = "-v --tb=short"
+
+# ── coverage ──────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["agent", "src"]
+omit = ["tests/*", "scripts/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

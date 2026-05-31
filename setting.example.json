@@ -1,0 +1,21 @@
+{
+  "llm": {
+    "provider": "deepseek",
+    "base_url": "https://api.deepseek.com",
+    "api_key": "YOUR_API_KEY_HERE",
+    "model": "deepseek-v4-pro",
+    "protocol": "openai",
+    "max_tokens": 16384,
+    "temperature": 0.3
+  },
+  "embedding": {
+    "provider": "local",
+    "model": "shibing624/text2vec-base-chinese",
+    "api_key": "",
+    "base_url": ""
+  },
+  "agent": {
+    "max_rounds": 10,
+    "verbose": true
+  }
+}

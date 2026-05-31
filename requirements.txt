@@ -1,0 +1,15 @@
+# NOTE: pyproject.toml is the canonical source for dependencies.
+# This file is kept for users who prefer: pip install -r requirements.txt
+duckdb>=1.0.0
+akshare>=1.14.0
+baostock>=0.8.8
+pandas>=2.0.0
+openai>=1.0.0
+anthropic>=0.30.0
+beautifulsoup4>=4.9.0
+lxml>=4.9.0
+curl_cffi>=0.5.0
+sentence-transformers>=2.2.0
+rank_bm25>=0.2.2
+numpy>=1.24.0
+mplfinance>=0.12.10b0
