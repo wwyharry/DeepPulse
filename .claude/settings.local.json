@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python -c ' *)",
+      "Bash(python scripts/init_db.py)",
+      "Bash(python scripts/fetch_stocks.py)",
+      "Bash(python scripts/fetch_all.py)",
+      "Bash(python -c \"from src.query import StockQuery; q=StockQuery\\(\\); s=q.get_data_stats\\(\\); print\\(s\\)\")",
+      "Bash(tasklist)",
+      "Bash(taskkill //PID 21224 //F)",
+      "Bash(taskkill *)",
+      "Bash(python -X utf8 -c ' *)",
+      "Bash(python -X utf8 -m agent.cli --no-verbose \"600000浦发银行短线怎么样\")",
+      "Bash(wmic logicaldisk *)",
+      "Bash(python -X utf8 -m agent.cli --no-verbose \"000001平安银行短线怎么样\")",
+      "Bash(python -c \"from agent.memory import MemoryManager; m = MemoryManager\\(\\); m.init_tables\\(\\); print\\('MemoryManager OK'\\)\")",
+      "Bash(python -X utf8 -m agent.cli --no-verbose --no-thinking \"000001平安银行短线怎么样\")",
+      "Bash(python -X utf8 -m agent.cli --no-verbose --no-thinking \"帮我看看今天有没有符合放量突破形态的股票\")",
+      "Bash(python scripts/update_data.py)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('agent/cli.py', doraise=True\\); py_compile.compile\\('agent/tools.py', doraise=True\\); py_compile.compile\\('agent/prompts.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(python -m agent.cli --no-thinking --no-verbose \"分析一下贵州茅台\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('agent/tools.py', doraise=True\\); py_compile.compile\\('agent/prompts.py', doraise=True\\); print\\('Syntax OK'\\)\")",
+      "Bash(xxd \"G:/claudecodeproject/短线战法框架.txt\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('agent/tools.py', doraise=True\\); py_compile.compile\\('agent/prompts.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(python *)",
+      "Bash(HF_ENDPOINT=https://hf-mirror.com python -c ' *)"
+    ]
+  }
+}
