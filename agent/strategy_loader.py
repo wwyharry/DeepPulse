@@ -1,7 +1,7 @@
 """短线战法加载器 - 从 strategies/ 目录加载 Markdown 战法文件，支持关键词检索"""
+
 import re
 from pathlib import Path
-
 
 # 战法目录
 STRATEGIES_DIR = Path(__file__).parent / "strategies"
@@ -42,7 +42,7 @@ class StrategyLoader:
     def _parse_strategy(self, filepath: Path, content: str) -> dict:
         """解析单个战法文件，提取标题、关键词、标签"""
         # 提取标题（第一个 # 开头的行）
-        title_match = re.search(r'^#\s+(.+)', content, re.MULTILINE)
+        title_match = re.search(r"^#\s+(.+)", content, re.MULTILINE)
         name = title_match.group(1).strip() if title_match else filepath.stem
 
         # 提取关键词：技术指标 + 中文关键术语
@@ -50,10 +50,29 @@ class StrategyLoader:
 
         # 技术指标关键词
         tech_patterns = [
-            r'MA\d+', r'MACD', r'RSI', r'KDJ', r'BOLL', r'布林',
-            r'金叉', r'死叉', r'超买', r'超卖', r'放量', r'缩量',
-            r'突破', r'回踩', r'支撑', r'压力', r'均线', r'背离',
-            r'涨停', r'跌停', r'封板', r'炸板', r'换手',
+            r"MA\d+",
+            r"MACD",
+            r"RSI",
+            r"KDJ",
+            r"BOLL",
+            r"布林",
+            r"金叉",
+            r"死叉",
+            r"超买",
+            r"超卖",
+            r"放量",
+            r"缩量",
+            r"突破",
+            r"回踩",
+            r"支撑",
+            r"压力",
+            r"均线",
+            r"背离",
+            r"涨停",
+            r"跌停",
+            r"封板",
+            r"炸板",
+            r"换手",
         ]
         for pattern in tech_patterns:
             if re.search(pattern, content, re.IGNORECASE):
@@ -61,18 +80,15 @@ class StrategyLoader:
 
         # 提取 ## 标题作为标签
         tags = []
-        for m in re.finditer(r'^##\s+(.+)', content, re.MULTILINE):
+        for m in re.finditer(r"^##\s+(.+)", content, re.MULTILINE):
             tag = m.group(1).strip()
             # 去掉序号
-            tag = re.sub(r'^[\d.]+\s*', '', tag)
+            tag = re.sub(r"^[\d.]+\s*", "", tag)
             if tag:
                 tags.append(tag)
 
         # 提取数值型关键条件（如 RSI<20, MA5>MA10）
-        numeric_conditions = re.findall(
-            r'(?:MA|RSI|KDJ|MACD|BOLL|J|K|D|DIF|DEA)\s*[<>]=?\s*[\d.]+',
-            content
-        )
+        numeric_conditions = re.findall(r"(?:MA|RSI|KDJ|MACD|BOLL|J|K|D|DIF|DEA)\s*[<>]=?\s*[\d.]+", content)
         keywords.update(numeric_conditions[:10])
 
         return {
@@ -100,33 +116,51 @@ class StrategyLoader:
         query_terms = set()
 
         # 技术指标
-        for pattern in [r'MA\d+', r'MACD', r'RSI', r'KDJ', r'BOLL', r'布林',
-                        r'金叉', r'死叉', r'超买', r'超卖', r'放量', r'缩量',
-                        r'突破', r'回踩', r'支撑', r'压力', r'均线', r'背离',
-                        r'涨停', r'跌停']:
+        for pattern in [
+            r"MA\d+",
+            r"MACD",
+            r"RSI",
+            r"KDJ",
+            r"BOLL",
+            r"布林",
+            r"金叉",
+            r"死叉",
+            r"超买",
+            r"超卖",
+            r"放量",
+            r"缩量",
+            r"突破",
+            r"回踩",
+            r"支撑",
+            r"压力",
+            r"均线",
+            r"背离",
+            r"涨停",
+            r"跌停",
+        ]:
             if re.search(pattern, query, re.IGNORECASE):
                 query_terms.add(pattern)
 
         # 数值条件
-        numeric = re.findall(
-            r'(?:MA|RSI|KDJ|MACD|BOLL|J|K|D)\s*[<>]=?\s*[\d.]+',
-            query
-        )
+        numeric = re.findall(r"(?:MA|RSI|KDJ|MACD|BOLL|J|K|D)\s*[<>]=?\s*[\d.]+", query)
         query_terms.update(numeric)
 
         # 中文关键术语（2-4字）
-        cn_terms = re.findall(r'[一-鿿]{2,4}', query)
+        cn_terms = re.findall(r"[一-鿿]{2,4}", query)
         query_terms.update(cn_terms)
 
         if not query_terms:
             # 无明确关键词时，返回所有战法的简要列表
-            return [{
-                "name": s["name"],
-                "file": s["file"],
-                "score": 0.1,
-                "match_reason": "无明确匹配",
-                "content_preview": s["content"][:200],
-            } for s in self.strategies[:top_k]]
+            return [
+                {
+                    "name": s["name"],
+                    "file": s["file"],
+                    "score": 0.1,
+                    "match_reason": "无明确匹配",
+                    "content_preview": s["content"][:200],
+                }
+                for s in self.strategies[:top_k]
+            ]
 
         # 评分
         scored = []
@@ -156,13 +190,15 @@ class StrategyLoader:
                     score += 0.2
 
             if score > 0:
-                scored.append({
-                    "name": strategy["name"],
-                    "file": strategy["file"],
-                    "score": round(score, 2),
-                    "match_reason": "匹配: " + ", ".join(matched[:5]),
-                    "content_preview": strategy["content"][:300],
-                })
+                scored.append(
+                    {
+                        "name": strategy["name"],
+                        "file": strategy["file"],
+                        "score": round(score, 2),
+                        "match_reason": "匹配: " + ", ".join(matched[:5]),
+                        "content_preview": strategy["content"][:300],
+                    }
+                )
 
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:top_k]
@@ -176,12 +212,15 @@ class StrategyLoader:
 
     def list_strategies(self) -> list:
         """列出所有已加载的战法"""
-        return [{
-            "name": s["name"],
-            "file": s["file"],
-            "tags": s["tags"],
-            "keywords": s["keywords"][:5],
-        } for s in self.strategies]
+        return [
+            {
+                "name": s["name"],
+                "file": s["file"],
+                "tags": s["tags"],
+                "keywords": s["keywords"][:5],
+            }
+            for s in self.strategies
+        ]
 
     def get_all_content_summary(self, max_chars: int = 3000) -> str:
         """获取所有战法的摘要，用于注入 system prompt"""

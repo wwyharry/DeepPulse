@@ -1,16 +1,14 @@
 """Agent 记忆系统 - 长期记忆管理、语义检索、预测跟踪、用户画像、知识图谱"""
+
 import json
-import uuid
-import re
 import math
+import re
 import struct
-import time
+import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import config
 from src.database import get_connection, init_memory_tables
-
 
 # 各记忆类型的默认衰减半衰期（天）
 DEFAULT_HALF_LIFE = {
@@ -26,6 +24,7 @@ DEFAULT_HALF_LIFE = {
 # ═══════════════════════════════════════════════════════════════════
 # Embedding 向量索引
 # ═══════════════════════════════════════════════════════════════════
+
 
 class EmbeddingIndex:
     """Embedding 向量索引，支持本地模型和 API 两种方式"""
@@ -58,10 +57,12 @@ class EmbeddingIndex:
         """初始化本地 sentence-transformers 模型"""
         try:
             import os
+
             # 国内默认使用 Hugging Face 镜像
-            if 'HF_ENDPOINT' not in os.environ:
-                os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+            if "HF_ENDPOINT" not in os.environ:
+                os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
             from sentence_transformers import SentenceTransformer
+
             self._model = SentenceTransformer(model_name)
             self._provider = "local"
             self._ready = True
@@ -74,6 +75,7 @@ class EmbeddingIndex:
         """初始化 embedding API 客户端"""
         try:
             from openai import OpenAI
+
             api_key = emb_config.get("api_key", "")
             base_url = emb_config.get("base_url", "")
             if api_key and base_url:
@@ -98,8 +100,7 @@ class EmbeddingIndex:
                 return [v.tolist() for v in vectors]
             elif self._provider == "openai":
                 resp = self._api_client.embeddings.create(
-                    input=texts,
-                    model=self._setting.get("embedding", {}).get("model", "text-embedding-3-small")
+                    input=texts, model=self._setting.get("embedding", {}).get("model", "text-embedding-3-small")
                 )
                 return [d.embedding for d in resp.data]
         except Exception:
@@ -158,7 +159,7 @@ class EmbeddingIndex:
 
     @staticmethod
     def _dot(a: list[float], b: list[float]) -> float:
-        return sum(x * y for x, y in zip(a, b))
+        return sum(x * y for x, y in zip(a, b, strict=False))
 
     @staticmethod
     def _norm(a: list[float]) -> float:
@@ -184,6 +185,7 @@ class EmbeddingIndex:
 # BM25 搜索（无 embedding 时的回退方案）
 # ═══════════════════════════════════════════════════════════════════
 
+
 class BM25Index:
     """BM25 搜索索引，作为无 embedding 时的增强搜索方案"""
 
@@ -201,6 +203,7 @@ class BM25Index:
         """
         try:
             from rank_bm25 import BM25Okapi
+
             self._doc_ids = []
             self._docs = []
             tokenized_corpus = []
@@ -242,20 +245,35 @@ class BM25Index:
         tokens = set()
         # 提取技术术语
         tech_terms = [
-            r'MA\d+', r'MACD', r'RSI', r'KDJ', r'BOLL', r'布林',
-            r'金叉', r'死叉', r'超买', r'超卖', r'背离', r'突破',
-            r'放量', r'缩量', r'涨停', r'跌停', r'支撑', r'压力',
+            r"MA\d+",
+            r"MACD",
+            r"RSI",
+            r"KDJ",
+            r"BOLL",
+            r"布林",
+            r"金叉",
+            r"死叉",
+            r"超买",
+            r"超卖",
+            r"背离",
+            r"突破",
+            r"放量",
+            r"缩量",
+            r"涨停",
+            r"跌停",
+            r"支撑",
+            r"压力",
         ]
         for pattern in tech_terms:
             matches = re.findall(pattern, text, re.IGNORECASE)
             tokens.update(m.lower() if m.isascii() else m for m in matches)
 
         # 提取股票代码
-        codes = re.findall(r'\b[036]\d{5}\b', text)
+        codes = re.findall(r"\b[036]\d{5}\b", text)
         tokens.update(codes)
 
         # 提取中文片段（2-4字）
-        cn_segments = re.findall(r'[一-鿿]{2,4}', text)
+        cn_segments = re.findall(r"[一-鿿]{2,4}", text)
         tokens.update(cn_segments)
 
         # 加入关键词
@@ -269,6 +287,7 @@ class BM25Index:
 # 预测跟踪系统
 # ═══════════════════════════════════════════════════════════════════
 
+
 class PredictionTracker:
     """预测跟踪与结果反馈"""
 
@@ -278,13 +297,19 @@ class PredictionTracker:
     def _conn(self):
         return get_connection(self.db_path)
 
-    def save_prediction(self, stock_code: str, stock_name: str = "",
-                        prediction_type: str = "direction",
-                        direction: str = "neutral",
-                        target_price: float = 0, stop_loss: float = 0,
-                        timeframe_days: int = 5, reasoning: str = "",
-                        confidence: float = 0.5,
-                        memory_ids: list[str] = None) -> str:
+    def save_prediction(
+        self,
+        stock_code: str,
+        stock_name: str = "",
+        prediction_type: str = "direction",
+        direction: str = "neutral",
+        target_price: float = 0,
+        stop_loss: float = 0,
+        timeframe_days: int = 5,
+        reasoning: str = "",
+        confidence: float = 0.5,
+        memory_ids: list[str] = None,
+    ) -> str:
         """保存一条预测"""
         pred_id = str(uuid.uuid4())
         now = datetime.now()
@@ -292,40 +317,59 @@ class PredictionTracker:
 
         conn = self._conn()
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO predictions
                 (id, stock_code, stock_name, prediction_type, direction,
                  target_price, stop_loss, timeframe_days, reasoning, confidence,
                  memory_ids_json, created_at, check_after_date, outcome)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-            """, [pred_id, stock_code, stock_name, prediction_type, direction,
-                  target_price, stop_loss, timeframe_days, reasoning, confidence,
-                  json.dumps(memory_ids or [], ensure_ascii=False),
-                  now, check_date])
-            return json.dumps({
-                "status": "saved",
-                "prediction_id": pred_id,
-                "stock_code": stock_code,
-                "direction": direction,
-                "check_after": str(check_date.date()),
-            }, ensure_ascii=False)
+            """,
+                [
+                    pred_id,
+                    stock_code,
+                    stock_name,
+                    prediction_type,
+                    direction,
+                    target_price,
+                    stop_loss,
+                    timeframe_days,
+                    reasoning,
+                    confidence,
+                    json.dumps(memory_ids or [], ensure_ascii=False),
+                    now,
+                    check_date,
+                ],
+            )
+            return json.dumps(
+                {
+                    "status": "saved",
+                    "prediction_id": pred_id,
+                    "stock_code": stock_code,
+                    "direction": direction,
+                    "check_after": str(check_date.date()),
+                },
+                ensure_ascii=False,
+            )
         finally:
             conn.close()
 
-    def check_predictions(self, stock_code: str = None,
-                          current_price: float = None) -> str:
+    def check_predictions(self, stock_code: str = None, current_price: float = None) -> str:
         """检查预测结果。提供 stock_code 时检查该股票的预测，否则检查所有到期预测。"""
         conn = self._conn()
         try:
             if stock_code:
-                rows = conn.execute("""
+                rows = conn.execute(
+                    """
                     SELECT id, stock_code, stock_name, direction, target_price,
                            stop_loss, timeframe_days, reasoning, confidence,
                            memory_ids_json, created_at, outcome
                     FROM predictions
                     WHERE stock_code = ? AND outcome = 'pending'
                     ORDER BY created_at DESC
-                """, [stock_code]).fetchall()
+                """,
+                    [stock_code],
+                ).fetchall()
             else:
                 rows = conn.execute("""
                     SELECT id, stock_code, stock_name, direction, target_price,
@@ -343,33 +387,42 @@ class PredictionTracker:
             results = []
             for row in rows:
                 pred = {
-                    "id": row[0], "stock_code": row[1], "stock_name": row[2],
-                    "direction": row[3], "target_price": row[4],
-                    "stop_loss": row[5], "timeframe_days": row[6],
+                    "id": row[0],
+                    "stock_code": row[1],
+                    "stock_name": row[2],
+                    "direction": row[3],
+                    "target_price": row[4],
+                    "stop_loss": row[5],
+                    "timeframe_days": row[6],
                     "reasoning": row[7][:100] if row[7] else "",
-                    "confidence": row[8], "created_at": str(row[10]),
+                    "confidence": row[8],
+                    "created_at": str(row[10]),
                     "days_elapsed": (datetime.now() - row[10]).days,
                 }
                 results.append(pred)
 
-            return json.dumps({
-                "pending_predictions": results,
-                "total": len(results),
-                "message": f"找到 {len(results)} 个待验证预测，请用 verify_prediction 验证结果",
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "pending_predictions": results,
+                    "total": len(results),
+                    "message": f"找到 {len(results)} 个待验证预测，请用 verify_prediction 验证结果",
+                },
+                ensure_ascii=False,
+            )
         finally:
             conn.close()
 
-    def verify_prediction(self, prediction_id: str,
-                          actual_price: float,
-                          actual_return_pct: float = None) -> str:
+    def verify_prediction(self, prediction_id: str, actual_price: float, actual_return_pct: float = None) -> str:
         """验证单个预测结果"""
         conn = self._conn()
         try:
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT direction, target_price, stop_loss, created_at, stock_code
                 FROM predictions WHERE id = ?
-            """, [prediction_id]).fetchone()
+            """,
+                [prediction_id],
+            ).fetchone()
 
             if not row:
                 return json.dumps({"error": f"预测 {prediction_id} 不存在"}, ensure_ascii=False)
@@ -400,39 +453,47 @@ class PredictionTracker:
                 outcome = "partial"
 
             now = datetime.now()
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE predictions
                 SET actual_price = ?, actual_return_pct = ?, outcome = ?,
                     checked_at = ?
                 WHERE id = ?
-            """, [actual_price, actual_return_pct, outcome, now, prediction_id])
+            """,
+                [actual_price, actual_return_pct, outcome, now, prediction_id],
+            )
 
             # 更新关联记忆的重要性
             memory_ids_json = conn.execute(
-                "SELECT memory_ids_json FROM predictions WHERE id = ?",
-                [prediction_id]
+                "SELECT memory_ids_json FROM predictions WHERE id = ?", [prediction_id]
             ).fetchone()[0]
             memory_ids = json.loads(memory_ids_json) if memory_ids_json else []
 
             if memory_ids and outcome in ("correct", "wrong"):
                 adjustment = 0.1 if outcome == "correct" else -0.1
                 for mid in memory_ids:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE long_term_memories
                         SET importance = MIN(1.0, MAX(0.0, importance + ?)),
                             updated_at = ?
                         WHERE id = ?
-                    """, [adjustment, now, mid])
+                    """,
+                        [adjustment, now, mid],
+                    )
 
-            return json.dumps({
-                "prediction_id": prediction_id,
-                "stock_code": stock_code,
-                "direction": direction,
-                "actual_return_pct": actual_return_pct,
-                "outcome": outcome,
-                "days_held": days_held,
-                "memory_adjusted": len(memory_ids),
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "prediction_id": prediction_id,
+                    "stock_code": stock_code,
+                    "direction": direction,
+                    "actual_return_pct": actual_return_pct,
+                    "outcome": outcome,
+                    "days_held": days_held,
+                    "memory_adjusted": len(memory_ids),
+                },
+                ensure_ascii=False,
+            )
         finally:
             conn.close()
 
@@ -467,14 +528,17 @@ class PredictionTracker:
                     by_direction[d] = {}
                 by_direction[d][o] = c
 
-            return json.dumps({
-                "total_verified": total,
-                "correct": correct,
-                "wrong": wrong,
-                "partial": partial,
-                "accuracy": f"{correct/total*100:.1f}%" if total > 0 else "N/A",
-                "by_direction": by_direction,
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "total_verified": total,
+                    "correct": correct,
+                    "wrong": wrong,
+                    "partial": partial,
+                    "accuracy": f"{correct / total * 100:.1f}%" if total > 0 else "N/A",
+                    "by_direction": by_direction,
+                },
+                ensure_ascii=False,
+            )
         finally:
             conn.close()
 
@@ -482,6 +546,7 @@ class PredictionTracker:
 # ═══════════════════════════════════════════════════════════════════
 # 用户画像
 # ═══════════════════════════════════════════════════════════════════
+
 
 class UserProfile:
     """用户交易画像管理"""
@@ -510,44 +575,42 @@ class UserProfile:
                     "updated_at": str(row[3]) if row[3] else None,
                 }
 
-            return json.dumps({"profile": profile, "total": len(profile)},
-                              ensure_ascii=False)
+            return json.dumps({"profile": profile, "total": len(profile)}, ensure_ascii=False)
         finally:
             conn.close()
 
-    def update_profile(self, key: str, value: str,
-                       confidence: float = 0.5,
-                       source_memory_ids: list[str] = None) -> str:
+    def update_profile(self, key: str, value: str, confidence: float = 0.5, source_memory_ids: list[str] = None) -> str:
         """更新用户画像"""
         conn = self._conn()
         try:
             now = datetime.now()
             # 检查是否已存在
-            existing = conn.execute(
-                "SELECT confidence FROM user_profile WHERE key = ?", [key]
-            ).fetchone()
+            existing = conn.execute("SELECT confidence FROM user_profile WHERE key = ?", [key]).fetchone()
 
             if existing:
                 # 合并置信度：取加权平均
                 old_conf = existing[0]
                 new_conf = min(1.0, (old_conf + confidence) / 2 + 0.05)
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE user_profile
                     SET value = ?, confidence = ?, source_memory_ids = ?, updated_at = ?
                     WHERE key = ?
-                """, [value, new_conf,
-                      json.dumps(source_memory_ids or [], ensure_ascii=False),
-                      now, key])
+                """,
+                    [value, new_conf, json.dumps(source_memory_ids or [], ensure_ascii=False), now, key],
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO user_profile (key, value, confidence, source_memory_ids, updated_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, [key, value, confidence,
-                      json.dumps(source_memory_ids or [], ensure_ascii=False),
-                      now])
+                """,
+                    [key, value, confidence, json.dumps(source_memory_ids or [], ensure_ascii=False), now],
+                )
 
-            return json.dumps({"status": "updated", "key": key, "value": value,
-                               "confidence": confidence}, ensure_ascii=False)
+            return json.dumps(
+                {"status": "updated", "key": key, "value": value, "confidence": confidence}, ensure_ascii=False
+            )
         finally:
             conn.close()
 
@@ -598,27 +661,25 @@ class UserProfile:
         combined = " ".join(user_messages)
 
         # 交易风格
-        if re.search(r'低吸|抄底|回调买入', combined):
+        if re.search(r"低吸|抄底|回调买入", combined):
             signals.append({"key": "trading_style", "value": "低吸型", "confidence": 0.6})
-        elif re.search(r'打板|追涨停|追高', combined):
+        elif re.search(r"打板|追涨停|追高", combined):
             signals.append({"key": "trading_style", "value": "打板型", "confidence": 0.6})
-        elif re.search(r'半路|点火|启动', combined):
+        elif re.search(r"半路|点火|启动", combined):
             signals.append({"key": "trading_style", "value": "半路型", "confidence": 0.6})
-        elif re.search(r'接力|二板|三板', combined):
+        elif re.search(r"接力|二板|三板", combined):
             signals.append({"key": "trading_style", "value": "接力型", "confidence": 0.6})
 
         # 风险偏好
-        if re.search(r'保守|稳健|风险低', combined):
+        if re.search(r"保守|稳健|风险低", combined):
             signals.append({"key": "risk_tolerance", "value": "保守型", "confidence": 0.5})
-        elif re.search(r'激进|高风险|满仓', combined):
+        elif re.search(r"激进|高风险|满仓", combined):
             signals.append({"key": "risk_tolerance", "value": "激进型", "confidence": 0.5})
 
         # 止损习惯
-        stop_match = re.search(r'止损[设为用]*(\d+(?:\.\d+)?)\s*%', combined)
+        stop_match = re.search(r"止损[设为用]*(\d+(?:\.\d+)?)\s*%", combined)
         if stop_match:
-            signals.append({"key": "stop_loss_habit",
-                           "value": f"{stop_match.group(1)}%",
-                           "confidence": 0.7})
+            signals.append({"key": "stop_loss_habit", "value": f"{stop_match.group(1)}%", "confidence": 0.7})
 
         # 偏好指标
         indicators = []
@@ -626,16 +687,12 @@ class UserProfile:
             if ind in combined:
                 indicators.append(ind)
         if indicators:
-            signals.append({"key": "preferred_indicators",
-                           "value": "、".join(indicators),
-                           "confidence": 0.4})
+            signals.append({"key": "preferred_indicators", "value": "、".join(indicators), "confidence": 0.4})
 
         # 关注板块
-        sector_match = re.findall(r'(?:关注|做|看好|研究)\s*([一-鿿]{2,6}(?:板块|行业|概念|股))', combined)
+        sector_match = re.findall(r"(?:关注|做|看好|研究)\s*([一-鿿]{2,6}(?:板块|行业|概念|股))", combined)
         if sector_match:
-            signals.append({"key": "watched_sectors",
-                           "value": "、".join(sector_match[:3]),
-                           "confidence": 0.5})
+            signals.append({"key": "watched_sectors", "value": "、".join(sector_match[:3]), "confidence": 0.5})
 
         return signals
 
@@ -643,6 +700,7 @@ class UserProfile:
 # ═══════════════════════════════════════════════════════════════════
 # 知识图谱
 # ═══════════════════════════════════════════════════════════════════
+
 
 class KnowledgeGraph:
     """结构化交易知识图谱"""
@@ -653,89 +711,114 @@ class KnowledgeGraph:
     def _conn(self):
         return get_connection(self.db_path)
 
-    def add_entity(self, entity_type: str, name: str,
-                   attributes: dict = None) -> str:
+    def add_entity(self, entity_type: str, name: str, attributes: dict = None) -> str:
         """添加或更新知识实体"""
         entity_id = str(uuid.uuid4())
         now = datetime.now()
         conn = self._conn()
         try:
             # 检查是否已存在同名同类型实体
-            existing = conn.execute("""
+            existing = conn.execute(
+                """
                 SELECT id FROM knowledge_entities
                 WHERE entity_type = ? AND name = ?
-            """, [entity_type, name]).fetchone()
+            """,
+                [entity_type, name],
+            ).fetchone()
 
             if existing:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE knowledge_entities
                     SET attributes_json = ?, updated_at = ?
                     WHERE id = ?
-                """, [json.dumps(attributes or {}, ensure_ascii=False), now, existing[0]])
+                """,
+                    [json.dumps(attributes or {}, ensure_ascii=False), now, existing[0]],
+                )
                 return existing[0]
 
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO knowledge_entities (id, entity_type, name, attributes_json, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, [entity_id, entity_type, name,
-                  json.dumps(attributes or {}, ensure_ascii=False), now, now])
+            """,
+                [entity_id, entity_type, name, json.dumps(attributes or {}, ensure_ascii=False), now, now],
+            )
             return entity_id
         finally:
             conn.close()
 
-    def add_relation(self, source_id: str, target_id: str,
-                     relation_type: str, weight: float = 1.0,
-                     evidence_memory_ids: list[str] = None) -> str:
+    def add_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+        weight: float = 1.0,
+        evidence_memory_ids: list[str] = None,
+    ) -> str:
         """添加知识关系"""
         rel_id = str(uuid.uuid4())
         conn = self._conn()
         try:
             # 检查是否已存在相同关系
-            existing = conn.execute("""
+            existing = conn.execute(
+                """
                 SELECT id, weight FROM knowledge_relations
                 WHERE source_id = ? AND target_id = ? AND relation_type = ?
-            """, [source_id, target_id, relation_type]).fetchone()
+            """,
+                [source_id, target_id, relation_type],
+            ).fetchone()
 
             if existing:
                 # 更新权重（取平均）
                 new_weight = (existing[1] + weight) / 2
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE knowledge_relations SET weight = ? WHERE id = ?
-                """, [new_weight, existing[0]])
+                """,
+                    [new_weight, existing[0]],
+                )
                 return existing[0]
 
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO knowledge_relations
                 (id, source_id, target_id, relation_type, weight, evidence_memory_ids, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, [rel_id, source_id, target_id, relation_type, weight,
-                  json.dumps(evidence_memory_ids or [], ensure_ascii=False),
-                  datetime.now()])
+            """,
+                [
+                    rel_id,
+                    source_id,
+                    target_id,
+                    relation_type,
+                    weight,
+                    json.dumps(evidence_memory_ids or [], ensure_ascii=False),
+                    datetime.now(),
+                ],
+            )
             return rel_id
         finally:
             conn.close()
 
-    def query_related(self, entity_name: str = None,
-                      entity_type: str = None,
-                      relation_type: str = None) -> str:
-                        """查询相关的知识实体和关系"""
-                        conn = self._conn()
-                        try:
-                            conditions = []
-                            params = []
+    def query_related(self, entity_name: str = None, entity_type: str = None, relation_type: str = None) -> str:
+        """查询相关的知识实体和关系"""
+        conn = self._conn()
+        try:
+            conditions = []
+            params = []
 
-                            if entity_name:
-                                conditions.append("(e1.name LIKE ? OR e2.name LIKE ?)")
-                                params.extend([f"%{entity_name}%", f"%{entity_name}%"])
-                            if entity_type:
-                                conditions.append("(e1.entity_type = ? OR e2.entity_type = ?)")
-                                params.extend([entity_type, entity_type])
-                            if relation_type:
-                                conditions.append("r.relation_type = ?")
-                                params.append(relation_type)
+            if entity_name:
+                conditions.append("(e1.name LIKE ? OR e2.name LIKE ?)")
+                params.extend([f"%{entity_name}%", f"%{entity_name}%"])
+            if entity_type:
+                conditions.append("(e1.entity_type = ? OR e2.entity_type = ?)")
+                params.extend([entity_type, entity_type])
+            if relation_type:
+                conditions.append("r.relation_type = ?")
+                params.append(relation_type)
 
-                            where = " AND ".join(conditions) if conditions else "1=1"
-                            sql = f"""
+            where = " AND ".join(conditions) if conditions else "1=1"
+            sql = f"""
                                 SELECT e1.name, e1.entity_type, r.relation_type,
                                        e2.name, e2.entity_type, r.weight
                                 FROM knowledge_relations r
@@ -745,21 +828,22 @@ class KnowledgeGraph:
                                 ORDER BY r.weight DESC
                                 LIMIT 20
                             """
-                            rows = conn.execute(sql, params).fetchall()
+            rows = conn.execute(sql, params).fetchall()
 
-                            results = []
-                            for row in rows:
-                                results.append({
-                                    "source": {"name": row[0], "type": row[1]},
-                                    "relation": row[2],
-                                    "target": {"name": row[3], "type": row[4]},
-                                    "weight": row[5],
-                                })
+            results = []
+            for row in rows:
+                results.append(
+                    {
+                        "source": {"name": row[0], "type": row[1]},
+                        "relation": row[2],
+                        "target": {"name": row[3], "type": row[4]},
+                        "weight": row[5],
+                    }
+                )
 
-                            return json.dumps({"results": results, "total": len(results)},
-                                              ensure_ascii=False)
-                        finally:
-                            conn.close()
+            return json.dumps({"results": results, "total": len(results)}, ensure_ascii=False)
+        finally:
+            conn.close()
 
     def extract_from_memory(self, content: str, memory_type: str = "") -> list[dict]:
         """从记忆内容中提取实体和关系"""
@@ -768,14 +852,14 @@ class KnowledgeGraph:
 
         # 提取技术指标实体
         indicator_patterns = {
-            r'RSI[<>]=?\s*\d+': 'indicator',
-            r'MACD\s*金叉': 'indicator',
-            r'MACD\s*死叉': 'indicator',
-            r'KDJ\s*金叉': 'indicator',
-            r'KDJ\s*死叉': 'indicator',
-            r'MA\d+[<>]MA\d+': 'indicator',
-            r'放量': 'indicator',
-            r'缩量': 'indicator',
+            r"RSI[<>]=?\s*\d+": "indicator",
+            r"MACD\s*金叉": "indicator",
+            r"MACD\s*死叉": "indicator",
+            r"KDJ\s*金叉": "indicator",
+            r"KDJ\s*死叉": "indicator",
+            r"MA\d+[<>]MA\d+": "indicator",
+            r"放量": "indicator",
+            r"缩量": "indicator",
         }
         for pattern, etype in indicator_patterns.items():
             matches = re.findall(pattern, content)
@@ -783,19 +867,19 @@ class KnowledgeGraph:
                 entities.append({"type": etype, "name": m.strip()})
 
         # 提取股票代码实体
-        codes = re.findall(r'\b([036]\d{5})\b', content)
+        codes = re.findall(r"\b([036]\d{5})\b", content)
         for code in codes:
             entities.append({"type": "stock", "name": code})
 
         # 提取战法实体
-        strategy_names = re.findall(r'([一-鿿]{2,8}战法)', content)
+        strategy_names = re.findall(r"([一-鿿]{2,8}战法)", content)
         for sn in strategy_names:
             entities.append({"type": "strategy", "name": sn})
 
         # 提取规则关系
         if memory_type == "learning":
             # 学习记忆中的 "X 应用于 Y" 关系
-            apply_matches = re.findall(r'([一-鿿\w]+)\s*(?:适用于|应用于|触发)', content)
+            apply_matches = re.findall(r"([一-鿿\w]+)\s*(?:适用于|应用于|触发)", content)
             for m in apply_matches:
                 relations.append({"source": m, "target": "user_rule", "type": "supports"})
 
@@ -805,6 +889,7 @@ class KnowledgeGraph:
 # ═══════════════════════════════════════════════════════════════════
 # 记忆管理器（核心，整合所有子系统）
 # ═══════════════════════════════════════════════════════════════════
+
 
 class MemoryManager:
     """Agent 记忆管理器
@@ -873,14 +958,19 @@ class MemoryManager:
 
     # ── 长期记忆 CRUD ──────────────────────────────────────────────
 
-    def save_memory(self, content: str, memory_type: str = "insight",
-                    keywords: str = "", tags: str = "",
-                    importance: float = 0.5,
-                    source_session_id: str = None,
-                    source_tool: str = None,
-                    learned_what: str = "",
-                    learned_why: str = "",
-                    apply_when: str = "") -> str:
+    def save_memory(
+        self,
+        content: str,
+        memory_type: str = "insight",
+        keywords: str = "",
+        tags: str = "",
+        importance: float = 0.5,
+        source_session_id: str = None,
+        source_tool: str = None,
+        learned_what: str = "",
+        learned_why: str = "",
+        apply_when: str = "",
+    ) -> str:
         """保存一条长期记忆，返回 JSON 结果"""
         memory_id = str(uuid.uuid4())
         half_life = DEFAULT_HALF_LIFE.get(memory_type, 30)
@@ -909,7 +999,8 @@ class MemoryManager:
 
         conn = self._conn()
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO long_term_memories
                 (id, memory_type, content, keywords_json, tags_json,
                  importance, access_count, last_accessed_at, decay_halflife_days,
@@ -917,13 +1008,26 @@ class MemoryManager:
                  learned_what, learned_why, apply_when,
                  created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, FALSE, ?, ?, ?, ?, ?, ?)
-            """, [memory_id, memory_type, content,
-                  json.dumps(kw_list, ensure_ascii=False),
-                  json.dumps(tag_list, ensure_ascii=False),
-                  importance, now, half_life,
-                  source_session_id, source_tool, embedding_bytes,
-                  learned_what, learned_why, apply_when,
-                  now, now])
+            """,
+                [
+                    memory_id,
+                    memory_type,
+                    content,
+                    json.dumps(kw_list, ensure_ascii=False),
+                    json.dumps(tag_list, ensure_ascii=False),
+                    importance,
+                    now,
+                    half_life,
+                    source_session_id,
+                    source_tool,
+                    embedding_bytes,
+                    learned_what,
+                    learned_why,
+                    apply_when,
+                    now,
+                    now,
+                ],
+            )
 
             # 更新 BM25 索引标记
             self._bm25_index = None
@@ -942,17 +1046,19 @@ class MemoryManager:
         finally:
             conn.close()
 
-        return json.dumps({
-            "status": "saved",
-            "memory_id": memory_id,
-            "memory_type": memory_type,
-            "keywords": kw_list,
-            "tags": tag_list,
-            "has_embedding": embedding_bytes is not None,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "saved",
+                "memory_id": memory_id,
+                "memory_type": memory_type,
+                "keywords": kw_list,
+                "tags": tag_list,
+                "has_embedding": embedding_bytes is not None,
+            },
+            ensure_ascii=False,
+        )
 
-    def search_memories(self, query: str, memory_type: str = "",
-                        top_k: int = None) -> str:
+    def search_memories(self, query: str, memory_type: str = "", top_k: int = None) -> str:
         """搜索记忆，返回 JSON 结果列表。自动选择最佳搜索方式。"""
         if top_k is None:
             top_k = config.MEMORY_SEARCH_TOP_K
@@ -971,23 +1077,28 @@ class MemoryManager:
             if access_ids:
                 now = datetime.now()
                 for mid in access_ids:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE long_term_memories
                         SET access_count = access_count + 1, last_accessed_at = ?
                         WHERE id = ?
-                    """, [now, mid])
+                    """,
+                        [now, mid],
+                    )
 
-            return json.dumps({
-                "results": results,
-                "total": len(results),
-                "query_keywords": query_keywords,
-                "search_method": "embedding" if self.embedding_index.is_ready else "bm25",
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "results": results,
+                    "total": len(results),
+                    "query_keywords": query_keywords,
+                    "search_method": "embedding" if self.embedding_index.is_ready else "bm25",
+                },
+                ensure_ascii=False,
+            )
         finally:
             conn.close()
 
-    def _search_with_embedding(self, query: str, query_keywords: list,
-                               memory_type: str, top_k: int, conn) -> list:
+    def _search_with_embedding(self, query: str, query_keywords: list, memory_type: str, top_k: int, conn) -> list:
         """使用 embedding 向量搜索 + 关键词精排"""
         query_vec = self.embedding_index.encode_single(query)
         if not query_vec:
@@ -1009,27 +1120,36 @@ class MemoryManager:
             conditions.append("memory_type = ?")
             params.append(memory_type)
 
-        rows = conn.execute(f"""
+        rows = conn.execute(
+            f"""
             SELECT id, memory_type, content, keywords_json, tags_json,
                    importance, access_count, last_accessed_at,
                    decay_halflife_days, created_at,
                    COALESCE(learned_what, ''), COALESCE(learned_why, ''), COALESCE(apply_when, '')
             FROM long_term_memories
-            WHERE {' AND '.join(conditions)}
-        """, params).fetchall()
+            WHERE {" AND ".join(conditions)}
+        """,
+            params,
+        ).fetchall()
 
         # 综合评分：向量相似度 * 0.5 + 关键词匹配 * 0.2 + 衰减权重 * 0.3
         scored = []
         now = datetime.now()
         for row in rows:
             mem = {
-                "id": row[0], "memory_type": row[1], "content": row[2],
-                "keywords": json.loads(row[3]), "tags": json.loads(row[4]),
-                "importance": row[5], "access_count": row[6],
+                "id": row[0],
+                "memory_type": row[1],
+                "content": row[2],
+                "keywords": json.loads(row[3]),
+                "tags": json.loads(row[4]),
+                "importance": row[5],
+                "access_count": row[6],
                 "last_accessed_at": str(row[7]) if row[7] else None,
                 "decay_halflife_days": row[8],
                 "created_at": str(row[9]) if row[9] else None,
-                "learned_what": row[10], "learned_why": row[11], "apply_when": row[12],
+                "learned_what": row[10],
+                "learned_why": row[11],
+                "apply_when": row[12],
             }
 
             # 向量相似度（已归一化到 0-1）
@@ -1059,8 +1179,7 @@ class MemoryManager:
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:top_k]
 
-    def _search_with_bm25(self, query: str, query_keywords: list,
-                           memory_type: str, top_k: int, conn) -> list:
+    def _search_with_bm25(self, query: str, query_keywords: list, memory_type: str, top_k: int, conn) -> list:
         """使用 BM25 搜索（无 embedding 时的回退）"""
         # 构建 BM25 索引
         if self._bm25_index is None:
@@ -1070,11 +1189,14 @@ class MemoryManager:
                 conditions.append("memory_type = ?")
                 params.append(memory_type)
 
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT id, content, keywords_json
                 FROM long_term_memories
-                WHERE {' AND '.join(conditions)}
-            """, params).fetchall()
+                WHERE {" AND ".join(conditions)}
+            """,
+                params,
+            ).fetchall()
 
             docs = [(row[0], row[1], json.loads(row[2])) for row in rows]
             self._bm25_index = BM25Index()
@@ -1096,26 +1218,35 @@ class MemoryManager:
             conditions.append("memory_type = ?")
             params.append(memory_type)
 
-        rows = conn.execute(f"""
+        rows = conn.execute(
+            f"""
             SELECT id, memory_type, content, keywords_json, tags_json,
                    importance, access_count, last_accessed_at,
                    decay_halflife_days, created_at,
                    COALESCE(learned_what, ''), COALESCE(learned_why, ''), COALESCE(apply_when, '')
             FROM long_term_memories
-            WHERE {' AND '.join(conditions)}
-        """, params).fetchall()
+            WHERE {" AND ".join(conditions)}
+        """,
+            params,
+        ).fetchall()
 
         now = datetime.now()
         scored = []
         for row in rows:
             mem = {
-                "id": row[0], "memory_type": row[1], "content": row[2],
-                "keywords": json.loads(row[3]), "tags": json.loads(row[4]),
-                "importance": row[5], "access_count": row[6],
+                "id": row[0],
+                "memory_type": row[1],
+                "content": row[2],
+                "keywords": json.loads(row[3]),
+                "tags": json.loads(row[4]),
+                "importance": row[5],
+                "access_count": row[6],
                 "last_accessed_at": str(row[7]) if row[7] else None,
                 "decay_halflife_days": row[8],
                 "created_at": str(row[9]) if row[9] else None,
-                "learned_what": row[10], "learned_why": row[11], "apply_when": row[12],
+                "learned_what": row[10],
+                "learned_why": row[11],
+                "apply_when": row[12],
             }
 
             bm25_raw = bm25_scores.get(row[0], 0)
@@ -1136,8 +1267,7 @@ class MemoryManager:
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:top_k]
 
-    def _search_keyword_fallback(self, query_keywords: list,
-                                  memory_type: str, top_k: int, conn) -> list:
+    def _search_keyword_fallback(self, query_keywords: list, memory_type: str, top_k: int, conn) -> list:
         """最后的关键词 LIKE 回退"""
         conditions = ["is_archived = FALSE"]
         params = []
@@ -1152,28 +1282,37 @@ class MemoryManager:
             if kw_conds:
                 conditions.append(f"({' OR '.join(kw_conds)})")
 
-        rows = conn.execute(f"""
+        rows = conn.execute(
+            f"""
             SELECT id, memory_type, content, keywords_json, tags_json,
                    importance, access_count, last_accessed_at,
                    decay_halflife_days, created_at,
                    COALESCE(learned_what, ''), COALESCE(learned_why, ''), COALESCE(apply_when, '')
             FROM long_term_memories
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             ORDER BY importance DESC, created_at DESC
             LIMIT ?
-        """, params + [top_k]).fetchall()
+        """,
+            params + [top_k],
+        ).fetchall()
 
         results = []
         now = datetime.now()
         for row in rows:
             mem = {
-                "id": row[0], "memory_type": row[1], "content": row[2],
-                "keywords": json.loads(row[3]), "tags": json.loads(row[4]),
-                "importance": row[5], "access_count": row[6],
+                "id": row[0],
+                "memory_type": row[1],
+                "content": row[2],
+                "keywords": json.loads(row[3]),
+                "tags": json.loads(row[4]),
+                "importance": row[5],
+                "access_count": row[6],
                 "last_accessed_at": str(row[7]) if row[7] else None,
                 "decay_halflife_days": row[8],
                 "created_at": str(row[9]) if row[9] else None,
-                "learned_what": row[10], "learned_why": row[11], "apply_when": row[12],
+                "learned_what": row[10],
+                "learned_why": row[11],
+                "apply_when": row[12],
             }
             last_acc = row[7] if row[7] else row[9]
             days = (now - last_acc).total_seconds() / 86400.0 if last_acc else 999
@@ -1184,14 +1323,11 @@ class MemoryManager:
         results.sort(key=lambda x: x["score"], reverse=True)
         return results
 
-    def update_memory(self, memory_id: str, content: str = "",
-                      importance: float = -1, tags: str = "") -> str:
+    def update_memory(self, memory_id: str, content: str = "", importance: float = -1, tags: str = "") -> str:
         """更新记忆字段"""
         conn = self._conn()
         try:
-            row = conn.execute(
-                "SELECT id FROM long_term_memories WHERE id = ?", [memory_id]
-            ).fetchone()
+            row = conn.execute("SELECT id FROM long_term_memories WHERE id = ?", [memory_id]).fetchone()
             if not row:
                 return json.dumps({"error": f"记忆 {memory_id} 不存在"}, ensure_ascii=False)
 
@@ -1225,10 +1361,7 @@ class MemoryManager:
                 params.append(json.dumps(tag_list, ensure_ascii=False))
 
             params.append(memory_id)
-            conn.execute(
-                f"UPDATE long_term_memories SET {', '.join(updates)} WHERE id = ?",
-                params
-            )
+            conn.execute(f"UPDATE long_term_memories SET {', '.join(updates)} WHERE id = ?", params)
             self._bm25_index = None  # 标记需要重建
             return json.dumps({"status": "updated", "memory_id": memory_id}, ensure_ascii=False)
         finally:
@@ -1238,10 +1371,13 @@ class MemoryManager:
         """软删除（归档）记忆"""
         conn = self._conn()
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE long_term_memories SET is_archived = TRUE, updated_at = ?
                 WHERE id = ?
-            """, [datetime.now(), memory_id])
+            """,
+                [datetime.now(), memory_id],
+            )
             self.embedding_index.remove_from_cache(memory_id)
             self._bm25_index = None
             return json.dumps({"status": "archived", "memory_id": memory_id}, ensure_ascii=False)
@@ -1259,25 +1395,33 @@ class MemoryManager:
                 params.append(memory_type)
 
             where_clause = " AND ".join(conditions)
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT id, memory_type, content, keywords_json, tags_json,
                        importance, access_count, last_accessed_at, created_at
                 FROM long_term_memories
                 WHERE {where_clause}
                 ORDER BY importance DESC, created_at DESC
                 LIMIT ?
-            """, params + [limit]).fetchall()
+            """,
+                params + [limit],
+            ).fetchall()
 
             results = []
             for row in rows:
-                results.append({
-                    "id": row[0], "memory_type": row[1],
-                    "content": row[2][:100] + "..." if len(row[2]) > 100 else row[2],
-                    "keywords": json.loads(row[3]), "tags": json.loads(row[4]),
-                    "importance": row[5], "access_count": row[6],
-                    "last_accessed_at": str(row[7]) if row[7] else None,
-                    "created_at": str(row[8]) if row[8] else None,
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "memory_type": row[1],
+                        "content": row[2][:100] + "..." if len(row[2]) > 100 else row[2],
+                        "keywords": json.loads(row[3]),
+                        "tags": json.loads(row[4]),
+                        "importance": row[5],
+                        "access_count": row[6],
+                        "last_accessed_at": str(row[7]) if row[7] else None,
+                        "created_at": str(row[8]) if row[8] else None,
+                    }
+                )
 
             return json.dumps({"results": results, "total": len(results)}, ensure_ascii=False)
         finally:
@@ -1285,8 +1429,7 @@ class MemoryManager:
 
     # ── 智能上下文注入 ────────────────────────────────────────────
 
-    def get_context_block(self, query_text: str = "",
-                          max_chars: int = None) -> str:
+    def get_context_block(self, query_text: str = "", max_chars: int = None) -> str:
         """获取用于注入 system prompt 的记忆上下文块（多策略智能组装）
 
         分配:
@@ -1350,7 +1493,8 @@ class MemoryManager:
         """获取最重要+最近的记忆"""
         conn = self._conn()
         try:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT id, memory_type, content, keywords_json, tags_json,
                        importance, access_count, last_accessed_at,
                        decay_halflife_days, created_at,
@@ -1359,16 +1503,24 @@ class MemoryManager:
                 WHERE is_archived = FALSE
                 ORDER BY importance DESC, last_accessed_at DESC NULLS LAST
                 LIMIT ?
-            """, [limit]).fetchall()
+            """,
+                [limit],
+            ).fetchall()
 
             now = datetime.now()
             memories = []
             for row in rows:
                 mem = {
-                    "id": row[0], "memory_type": row[1], "content": row[2],
-                    "keywords": json.loads(row[3]), "tags": json.loads(row[4]),
-                    "importance": row[5], "decay_halflife_days": row[8],
-                    "learned_what": row[10], "learned_why": row[11], "apply_when": row[12],
+                    "id": row[0],
+                    "memory_type": row[1],
+                    "content": row[2],
+                    "keywords": json.loads(row[3]),
+                    "tags": json.loads(row[4]),
+                    "importance": row[5],
+                    "decay_halflife_days": row[8],
+                    "learned_what": row[10],
+                    "learned_why": row[11],
+                    "apply_when": row[12],
                 }
                 last_acc = row[7] if row[7] else row[9]
                 days = (now - last_acc).total_seconds() / 86400.0 if last_acc else 999
@@ -1479,8 +1631,11 @@ class MemoryManager:
             return ""
 
         type_labels = {
-            "preference": "偏好", "insight": "分析结论",
-            "fact": "事实", "context": "上下文", "summary": "摘要",
+            "preference": "偏好",
+            "insight": "分析结论",
+            "fact": "事实",
+            "context": "上下文",
+            "summary": "摘要",
             "learning": "用户教学",
         }
         lines = []
@@ -1520,16 +1675,18 @@ class MemoryManager:
         try:
             # 获取本轮新增的记忆
             placeholders = ",".join(["?" for _ in self._session_new_memory_ids])
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT id, memory_type, content, keywords_json, tags_json, importance
                 FROM long_term_memories
                 WHERE id IN ({placeholders}) AND is_archived = FALSE
                 ORDER BY memory_type, created_at
-            """, self._session_new_memory_ids).fetchall()
+            """,
+                self._session_new_memory_ids,
+            ).fetchall()
 
             if len(rows) < 3:
-                return json.dumps({"compressed": 0, "message": "新增记忆不足3条，跳过整合"},
-                                  ensure_ascii=False)
+                return json.dumps({"compressed": 0, "message": "新增记忆不足3条，跳过整合"}, ensure_ascii=False)
 
             # 按类型分组
             groups = {}
@@ -1537,12 +1694,15 @@ class MemoryManager:
                 mt = row[1]
                 if mt not in groups:
                     groups[mt] = []
-                groups[mt].append({
-                    "id": row[0], "content": row[2],
-                    "keywords": json.loads(row[3]),
-                    "tags": json.loads(row[4]),
-                    "importance": row[5],
-                })
+                groups[mt].append(
+                    {
+                        "id": row[0],
+                        "content": row[2],
+                        "keywords": json.loads(row[3]),
+                        "tags": json.loads(row[4]),
+                        "importance": row[5],
+                    }
+                )
 
             compressed = 0
             for mt, members in groups.items():
@@ -1571,21 +1731,31 @@ class MemoryManager:
                     archive_ids = [m["id"] for m in batch[1:]]
 
                     now = datetime.now()
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE long_term_memories
                         SET content = ?, keywords_json = ?, tags_json = ?,
                             importance = ?, updated_at = ?
                         WHERE id = ?
-                    """, [merged_content,
-                          json.dumps(list(all_kw), ensure_ascii=False),
-                          json.dumps(list(all_tags), ensure_ascii=False),
-                          min(1.0, max_imp + 0.05), now, keep_id])
+                    """,
+                        [
+                            merged_content,
+                            json.dumps(list(all_kw), ensure_ascii=False),
+                            json.dumps(list(all_tags), ensure_ascii=False),
+                            min(1.0, max_imp + 0.05),
+                            now,
+                            keep_id,
+                        ],
+                    )
 
                     for aid in archive_ids:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             UPDATE long_term_memories SET is_archived = TRUE, updated_at = ?
                             WHERE id = ?
-                        """, [now, aid])
+                        """,
+                            [now, aid],
+                        )
                         self.embedding_index.remove_from_cache(aid)
 
                     # 重新生成 embedding
@@ -1593,9 +1763,12 @@ class MemoryManager:
                         try:
                             vec = self.embedding_index.encode_single(merged_content)
                             if vec:
-                                conn.execute("""
+                                conn.execute(
+                                    """
                                     UPDATE long_term_memories SET embedding = ? WHERE id = ?
-                                """, [EmbeddingIndex.vector_to_bytes(vec), keep_id])
+                                """,
+                                    [EmbeddingIndex.vector_to_bytes(vec), keep_id],
+                                )
                                 self.embedding_index.add_to_cache(keep_id, vec)
                         except Exception:
                             pass
@@ -1607,15 +1780,16 @@ class MemoryManager:
         finally:
             conn.close()
 
-    def _llm_consolidate(self, llm_client, memory_type: str,
-                         memories: list) -> str | None:
+    def _llm_consolidate(self, llm_client, memory_type: str, memories: list) -> str | None:
         """调用 LLM 合并记忆"""
         type_label = {
-            "insight": "分析结论", "learning": "用户教学",
-            "fact": "市场事实", "preference": "用户偏好",
+            "insight": "分析结论",
+            "learning": "用户教学",
+            "fact": "市场事实",
+            "preference": "用户偏好",
         }.get(memory_type, memory_type)
 
-        contents = "\n".join([f"{i+1}. {m['content']}" for i, m in enumerate(memories)])
+        contents = "\n".join([f"{i + 1}. {m['content']}" for i, m in enumerate(memories)])
         prompt = f"""请将以下 {len(memories)} 条{type_label}合并为一条精炼总结。
 
 要求：
@@ -1673,22 +1847,28 @@ class MemoryManager:
                     days = 999
                 eff = importance * math.exp(-0.693 * days / half_life) if half_life > 0 else 0
                 if eff < threshold:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE long_term_memories
                         SET is_archived = TRUE, updated_at = ?
                         WHERE id = ?
-                    """, [now, mid])
+                    """,
+                        [now, mid],
+                    )
                     archived.append(mid)
                     self.embedding_index.remove_from_cache(mid)
 
             if archived:
                 self._bm25_index = None
 
-            return json.dumps({
-                "archived_count": len(archived),
-                "total_checked": len(rows),
-                "threshold": threshold,
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "archived_count": len(archived),
+                    "total_checked": len(rows),
+                    "threshold": threshold,
+                },
+                ensure_ascii=False,
+            )
         finally:
             conn.close()
 
@@ -1699,30 +1879,40 @@ class MemoryManager:
         self._session_new_memory_ids = []
         conn = self._conn()
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR IGNORE INTO memory_sessions (session_id, started_at)
                 VALUES (?, ?)
-            """, [session_id, datetime.now()])
+            """,
+                [session_id, datetime.now()],
+            )
             return session_id
         finally:
             conn.close()
 
-    def end_session(self, session_id: str, summary: str = "",
-                    topics: list = None, stocks: list = None,
-                    message_count: int = 0) -> str:
+    def end_session(
+        self, session_id: str, summary: str = "", topics: list = None, stocks: list = None, message_count: int = 0
+    ) -> str:
         """结束会话，保存摘要"""
         conn = self._conn()
         try:
             now = datetime.now()
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE memory_sessions
                 SET ended_at = ?, summary = ?, topics_json = ?,
                     stocks_json = ?, message_count = ?
                 WHERE session_id = ?
-            """, [now, summary,
-                  json.dumps(topics or [], ensure_ascii=False),
-                  json.dumps(stocks or [], ensure_ascii=False),
-                  message_count, session_id])
+            """,
+                [
+                    now,
+                    summary,
+                    json.dumps(topics or [], ensure_ascii=False),
+                    json.dumps(stocks or [], ensure_ascii=False),
+                    message_count,
+                    session_id,
+                ],
+            )
 
             if summary:
                 self.save_memory(
@@ -1742,26 +1932,31 @@ class MemoryManager:
         """获取最近会话摘要"""
         conn = self._conn()
         try:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT session_id, started_at, ended_at, summary,
                        topics_json, stocks_json, message_count
                 FROM memory_sessions
                 WHERE summary IS NOT NULL AND summary != ''
                 ORDER BY started_at DESC
                 LIMIT ?
-            """, [limit]).fetchall()
+            """,
+                [limit],
+            ).fetchall()
 
             results = []
             for row in rows:
-                results.append({
-                    "session_id": row[0],
-                    "started_at": str(row[1]) if row[1] else None,
-                    "ended_at": str(row[2]) if row[2] else None,
-                    "summary": row[3],
-                    "topics": json.loads(row[4]) if row[4] else [],
-                    "stocks": json.loads(row[5]) if row[5] else [],
-                    "message_count": row[6],
-                })
+                results.append(
+                    {
+                        "session_id": row[0],
+                        "started_at": str(row[1]) if row[1] else None,
+                        "ended_at": str(row[2]) if row[2] else None,
+                        "summary": row[3],
+                        "topics": json.loads(row[4]) if row[4] else [],
+                        "stocks": json.loads(row[5]) if row[5] else [],
+                        "message_count": row[6],
+                    }
+                )
 
             return json.dumps({"sessions": results}, ensure_ascii=False)
         finally:
@@ -1769,21 +1964,20 @@ class MemoryManager:
 
     # ── 学习信号检测 ───────────────────────────────────────────────
 
-    def detect_learning_signals(self, user_message: str,
-                                 agent_response: str = "") -> list[dict]:
+    def detect_learning_signals(self, user_message: str, agent_response: str = "") -> list[dict]:
         """检测用户消息中的教学/纠错信号"""
         signals = []
 
         # 纠错信号
         correction_patterns = [
-            (r'(?:你)?分析错了', "纠错"),
-            (r'不对[，,！!。.]', "纠错"),
-            (r'应该[是看]', "纠错"),
-            (r'你忽略了', "纠错"),
-            (r'这个判断有问题', "纠错"),
-            (r'你的逻辑不对', "纠错"),
-            (r'不能只看', "纠错"),
-            (r'而不是', "纠错"),
+            (r"(?:你)?分析错了", "纠错"),
+            (r"不对[，,！!。.]", "纠错"),
+            (r"应该[是看]", "纠错"),
+            (r"你忽略了", "纠错"),
+            (r"这个判断有问题", "纠错"),
+            (r"你的逻辑不对", "纠错"),
+            (r"不能只看", "纠错"),
+            (r"而不是", "纠错"),
         ]
         for pattern, signal_type in correction_patterns:
             if re.search(pattern, user_message):
@@ -1792,12 +1986,12 @@ class MemoryManager:
 
         # 教学信号
         teaching_patterns = [
-            (r'记住[：:]', "教学"),
-            (r'以后要注意', "教学"),
-            (r'你要知道', "教学"),
-            (r'我教你', "教学"),
-            (r'技巧[：:]', "教学"),
-            (r'经验[：:]', "教学"),
+            (r"记住[：:]", "教学"),
+            (r"以后要注意", "教学"),
+            (r"你要知道", "教学"),
+            (r"我教你", "教学"),
+            (r"技巧[：:]", "教学"),
+            (r"经验[：:]", "教学"),
         ]
         for pattern, signal_type in teaching_patterns:
             if re.search(pattern, user_message):
@@ -1807,10 +2001,10 @@ class MemoryManager:
         # Agent 自认错误
         if agent_response:
             self_correction = [
-                r'我[的之]前.{0,10}(?:判断|分析|结论).{0,10}(?:有误|错误|不对|不准确)',
-                r'你说得对',
-                r'感谢?指[正出]',
-                r'确实.{0,5}(?:忽略|遗漏|错了)',
+                r"我[的之]前.{0,10}(?:判断|分析|结论).{0,10}(?:有误|错误|不对|不准确)",
+                r"你说得对",
+                r"感谢?指[正出]",
+                r"确实.{0,5}(?:忽略|遗漏|错了)",
             ]
             for pattern in self_correction:
                 if re.search(pattern, agent_response):
@@ -1822,22 +2016,84 @@ class MemoryManager:
     # ── 内部方法 ────────────────────────────────────────────────────
 
     _TECH_TERMS = {
-        "金叉", "死叉", "超买", "超卖", "背离", "突破", "支撑", "压力",
-        "放量", "缩量", "涨停", "跌停", "反弹", "回调", "均线", "多头",
-        "空头", "整理", "震荡", "趋势", "短线", "中线", "长线", "量价",
-        "布林带", "布林", "MACD", "RSI", "KDJ", "MA5", "MA10", "MA20",
-        "MACD背离", "RSI背离", "MACD金叉", "MACD死叉", "KDJ金叉", "KDJ死叉",
-        "成交量", "换手率", "涨跌幅", "主力", "散户", "龙头", "跟风",
-        "首板", "连板", "打板", "低吸", "半路", "封板", "炸板",
-        "加仓", "减仓", "止损", "止盈", "仓位", "利好", "利空",
-        "高开", "低开", "跳空", "缺口", "分时", "集合竞价",
-        "超跌", "底部", "顶部", "平台", "箱体", "三角形", "旗形",
+        "金叉",
+        "死叉",
+        "超买",
+        "超卖",
+        "背离",
+        "突破",
+        "支撑",
+        "压力",
+        "放量",
+        "缩量",
+        "涨停",
+        "跌停",
+        "反弹",
+        "回调",
+        "均线",
+        "多头",
+        "空头",
+        "整理",
+        "震荡",
+        "趋势",
+        "短线",
+        "中线",
+        "长线",
+        "量价",
+        "布林带",
+        "布林",
+        "MACD",
+        "RSI",
+        "KDJ",
+        "MA5",
+        "MA10",
+        "MA20",
+        "MACD背离",
+        "RSI背离",
+        "MACD金叉",
+        "MACD死叉",
+        "KDJ金叉",
+        "KDJ死叉",
+        "成交量",
+        "换手率",
+        "涨跌幅",
+        "主力",
+        "散户",
+        "龙头",
+        "跟风",
+        "首板",
+        "连板",
+        "打板",
+        "低吸",
+        "半路",
+        "封板",
+        "炸板",
+        "加仓",
+        "减仓",
+        "止损",
+        "止盈",
+        "仓位",
+        "利好",
+        "利空",
+        "高开",
+        "低开",
+        "跳空",
+        "缺口",
+        "分时",
+        "集合竞价",
+        "超跌",
+        "底部",
+        "顶部",
+        "平台",
+        "箱体",
+        "三角形",
+        "旗形",
     }
 
     def _extract_keywords(self, text: str) -> list:
         """从文本中提取关键词"""
         keywords = set()
-        codes = re.findall(r'\b[036]\d{5}\b', text)
+        codes = re.findall(r"\b[036]\d{5}\b", text)
         keywords.update(codes)
         for term in self._TECH_TERMS:
             if term in text:
@@ -1845,6 +2101,6 @@ class MemoryManager:
         segments = re.split(r'[,，。；：！？\s\n\r\t（）()[\]【】""]+', text)
         for seg in segments:
             seg = seg.strip()
-            if re.match(r'^[一-鿿]{2,4}$', seg):
+            if re.match(r"^[一-鿿]{2,4}$", seg):
                 keywords.add(seg)
         return list(keywords)[:15]

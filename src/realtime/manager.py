@@ -1,11 +1,11 @@
 """实时行情多源管理器——故障切换、优先级调度"""
-import time
+
 import logging
-from typing import Optional
+import time
 
 from .base import RealtimeQuote, RealtimeQuoteSource
-from .sina_source import SinaRealtimeSource
 from .eastmoney_source import EastMoneyRealtimeSource
+from .sina_source import SinaRealtimeSource
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class RealtimeQuoteManager:
             self._circuit_open_until[name] = time.time() + 60
             logger.warning(f"数据源 {name} 连续失败{self._failure_counts[name]}次，熔断60秒")
 
-    def fetch_quote(self, code: str) -> Optional[RealtimeQuote]:
+    def fetch_quote(self, code: str) -> RealtimeQuote | None:
         """获取单只股票实时行情，自动故障切换"""
         errors = []
         for source_name in self._priority:

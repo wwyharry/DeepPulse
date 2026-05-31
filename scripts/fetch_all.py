@@ -1,17 +1,26 @@
 """全量日K数据采集脚本 - 带进度日志、定期重连、超时保护"""
+
 import sys
-import time
 import threading
+import time
 from datetime import date, timedelta
+
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
 import config
-from src.database import get_connection, init_tables, get_stock_list, get_latest_kline_date, insert_daily_kline, log_fetch
+from src.database import (
+    get_connection,
+    get_latest_kline_date,
+    get_stock_list,
+    init_tables,
+    insert_daily_kline,
+    log_fetch,
+)
 from src.sources import BaoStockSource
 
 LOG_FILE = config.PROJECT_ROOT / "fetch_progress.log"
 RECONNECT_INTERVAL = 150  # 每150只股票重连一次
-FETCH_TIMEOUT = 30        # 每只股票最大采集时间（秒）
+FETCH_TIMEOUT = 30  # 每只股票最大采集时间（秒）
 
 
 def log(msg):
@@ -58,7 +67,7 @@ def main():
     end_date = config.END_DATE
 
     log("=" * 60)
-    log(f"全量日K采集启动")
+    log("全量日K采集启动")
     log(f"日期范围: {start_date} ~ {end_date}")
     log(f"数据源: BaoStock | 超时: {FETCH_TIMEOUT}秒 | 重连间隔: {RECONNECT_INTERVAL}")
     log("=" * 60)
@@ -147,15 +156,17 @@ def main():
             rate = processed / elapsed if elapsed > 0 and processed > 0 else 0
             remaining_new = (len(codes) - i - 1) - (len(codes) - total_success - total_failed - skipped)
             remaining_time = remaining_new / rate if rate > 0 else 0
-            log(f"进度: {i + 1}/{len(codes)} | 成功:{total_success} 失败:{total_failed} "
-                f"跳过:{skipped} 行数:{total_rows} | 已用:{elapsed/60:.0f}分 "
-                f"剩余:{remaining_time/60:.0f}分")
+            log(
+                f"进度: {i + 1}/{len(codes)} | 成功:{total_success} 失败:{total_failed} "
+                f"跳过:{skipped} 行数:{total_rows} | 已用:{elapsed / 60:.0f}分 "
+                f"剩余:{remaining_time / 60:.0f}分"
+            )
 
         time.sleep(config.FETCH_DELAY_SECONDS)
 
     elapsed = time.time() - start_time
     log("=" * 60)
-    log(f"采集完成! 耗时: {elapsed/60:.1f}分钟")
+    log(f"采集完成! 耗时: {elapsed / 60:.1f}分钟")
     log(f"成功: {total_success}, 失败: {total_failed}, 跳过: {skipped}, 总行数: {total_rows}")
     log("=" * 60)
 

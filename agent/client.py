@@ -1,14 +1,15 @@
 """统一 LLM 客户端 - 支持 OpenAI 和 Anthropic 两种协议，支持流式输出"""
+
 import json
 import os
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 def load_setting() -> dict:
     """加载 setting.json 配置"""
     setting_path = Path(__file__).parent.parent / "setting.json"
-    with open(setting_path, "r", encoding="utf-8") as f:
+    with open(setting_path, encoding="utf-8") as f:
         setting = json.load(f)
 
     # 解析 api_key: 支持 ${ENV_VAR} 引用环境变量，或直接写 key
@@ -32,6 +33,7 @@ def load_setting() -> dict:
 @dataclass
 class StreamChunk:
     """流式输出的一个片段"""
+
     type: str  # "thinking" / "content" / "tool_calls" / "done"
     text: str = ""
     tool_calls: list = field(default_factory=list)
@@ -51,12 +53,14 @@ class LLMClient:
     def _init_client(self):
         if self.protocol == "openai":
             from openai import OpenAI
+
             self.client = OpenAI(
                 api_key=self.llm_config["api_key"],
                 base_url=self.llm_config["base_url"],
             )
         elif self.protocol == "anthropic":
             from anthropic import Anthropic
+
             self.client = Anthropic(api_key=self.llm_config["api_key"])
         else:
             raise ValueError(f"不支持的协议: {self.protocol}")
@@ -79,8 +83,11 @@ class LLMClient:
     def chat_stream(self, messages: list, tools: list = None):
         """流式对话，yield StreamChunk。完成后 self.last_stream_response 包含完整结果。"""
         self.last_stream_response = None
-        gen = self._stream_openai(messages, tools) if self.protocol == "openai" \
+        gen = (
+            self._stream_openai(messages, tools)
+            if self.protocol == "openai"
             else self._stream_anthropic(messages, tools)
+        )
         # 手动消费生成器，捕获 return 值
         while True:
             try:
@@ -114,11 +121,13 @@ class LLMClient:
         if msg.tool_calls:
             result["tool_calls"] = []
             for tc in msg.tool_calls:
-                result["tool_calls"].append({
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "arguments": json.loads(tc.function.arguments),
-                })
+                result["tool_calls"].append(
+                    {
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": json.loads(tc.function.arguments),
+                    }
+                )
             result["stop_reason"] = "tool_calls"
 
         return result
@@ -158,11 +167,13 @@ class LLMClient:
             elif block.type == "tool_use":
                 if result["tool_calls"] is None:
                     result["tool_calls"] = []
-                result["tool_calls"].append({
-                    "id": block.id,
-                    "name": block.name,
-                    "arguments": block.input,
-                })
+                result["tool_calls"].append(
+                    {
+                        "id": block.id,
+                        "name": block.name,
+                        "arguments": block.input,
+                    }
+                )
                 result["stop_reason"] = "tool_calls"
 
         return result
@@ -245,11 +256,13 @@ class LLMClient:
                     args = json.loads(tc["arguments"])
                 except json.JSONDecodeError:
                     args = {}
-                result["tool_calls"].append({
-                    "id": tc["id"],
-                    "name": tc["name"],
-                    "arguments": args,
-                })
+                result["tool_calls"].append(
+                    {
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "arguments": args,
+                    }
+                )
 
         yield StreamChunk(type="done")
         return result
@@ -315,11 +328,13 @@ class LLMClient:
                     args = json.loads(tc["arguments"])
                 except json.JSONDecodeError:
                     args = {}
-                result["tool_calls"].append({
-                    "id": tc["id"],
-                    "name": tc["name"],
-                    "arguments": args,
-                })
+                result["tool_calls"].append(
+                    {
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "arguments": args,
+                    }
+                )
 
         yield StreamChunk(type="done")
         return result
@@ -329,15 +344,16 @@ class LLMClient:
         anthropic_tools = []
         for t in tools:
             func = t["function"]
-            anthropic_tools.append({
-                "name": func["name"],
-                "description": func["description"],
-                "input_schema": func["parameters"],
-            })
+            anthropic_tools.append(
+                {
+                    "name": func["name"],
+                    "description": func["description"],
+                    "input_schema": func["parameters"],
+                }
+            )
         return anthropic_tools
 
-    def format_tool_result_message(self, tool_call_id: str, tool_name: str,
-                                   result: str) -> dict:
+    def format_tool_result_message(self, tool_call_id: str, tool_name: str, result: str) -> dict:
         """构造工具结果消息"""
         if self.protocol == "openai":
             return {
@@ -348,11 +364,13 @@ class LLMClient:
         else:
             return {
                 "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_call_id,
-                    "content": result,
-                }],
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_call_id,
+                        "content": result,
+                    }
+                ],
             }
 
     def format_assistant_message(self, response: dict) -> dict:
@@ -369,9 +387,8 @@ class LLMClient:
                         "type": "function",
                         "function": {
                             "name": tc["name"],
-                            "arguments": json.dumps(tc["arguments"],
-                                                    ensure_ascii=False),
-                        }
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
+                        },
                     }
                     for tc in response["tool_calls"]
                 ]
@@ -383,10 +400,12 @@ class LLMClient:
                 blocks.append({"type": "text", "text": response["content"]})
             if response["tool_calls"]:
                 for tc in response["tool_calls"]:
-                    blocks.append({
-                        "type": "tool_use",
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "input": tc["arguments"],
-                    })
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "input": tc["arguments"],
+                        }
+                    )
             return {"role": "assistant", "content": blocks}

@@ -1,6 +1,8 @@
 """AkShare 数据源实现"""
-from datetime import date
+
 import time
+from datetime import date
+
 import akshare as ak
 import pandas as pd
 
@@ -8,7 +10,6 @@ from .base import DataSourceBase
 
 
 class AkShareSource(DataSourceBase):
-
     @property
     def name(self) -> str:
         return "akshare"
@@ -28,17 +29,18 @@ class AkShareSource(DataSourceBase):
                 board = "main"
             else:
                 continue
-            results.append({
-                "code": code,
-                "name": row["name"],
-                "market": market,
-                "board": board,
-                "list_date": None,  # AkShare此接口无上市日期
-            })
+            results.append(
+                {
+                    "code": code,
+                    "name": row["name"],
+                    "market": market,
+                    "board": board,
+                    "list_date": None,  # AkShare此接口无上市日期
+                }
+            )
         return results
 
-    def fetch_daily_kline(self, code: str, start_date: date,
-                          end_date: date, max_retries: int = 3) -> pd.DataFrame:
+    def fetch_daily_kline(self, code: str, start_date: date, end_date: date, max_retries: int = 3) -> pd.DataFrame:
         """通过AkShare获取日K线数据（带重试）"""
         symbol = str(code).zfill(6)
         last_err = None
@@ -51,8 +53,7 @@ class AkShareSource(DataSourceBase):
                     time.sleep(2 * (attempt + 1))
         raise last_err
 
-    def _fetch_kline_impl(self, symbol: str, start_date: date,
-                          end_date: date) -> pd.DataFrame:
+    def _fetch_kline_impl(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
         df = ak.stock_zh_a_hist(
             symbol=symbol,
             period="daily",
@@ -64,20 +65,21 @@ class AkShareSource(DataSourceBase):
             return pd.DataFrame()
 
         # 统一列名
-        df = df.rename(columns={
-            "日期": "trade_date",
-            "开盘": "open",
-            "收盘": "close",
-            "最高": "high",
-            "最低": "low",
-            "成交量": "volume",
-            "成交额": "amount",
-            "换手率": "turnover",
-        })
+        df = df.rename(
+            columns={
+                "日期": "trade_date",
+                "开盘": "open",
+                "收盘": "close",
+                "最高": "high",
+                "最低": "low",
+                "成交量": "volume",
+                "成交额": "amount",
+                "换手率": "turnover",
+            }
+        )
         df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
         df["code"] = symbol
         df["data_source"] = self.name
 
-        cols = ["code", "trade_date", "open", "high", "low", "close",
-                "volume", "amount", "turnover", "data_source"]
+        cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
         return df[[c for c in cols if c in df.columns]]

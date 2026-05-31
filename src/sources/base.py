@@ -1,6 +1,8 @@
 """数据源基类定义"""
+
 from abc import ABC, abstractmethod
 from datetime import date
+
 import pandas as pd
 
 
@@ -23,8 +25,7 @@ class DataSourceBase(ABC):
         ...
 
     @abstractmethod
-    def fetch_daily_kline(self, code: str, start_date: date,
-                          end_date: date) -> pd.DataFrame:
+    def fetch_daily_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """获取指定股票的日K线数据
 
         Args:
@@ -37,8 +38,7 @@ class DataSourceBase(ABC):
         """
         ...
 
-    def fetch_daily_kline_safe(self, code: str, start_date: date,
-                               end_date: date) -> pd.DataFrame:
+    def fetch_daily_kline_safe(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """带异常处理的日K获取，失败返回空DataFrame"""
         try:
             return self.fetch_daily_kline(code, start_date, end_date)

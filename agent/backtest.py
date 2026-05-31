@@ -1,21 +1,19 @@
 """回测验证框架 - 战法历史信号回测、绩效统计、胜率/盈亏比/最大回撤"""
-import json
-import math
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
-from typing import Optional
 
-import pandas as pd
+from dataclasses import asdict, dataclass, field
+
 import numpy as np
+import pandas as pd
 
 from src.query import StockQuery
 
-
 # ============ 数据结构 ============
+
 
 @dataclass
 class Trade:
     """单笔交易记录"""
+
     code: str
     name: str = ""
     entry_date: str = ""
@@ -34,6 +32,7 @@ class Trade:
 @dataclass
 class BacktestResult:
     """回测结果"""
+
     strategy_name: str
     start_date: str
     end_date: str
@@ -74,13 +73,13 @@ class BacktestResult:
             f"年化收益: {self.annual_return:.2%}",
             f"最大回撤: {self.max_drawdown:.2%}",
             f"最大回撤持续: {self.max_drawdown_duration} 笔交易",
-            f"",
+            "",
             f"总交易次数: {self.total_trades}",
             f"胜率: {self.win_rate:.1%}",
             f"盈利因子: {self.profit_factor:.2f}",
             f"夏普比率: {self.sharpe_ratio:.2f}",
             f"期望收益: {self.expectancy:.2%}",
-            f"",
+            "",
             f"盈利笔数: {self.winning_trades} | 平均盈利: {self.avg_win:.2%}",
             f"亏损笔数: {self.losing_trades} | 平均亏损: {self.avg_loss:.2%}",
             f"平均持仓: {self.avg_hold_days:.1f} 天",
@@ -90,6 +89,7 @@ class BacktestResult:
 
 
 # ============ 技术指标计算 ============
+
 
 def calc_ma(series: pd.Series, period: int) -> pd.Series:
     return series.rolling(window=period, min_periods=period).mean()
@@ -103,8 +103,8 @@ def calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
     gain = delta.clip(lower=0)
     loss = (-delta).clip(lower=0)
-    avg_gain = gain.ewm(alpha=1/period, min_periods=period).mean()
-    avg_loss = loss.ewm(alpha=1/period, min_periods=period).mean()
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
@@ -118,13 +118,12 @@ def calc_macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9)
     return dif, dea, macd
 
 
-def calc_kdj(high: pd.Series, low: pd.Series, close: pd.Series,
-             n: int = 9, m1: int = 3, m2: int = 3):
+def calc_kdj(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 9, m1: int = 3, m2: int = 3):
     lowest_low = low.rolling(window=n, min_periods=n).min()
     highest_high = high.rolling(window=n, min_periods=n).max()
     rsv = (close - lowest_low) / (highest_high - lowest_low).replace(0, np.nan) * 100
-    k = rsv.ewm(alpha=1/m1, adjust=False).mean()
-    d = k.ewm(alpha=1/m2, adjust=False).mean()
+    k = rsv.ewm(alpha=1 / m1, adjust=False).mean()
+    d = k.ewm(alpha=1 / m2, adjust=False).mean()
     j = 3 * k - 2 * d
     return k, d, j
 
@@ -139,11 +138,7 @@ def calc_boll(close: pd.Series, period: int = 20, std_dev: float = 2.0):
 
 def calc_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14):
     prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
     return tr.rolling(window=period, min_periods=period).mean()
 
 
@@ -196,6 +191,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 # ============ 内置信号函数 ============
 
+
 def signal_ma_cross(df: pd.DataFrame, fast: int = 5, slow: int = 10) -> pd.Series:
     """均线金叉/死叉信号: 1=金叉买入, -1=死叉卖出"""
     fast_ma = df[f"ma{fast}"]
@@ -218,8 +214,7 @@ def signal_macd_cross(df: pd.DataFrame) -> pd.Series:
     return signal
 
 
-def signal_rsi_oversold(df: pd.DataFrame, buy_threshold: int = 30,
-                        sell_threshold: int = 70) -> pd.Series:
+def signal_rsi_oversold(df: pd.DataFrame, buy_threshold: int = 30, sell_threshold: int = 70) -> pd.Series:
     """RSI超卖买入/超买卖出"""
     buy = (df["rsi6"] < buy_threshold) & (df["rsi6"].shift(1) >= buy_threshold)
     sell = (df["rsi6"] > sell_threshold) & (df["rsi6"].shift(1) <= sell_threshold)
@@ -229,8 +224,7 @@ def signal_rsi_oversold(df: pd.DataFrame, buy_threshold: int = 30,
     return signal
 
 
-def signal_volume_breakout(df: pd.DataFrame, vol_ratio_threshold: float = 2.0,
-                           pct_threshold: float = 3.0) -> pd.Series:
+def signal_volume_breakout(df: pd.DataFrame, vol_ratio_threshold: float = 2.0, pct_threshold: float = 3.0) -> pd.Series:
     """放量突破信号: 成交量>均量N倍 且 涨幅>M%"""
     buy = (df["vol_ratio"] > vol_ratio_threshold) & (df["pct_change"] > pct_threshold)
     sell = (df["vol_ratio"] > vol_ratio_threshold) & (df["pct_change"] < -pct_threshold)
@@ -291,13 +285,20 @@ SIGNAL_FUNCTIONS = {
 
 # ============ 回测引擎 ============
 
+
 class BacktestEngine:
     """回测引擎"""
 
-    def __init__(self, initial_capital: float = 100000, commission: float = 0.001,
-                 slippage: float = 0.001, position_pct: float = 0.95,
-                 stop_loss_pct: float = 0.05, take_profit_pct: float = 0.10,
-                 max_hold_days: int = 20):
+    def __init__(
+        self,
+        initial_capital: float = 100000,
+        commission: float = 0.001,
+        slippage: float = 0.001,
+        position_pct: float = 0.95,
+        stop_loss_pct: float = 0.05,
+        take_profit_pct: float = 0.10,
+        max_hold_days: int = 20,
+    ):
         self.initial_capital = initial_capital
         self.commission = commission
         self.slippage = slippage
@@ -306,8 +307,9 @@ class BacktestEngine:
         self.take_profit_pct = take_profit_pct
         self.max_hold_days = max_hold_days
 
-    def run(self, df: pd.DataFrame, signal_func, strategy_name: str = "策略",
-            code: str = "", name: str = "") -> BacktestResult:
+    def run(
+        self, df: pd.DataFrame, signal_func, strategy_name: str = "策略", code: str = "", name: str = ""
+    ) -> BacktestResult:
         """
         运行回测
 
@@ -372,16 +374,23 @@ class BacktestEngine:
                     pnl = proceeds - position * entry_price
                     pnl_pct_actual = (sell_price - entry_price) / entry_price
 
-                    trades.append(Trade(
-                        code=code, name=name,
-                        entry_date=entry_date, entry_price=round(entry_price, 3),
-                        exit_date=current_date, exit_price=round(sell_price, 3),
-                        direction="long", shares=position,
-                        pnl=round(pnl, 2), pnl_pct=round(pnl_pct_actual, 4),
-                        hold_days=hold_days,
-                        signal=strategy_name,
-                        exit_reason=exit_reason,
-                    ))
+                    trades.append(
+                        Trade(
+                            code=code,
+                            name=name,
+                            entry_date=entry_date,
+                            entry_price=round(entry_price, 3),
+                            exit_date=current_date,
+                            exit_price=round(sell_price, 3),
+                            direction="long",
+                            shares=position,
+                            pnl=round(pnl, 2),
+                            pnl_pct=round(pnl_pct_actual, 4),
+                            hold_days=hold_days,
+                            signal=strategy_name,
+                            exit_reason=exit_reason,
+                        )
+                    )
 
                     capital = proceeds + capital - position * entry_price * (1 + self.commission)
                     # 修正：capital = 原capital - 买入成本 + 卖出所得
@@ -407,32 +416,38 @@ class BacktestEngine:
             sell_price = last_row["close"] * (1 - self.slippage)
             proceeds = position * sell_price * (1 - self.commission)
             pnl_pct_actual = (sell_price - entry_price) / entry_price
-            trades.append(Trade(
-                code=code, name=name,
-                entry_date=entry_date, entry_price=round(entry_price, 3),
-                exit_date=str(last_row["trade_date"]), exit_price=round(sell_price, 3),
-                direction="long", shares=position,
-                pnl=round(proceeds - position * entry_price, 2),
-                pnl_pct=round(pnl_pct_actual, 4),
-                hold_days=len(df) - 1 - entry_idx,
-                signal=strategy_name,
-                exit_reason="回测结束平仓",
-            ))
+            trades.append(
+                Trade(
+                    code=code,
+                    name=name,
+                    entry_date=entry_date,
+                    entry_price=round(entry_price, 3),
+                    exit_date=str(last_row["trade_date"]),
+                    exit_price=round(sell_price, 3),
+                    direction="long",
+                    shares=position,
+                    pnl=round(proceeds - position * entry_price, 2),
+                    pnl_pct=round(pnl_pct_actual, 4),
+                    hold_days=len(df) - 1 - entry_idx,
+                    signal=strategy_name,
+                    exit_reason="回测结束平仓",
+                )
+            )
             capital += proceeds
             position = 0
 
-        return self._compute_metrics(trades, equity_curve, strategy_name,
-                                     str(df["trade_date"].iloc[0]),
-                                     str(df["trade_date"].iloc[-1]))
+        return self._compute_metrics(
+            trades, equity_curve, strategy_name, str(df["trade_date"].iloc[0]), str(df["trade_date"].iloc[-1])
+        )
 
     def _recalc_capital(self, capital, shares, entry_price, sell_price):
         """重新计算卖出后的资金"""
         # 简化：买入时已扣资金，卖出时加回
         return capital + shares * sell_price * (1 - self.commission)
 
-    def _compute_metrics(self, trades: list, equity_curve: list,
-                         strategy_name: str, start_date: str,
-                         end_date: str) -> BacktestResult:
+    def _compute_metrics(
+        self, trades: list, equity_curve: list, strategy_name: str, start_date: str, end_date: str
+    ) -> BacktestResult:
         """计算回测绩效指标"""
         result = BacktestResult(
             strategy_name=strategy_name,
@@ -531,10 +546,17 @@ class BacktestEngine:
 
 # ============ 便捷函数 ============
 
-def backtest_stock(code: str, strategy: str = "macd_cross", days: int = 500,
-                   initial_capital: float = 100000, stop_loss: float = 0.05,
-                   take_profit: float = 0.10, max_hold: int = 20,
-                   **signal_kwargs) -> BacktestResult:
+
+def backtest_stock(
+    code: str,
+    strategy: str = "macd_cross",
+    days: int = 500,
+    initial_capital: float = 100000,
+    stop_loss: float = 0.05,
+    take_profit: float = 0.10,
+    max_hold: int = 20,
+    **signal_kwargs,
+) -> BacktestResult:
     """
     对单只股票运行指定策略的回测
 
@@ -555,7 +577,8 @@ def backtest_stock(code: str, strategy: str = "macd_cross", days: int = 500,
     if df.empty:
         return BacktestResult(
             strategy_name=strategy,
-            start_date="", end_date="",
+            start_date="",
+            end_date="",
             initial_capital=initial_capital,
             final_capital=initial_capital,
         )
@@ -577,8 +600,10 @@ def backtest_stock(code: str, strategy: str = "macd_cross", days: int = 500,
     # 如果有额外参数，包装信号函数
     if signal_kwargs:
         original_func = signal_func
+
         def wrapped(df):
             return original_func(df, **signal_kwargs)
+
         signal_func = wrapped
 
     engine = BacktestEngine(
@@ -591,11 +616,9 @@ def backtest_stock(code: str, strategy: str = "macd_cross", days: int = 500,
     return engine.run(df, signal_func, strategy_name=strategy, code=code, name=name)
 
 
-def backtest_strategy_multi_stock(strategy: str = "macd_cross",
-                                   codes: list[str] = None,
-                                   days: int = 500,
-                                   top_n: int = 10,
-                                   **kwargs) -> dict:
+def backtest_strategy_multi_stock(
+    strategy: str = "macd_cross", codes: list[str] = None, days: int = 500, top_n: int = 10, **kwargs
+) -> dict:
     """
     在多只股票上回测同一策略，汇总统计
 
@@ -617,16 +640,18 @@ def backtest_strategy_multi_stock(strategy: str = "macd_cross",
         try:
             r = backtest_stock(code, strategy=strategy, days=days, **kwargs)
             if r.total_trades > 0:
-                results.append({
-                    "code": code,
-                    "name": r.trades[0].get("name", "") if r.trades else "",
-                    "total_return": r.total_return,
-                    "win_rate": r.win_rate,
-                    "total_trades": r.total_trades,
-                    "profit_factor": r.profit_factor,
-                    "max_drawdown": r.max_drawdown,
-                    "sharpe_ratio": r.sharpe_ratio,
-                })
+                results.append(
+                    {
+                        "code": code,
+                        "name": r.trades[0].get("name", "") if r.trades else "",
+                        "total_return": r.total_return,
+                        "win_rate": r.win_rate,
+                        "total_trades": r.total_trades,
+                        "profit_factor": r.profit_factor,
+                        "max_drawdown": r.max_drawdown,
+                        "sharpe_ratio": r.sharpe_ratio,
+                    }
+                )
         except Exception:
             continue
 

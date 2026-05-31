@@ -1,7 +1,8 @@
 """CLI 入口 - 命令行对话界面，支持流式输出、thinking 展示、记忆系统"""
-import sys
-import io
+
 import atexit
+import io
+import sys
 from pathlib import Path
 
 # Windows 终端 UTF-8 支持
@@ -13,15 +14,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # ANSI 颜色
 THINKING_COLOR = "\033[90m"  # 灰色
-CONTENT_COLOR = "\033[0m"    # 默认
-TOOL_COLOR = "\033[36m"      # 青色
-ROUND_COLOR = "\033[33m"     # 黄色
+CONTENT_COLOR = "\033[0m"  # 默认
+TOOL_COLOR = "\033[36m"  # 青色
+ROUND_COLOR = "\033[33m"  # 黄色
 RESET = "\033[0m"
 BOLD = "\033[1m"
 
 
-def stream_chat(agent, user_input: str, show_thinking: bool = True,
-                show_tools: bool = True):
+def stream_chat(agent, user_input: str, show_thinking: bool = True, show_tools: bool = True):
     """流式输出 Agent 对话"""
     in_thinking = False
 
@@ -77,7 +77,13 @@ def _handle_memory_command(agent, cmd: str):
             print(f"{TOOL_COLOR}  暂无长期记忆{RESET}")
         else:
             print(f"{TOOL_COLOR}  共 {data['total']} 条记忆:{RESET}")
-            type_labels = {"preference": "偏好", "insight": "结论", "fact": "事实", "context": "上下文", "summary": "摘要"}
+            type_labels = {
+                "preference": "偏好",
+                "insight": "结论",
+                "fact": "事实",
+                "context": "上下文",
+                "summary": "摘要",
+            }
             for m in data["results"]:
                 label = type_labels.get(m["memory_type"], m["memory_type"])
                 print(f"  {TOOL_COLOR}[{label}] {m['content']} (ID: {m['id'][:8]}...){RESET}")
@@ -92,7 +98,13 @@ def _handle_memory_command(agent, cmd: str):
             print(f"{TOOL_COLOR}  未找到相关记忆{RESET}")
         else:
             print(f"{TOOL_COLOR}  找到 {data['total']} 条相关记忆:{RESET}")
-            type_labels = {"preference": "偏好", "insight": "结论", "fact": "事实", "context": "上下文", "summary": "摘要"}
+            type_labels = {
+                "preference": "偏好",
+                "insight": "结论",
+                "fact": "事实",
+                "context": "上下文",
+                "summary": "摘要",
+            }
             for m in data["results"]:
                 label = type_labels.get(m["memory_type"], m["memory_type"])
                 score = m.get("score", 0)
@@ -110,6 +122,7 @@ def _handle_memory_command(agent, cmd: str):
         confirm = input(f"{ROUND_COLOR}确认清除所有记忆？(yes/no): {RESET}")
         if confirm.lower() == "yes":
             import duckdb
+
             conn = duckdb.connect(str(agent.memory.db_path))
             conn.execute("DELETE FROM long_term_memories")
             conn.close()
@@ -121,11 +134,13 @@ def _handle_memory_command(agent, cmd: str):
         result = agent.memory.prediction_tracker.get_accuracy_stats()
         data = json.loads(result)
         print(f"{TOOL_COLOR}  预测准确率统计:{RESET}")
-        print(f"  {TOOL_COLOR}总验证: {data.get('total_verified', 0)} | "
-              f"正确: {data.get('correct', 0)} | "
-              f"错误: {data.get('wrong', 0)} | "
-              f"部分: {data.get('partial', 0)} | "
-              f"准确率: {data.get('accuracy', 'N/A')}{RESET}")
+        print(
+            f"  {TOOL_COLOR}总验证: {data.get('total_verified', 0)} | "
+            f"正确: {data.get('correct', 0)} | "
+            f"错误: {data.get('wrong', 0)} | "
+            f"部分: {data.get('partial', 0)} | "
+            f"准确率: {data.get('accuracy', 'N/A')}{RESET}"
+        )
         for d, stats in data.get("by_direction", {}).items():
             print(f"  {TOOL_COLOR}  {d}: {stats}{RESET}")
 
@@ -162,8 +177,8 @@ def _handle_memory_command(agent, cmd: str):
 
 def _handle_strategy_command(cmd: str):
     """处理 /strategy 命令"""
+
     from agent.strategy_loader import get_strategy_loader, reload_strategies
-    import json
 
     parts = cmd.strip().split(maxsplit=1)
     arg = parts[1] if len(parts) > 1 else ""
@@ -211,6 +226,7 @@ def _handle_strategy_command(cmd: str):
 def _handle_watchlist_command(cmd: str):
     """处理 /watchlist 命令"""
     from agent.watchlist import WatchlistManager, format_watchlist_status
+
     wl = WatchlistManager()
 
     parts = cmd.strip().split(maxsplit=2)
@@ -245,6 +261,7 @@ def _handle_watchlist_command(cmd: str):
 def _handle_portfolio_command(cmd: str):
     """处理 /portfolio 命令"""
     from agent.journal import TradeJournal, format_portfolio_status, format_trade_history
+
     j = TradeJournal()
 
     parts = cmd.strip().split(maxsplit=1)
@@ -260,6 +277,7 @@ def _handle_portfolio_command(cmd: str):
 
     elif sub == "review":
         from agent.journal import generate_auto_review
+
         result = generate_auto_review(j, "week")
         print(f"{TOOL_COLOR}{result}{RESET}")
 
@@ -269,6 +287,7 @@ def _handle_portfolio_command(cmd: str):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="A股短线分析 AI Agent")
     parser.add_argument("question", nargs="?", help="直接提问（不进入交互模式）")
     parser.add_argument("--no-verbose", action="store_true", help="隐藏工具调用过程")
@@ -286,8 +305,7 @@ def main():
     if args.no_verbose:
         setting_overrides["agent"]["verbose"] = False
 
-    agent = StockAgent(setting=setting_overrides,
-                       verbose=not args.no_verbose if args.no_verbose else None)
+    agent = StockAgent(setting=setting_overrides, verbose=not args.no_verbose if args.no_verbose else None)
 
     # 注册退出处理，确保会话摘要被保存
     atexit.register(agent.on_session_end)

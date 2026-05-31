@@ -1,9 +1,11 @@
 """初始化数据库 - 创建表结构"""
+
 import sys
+
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from src.database import get_connection, init_tables
 import config
+from src.database import get_connection, init_tables
 
 
 def main():

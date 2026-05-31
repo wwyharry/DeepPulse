@@ -1,6 +1,5 @@
 """Agent友好的查询接口 - 封装常用查询操作"""
-from datetime import date
-import duckdb
+
 import pandas as pd
 
 import config
@@ -20,17 +19,15 @@ class StockQuery:
         """获取股票信息。不传code返回全部。"""
         conn = self._conn()
         if code:
-            df = conn.execute(
-                "SELECT * FROM stock_info WHERE code = ?", [code]
-            ).fetchdf()
+            df = conn.execute("SELECT * FROM stock_info WHERE code = ?", [code]).fetchdf()
         else:
             df = conn.execute("SELECT * FROM stock_info ORDER BY code").fetchdf()
         conn.close()
         return df
 
-    def get_daily_kline(self, code: str, start_date: str = None,
-                        end_date: str = None, source: str = None,
-                        limit: int = None) -> pd.DataFrame:
+    def get_daily_kline(
+        self, code: str, start_date: str = None, end_date: str = None, source: str = None, limit: int = None
+    ) -> pd.DataFrame:
         """获取单只股票日K线数据
 
         Args:
@@ -68,8 +65,7 @@ class StockQuery:
         conn.close()
         return df
 
-    def get_multi_stock_kline(self, codes: list[str], start_date: str = None,
-                              end_date: str = None) -> pd.DataFrame:
+    def get_multi_stock_kline(self, codes: list[str], start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """获取多只股票日K数据，用于横向对比"""
         conn = self._conn()
         placeholders = ",".join(["?" for _ in codes])
@@ -115,8 +111,7 @@ class StockQuery:
         """按名称或代码搜索股票"""
         conn = self._conn()
         df = conn.execute(
-            "SELECT * FROM stock_info WHERE code LIKE ? OR name LIKE ? ORDER BY code",
-            [f"%{keyword}%", f"%{keyword}%"]
+            "SELECT * FROM stock_info WHERE code LIKE ? OR name LIKE ? ORDER BY code", [f"%{keyword}%", f"%{keyword}%"]
         ).fetchdf()
         conn.close()
         return df
@@ -125,23 +120,18 @@ class StockQuery:
         """获取数据库统计信息"""
         conn = self._conn()
         stats = {}
-        stats["stock_count"] = conn.execute(
-            "SELECT COUNT(*) FROM stock_info"
-        ).fetchone()[0]
-        stats["kline_count"] = conn.execute(
-            "SELECT COUNT(*) FROM daily_kline"
-        ).fetchone()[0]
-        stats["date_range"] = conn.execute(
-            "SELECT MIN(trade_date), MAX(trade_date) FROM daily_kline"
-        ).fetchone()
-        stats["sources"] = conn.execute(
-            "SELECT data_source, COUNT(*) FROM daily_kline GROUP BY data_source"
-        ).fetchdf().to_dict("records")
+        stats["stock_count"] = conn.execute("SELECT COUNT(*) FROM stock_info").fetchone()[0]
+        stats["kline_count"] = conn.execute("SELECT COUNT(*) FROM daily_kline").fetchone()[0]
+        stats["date_range"] = conn.execute("SELECT MIN(trade_date), MAX(trade_date) FROM daily_kline").fetchone()
+        stats["sources"] = (
+            conn.execute("SELECT data_source, COUNT(*) FROM daily_kline GROUP BY data_source")
+            .fetchdf()
+            .to_dict("records")
+        )
         conn.close()
         return stats
 
-    def get_fetch_log(self, code: str = None, status: str = None,
-                      limit: int = 100) -> pd.DataFrame:
+    def get_fetch_log(self, code: str = None, status: str = None, limit: int = 100) -> pd.DataFrame:
         """查询采集日志"""
         conn = self._conn()
         sql = "SELECT * FROM fetch_log WHERE 1=1"

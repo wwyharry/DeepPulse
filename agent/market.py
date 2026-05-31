@@ -1,6 +1,6 @@
 """市场情绪分析 - 涨停/跌停统计、连板高度、板块排行、资金流向"""
-import json
-from datetime import date, datetime
+
+from datetime import date
 
 
 def get_limit_up_pool(trade_date: str = None) -> dict:
@@ -10,6 +10,7 @@ def get_limit_up_pool(trade_date: str = None) -> dict:
         trade_date: 交易日期 YYYYMMDD，默认今天
     """
     import akshare as ak
+
     try:
         if trade_date is None:
             trade_date = date.today().strftime("%Y%m%d")
@@ -19,19 +20,21 @@ def get_limit_up_pool(trade_date: str = None) -> dict:
 
         stocks = []
         for _, row in df.iterrows():
-            stocks.append({
-                "code": str(row.get("代码", "")).zfill(6),
-                "name": str(row.get("名称", "")),
-                "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else None,
-                "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else None,
-                "turnover": round(float(row.get("换手率", 0)), 2) if row.get("换手率") else None,
-                "amount": round(float(row.get("成交额", 0)) / 1e8, 2) if row.get("成交额") else None,
-                "first_time": str(row.get("首次封板时间", "")),
-                "last_time": str(row.get("最后封板时间", "")),
-                "open_count": int(row.get("炸板次数", 0)) if row.get("炸板次数") else 0,
-                "streak": int(row.get("连板数", 1)) if row.get("连板数") else 1,
-                "industry": str(row.get("所属行业", "")),
-            })
+            stocks.append(
+                {
+                    "code": str(row.get("代码", "")).zfill(6),
+                    "name": str(row.get("名称", "")),
+                    "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else None,
+                    "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else None,
+                    "turnover": round(float(row.get("换手率", 0)), 2) if row.get("换手率") else None,
+                    "amount": round(float(row.get("成交额", 0)) / 1e8, 2) if row.get("成交额") else None,
+                    "first_time": str(row.get("首次封板时间", "")),
+                    "last_time": str(row.get("最后封板时间", "")),
+                    "open_count": int(row.get("炸板次数", 0)) if row.get("炸板次数") else 0,
+                    "streak": int(row.get("连板数", 1)) if row.get("连板数") else 1,
+                    "industry": str(row.get("所属行业", "")),
+                }
+            )
 
         return {
             "date": trade_date,
@@ -45,6 +48,7 @@ def get_limit_up_pool(trade_date: str = None) -> dict:
 def get_limit_down_pool(trade_date: str = None) -> dict:
     """获取跌停股池"""
     import akshare as ak
+
     try:
         if trade_date is None:
             trade_date = date.today().strftime("%Y%m%d")
@@ -54,12 +58,14 @@ def get_limit_down_pool(trade_date: str = None) -> dict:
 
         stocks = []
         for _, row in df.iterrows():
-            stocks.append({
-                "code": str(row.get("代码", "")).zfill(6),
-                "name": str(row.get("名称", "")),
-                "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else None,
-                "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else None,
-            })
+            stocks.append(
+                {
+                    "code": str(row.get("代码", "")).zfill(6),
+                    "name": str(row.get("名称", "")),
+                    "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else None,
+                    "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else None,
+                }
+            )
         return {"date": trade_date, "count": len(stocks), "stocks": stocks}
     except Exception as e:
         return {"error": f"获取跌停数据失败: {e}"}
@@ -68,6 +74,7 @@ def get_limit_down_pool(trade_date: str = None) -> dict:
 def get_failed_limit_up(trade_date: str = None) -> dict:
     """获取炸板股池（曾涨停又打开的股票）"""
     import akshare as ak
+
     try:
         if trade_date is None:
             trade_date = date.today().strftime("%Y%m%d")
@@ -77,12 +84,14 @@ def get_failed_limit_up(trade_date: str = None) -> dict:
 
         stocks = []
         for _, row in df.iterrows():
-            stocks.append({
-                "code": str(row.get("代码", "")).zfill(6),
-                "name": str(row.get("名称", "")),
-                "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else None,
-                "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else None,
-            })
+            stocks.append(
+                {
+                    "code": str(row.get("代码", "")).zfill(6),
+                    "name": str(row.get("名称", "")),
+                    "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else None,
+                    "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else None,
+                }
+            )
         return {"date": trade_date, "count": len(stocks), "stocks": stocks}
     except Exception as e:
         return {"error": f"获取炸板数据失败: {e}"}
@@ -121,7 +130,7 @@ def get_market_sentiment(trade_date: str = None) -> dict:
     zb_rate = round(zb_count / total_touch_zt * 100, 1) if total_touch_zt > 0 else 0
 
     # 涨跌停比
-    zt_dt_ratio = round(zt_count / dt_count, 1) if dt_count > 0 else float('inf') if zt_count > 0 else 0
+    zt_dt_ratio = round(zt_count / dt_count, 1) if dt_count > 0 else float("inf") if zt_count > 0 else 0
 
     # 情绪评级
     if zt_count >= 80 and max_streak >= 5 and zb_rate < 25:
@@ -155,7 +164,7 @@ def get_market_sentiment(trade_date: str = None) -> dict:
         "跌停数": dt_count,
         "炸板数": zb_count,
         "炸板率": f"{zb_rate}%",
-        "涨跌停比": zt_dt_ratio if zt_dt_ratio != float('inf') else "∞",
+        "涨跌停比": zt_dt_ratio if zt_dt_ratio != float("inf") else "∞",
         "最大连板": max_streak,
         "最高连板股": top_streak_stock,
         "连板分布": {f"{k}板": v for k, v in sorted(streak_dist.items())},
@@ -173,6 +182,7 @@ def get_sector_ranking(board_type: str = "industry", top_n: int = 10) -> dict:
         top_n: 返回前N个板块
     """
     import akshare as ak
+
     try:
         if board_type == "concept":
             df = ak.stock_board_concept_name_em()
@@ -237,12 +247,12 @@ def get_stock_fund_flow(code: str, market: str = "sh") -> dict:
         market: sh 或 sz
     """
     import akshare as ak
+
     try:
         if code.startswith("6"):
             market = "sh"
         else:
             market = "sz"
-        symbol = f"{market}{code}"
         df = ak.stock_individual_fund_flow(stock=code, market=market)
         if df is None or df.empty:
             return {"error": f"股票 {code} 无资金流向数据"}
@@ -278,7 +288,7 @@ def get_stock_fund_flow(code: str, market: str = "sh") -> dict:
 
         # 判断趋势
         if len(flows) >= 3:
-            recent_main = [f.get("main_net", 0) for f in flows[-3:] if isinstance(f.get("main_net"), (int, float))]
+            recent_main = [f.get("main_net", 0) for f in flows[-3:] if isinstance(f.get("main_net"), int | float)]
             if recent_main and all(x > 0 for x in recent_main):
                 trend = "连续主力净流入"
             elif recent_main and all(x < 0 for x in recent_main):

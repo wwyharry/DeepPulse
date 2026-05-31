@@ -1,13 +1,10 @@
 """多周期K线数据 - 分钟级(1/5/15/30/60分钟)和周线数据采集与查询"""
-import json
-from datetime import datetime, date, timedelta
-from pathlib import Path
+
+from datetime import date, timedelta
 
 import pandas as pd
 
-import config
 from src.database import get_connection
-
 
 # 支持的周期
 TIMEFRAMES = {
@@ -22,7 +19,7 @@ TIMEFRAMES = {
 
 def init_timeframe_tables(conn) -> None:
     """初始化多周期K线表"""
-    for tf, info in TIMEFRAMES.items():
+    for _tf, info in TIMEFRAMES.items():
         table = info["db_table"]
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {table} (
@@ -49,6 +46,7 @@ def fetch_minute_kline(code: str, period: str = "5", days: int = 5) -> pd.DataFr
         days: 获取天数（最近N个交易日的分钟数据）
     """
     import akshare as ak
+
     try:
         df = ak.stock_zh_a_hist_min_em(
             symbol=code,
@@ -85,9 +83,10 @@ def fetch_minute_kline(code: str, period: str = "5", days: int = 5) -> pd.DataFr
 def fetch_weekly_kline(code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
     """从 AkShare 获取周线数据"""
     import akshare as ak
+
     try:
         if not start_date:
-            start_date = (date.today() - timedelta(days=5*365)).strftime("%Y%m%d")
+            start_date = (date.today() - timedelta(days=5 * 365)).strftime("%Y%m%d")
         if not end_date:
             end_date = date.today().strftime("%Y%m%d")
 
@@ -133,12 +132,24 @@ def save_timeframe_data(conn, df: pd.DataFrame, table: str) -> int:
     count = 0
     for r in records:
         try:
-            conn.execute(f"""
+            conn.execute(
+                f"""
                 INSERT OR REPLACE INTO {table}
                 (code, trade_datetime, open, high, low, close, volume, amount, data_source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [r["code"], r["trade_datetime"], r["open"], r["high"], r["low"],
-                  r["close"], r.get("volume"), r.get("amount"), r.get("data_source", "akshare")])
+            """,
+                [
+                    r["code"],
+                    r["trade_datetime"],
+                    r["open"],
+                    r["high"],
+                    r["low"],
+                    r["close"],
+                    r.get("volume"),
+                    r.get("amount"),
+                    r.get("data_source", "akshare"),
+                ],
+            )
             count += 1
         except Exception:
             continue
@@ -199,28 +210,35 @@ def query_timeframe(code: str, timeframe: str = "5m", limit: int = 100) -> dict:
     conn = get_connection()
 
     try:
-        df = conn.execute(f"""
+        df = conn.execute(
+            f"""
             SELECT * FROM {table}
             WHERE code = ?
             ORDER BY trade_datetime DESC
             LIMIT ?
-        """, [code, int(limit)]).fetchdf()
+        """,
+            [code, int(limit)],
+        ).fetchdf()
         conn.close()
 
         if df.empty:
-            return {"code": code, "timeframe": timeframe, "count": 0,
-                    "message": f"无{timeframe}数据，请先用 update_timeframe 更新"}
+            return {
+                "code": code,
+                "timeframe": timeframe,
+                "count": 0,
+                "message": f"无{timeframe}数据，请先用 update_timeframe 更新",
+            }
 
         df = df.sort_values("trade_datetime")
         records = []
         for _, row in df.iterrows():
             r = {}
             for k, v in row.items():
-                if hasattr(v, 'isoformat'):
+                if hasattr(v, "isoformat"):
                     r[k] = str(v)
                 elif isinstance(v, float):
                     r[k] = round(v, 4)
-                elif hasattr(v, 'item'):
+                elif hasattr(v, "item"):
                     r[k] = v.item()
                 else:
                     r[k] = v
@@ -238,8 +256,7 @@ def query_timeframe(code: str, timeframe: str = "5m", limit: int = 100) -> dict:
         return {"error": str(e)}
 
 
-def get_multi_timeframe_data(code: str, timeframes: list[str] = None,
-                              limit: int = 50) -> dict:
+def get_multi_timeframe_data(code: str, timeframes: list[str] = None, limit: int = 50) -> dict:
     """获取多周期数据（用于多周期共振分析）
 
     Args:
@@ -255,6 +272,7 @@ def get_multi_timeframe_data(code: str, timeframes: list[str] = None,
     for tf in timeframes:
         if tf == "daily":
             from src.query import StockQuery
+
             query = StockQuery()
             df = query.get_daily_kline(code, limit=limit)
             if not df.empty:
@@ -262,11 +280,11 @@ def get_multi_timeframe_data(code: str, timeframes: list[str] = None,
                 for _, row in df.iterrows():
                     r = {}
                     for k, v in row.items():
-                        if hasattr(v, 'isoformat'):
+                        if hasattr(v, "isoformat"):
                             r[k] = str(v)
                         elif isinstance(v, float):
                             r[k] = round(v, 4)
-                        elif hasattr(v, 'item'):
+                        elif hasattr(v, "item"):
                             r[k] = v.item()
                         else:
                             r[k] = v

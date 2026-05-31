@@ -1,20 +1,21 @@
 """Agent 核心 - ReAct 循环、工具调度、流式输出、记忆系统、战法库"""
+
 import json
 import re
 import uuid
-from agent.client import LLMClient, StreamChunk
-from agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
-from agent.prompts import SYSTEM_PROMPT
-from agent.memory import MemoryManager
-from agent.strategy_loader import get_strategy_loader
+
 import config as _config
+from agent.client import LLMClient
+from agent.memory import MemoryManager
+from agent.prompts import SYSTEM_PROMPT
+from agent.strategy_loader import get_strategy_loader
+from agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
 
 
 class StockAgent:
     """股票短线分析 Agent"""
 
-    def __init__(self, setting: dict = None, verbose: bool = None,
-                 session_id: str = None):
+    def __init__(self, setting: dict = None, verbose: bool = None, session_id: str = None):
         self.client = LLMClient(setting)
         self.setting = setting or self.client.setting
         self.verbose = verbose if verbose is not None else self.setting["agent"]["verbose"]
@@ -101,9 +102,7 @@ class StockAgent:
                 result = self._run_tool(tc["name"], tc["arguments"])
                 yield ("tool_result", result[:300] if len(result) > 300 else result)
 
-                self.messages.append(
-                    self.client.format_tool_result_message(tc["id"], tc["name"], result)
-                )
+                self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
 
             self._append_pending_system_notes()
 
@@ -126,7 +125,7 @@ class StockAgent:
         if tool_name in TOOL_DISPATCH:
             try:
                 result = TOOL_DISPATCH[tool_name](**tool_args)
-                max_chars = getattr(_config, 'MAX_TOOL_RESULT_CHARS', 8000)
+                max_chars = getattr(_config, "MAX_TOOL_RESULT_CHARS", 8000)
                 if len(result) > max_chars:
                     result = result[:max_chars] + f"\n...[结果过长已截断，原始长度{len(result)}字符，请缩小查询范围]"
                 self._check_memory_update(tool_name, result)
@@ -164,6 +163,7 @@ class StockAgent:
         memory_context = self.memory.get_context_block("", max_chars=2000)
         from agent.prompts import SYSTEM_PROMPT
         from agent.strategy_loader import get_strategy_loader
+
         strategy_summary = get_strategy_loader().get_all_content_summary(max_chars=2000)
         system_content = SYSTEM_PROMPT
         if memory_context:
@@ -186,9 +186,7 @@ class StockAgent:
                 display = result[:200] + "..." if len(result) > 200 else result
                 print(f"  Result: {display}")
 
-            self.messages.append(
-                self.client.format_tool_result_message(tc["id"], tc["name"], result)
-            )
+            self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
 
         self._append_pending_system_notes()
 
@@ -210,9 +208,7 @@ class StockAgent:
             if self._user_messages:
                 signals = self.memory.user_profile.extract_from_conversation(self._user_messages)
                 for sig in signals:
-                    self.memory.user_profile.update_profile(
-                        sig["key"], sig["value"], sig["confidence"]
-                    )
+                    self.memory.user_profile.update_profile(sig["key"], sig["value"], sig["confidence"])
         except Exception:
             pass
 
@@ -257,17 +253,15 @@ class StockAgent:
         self._user_messages.append(user_input)
 
         # 提取6位股票代码
-        codes = re.findall(r'\b[036]\d{5}\b', user_input)
+        codes = re.findall(r"\b[036]\d{5}\b", user_input)
         self._session_stocks.update(codes)
 
         # 提取可能的股票名称（简单匹配）
-        stock_names = re.findall(r'[一-鿿]{2,6}(?:银行|证券|保险|集团|科技|电子|医药|能源|电力|股份)',
-                                  user_input)
+        stock_names = re.findall(r"[一-鿿]{2,6}(?:银行|证券|保险|集团|科技|电子|医药|能源|电力|股份)", user_input)
         self._session_stocks.update(stock_names[:3])
 
         # 提取主题关键词
-        topic_keywords = re.findall(r'(?:短线|中线|长线|趋势|突破|支撑|压力|放量|缩量|金叉|死叉|超买|超卖)',
-                                     user_input)
+        topic_keywords = re.findall(r"(?:短线|中线|长线|趋势|突破|支撑|压力|放量|缩量|金叉|死叉|超买|超卖)", user_input)
         self._session_topics.update(topic_keywords[:3])
 
         # 学习信号检测（规则层）

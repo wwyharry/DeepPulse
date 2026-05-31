@@ -1,9 +1,10 @@
 """System prompt 和分析模板"""
+
 from datetime import date
 
 SYSTEM_PROMPT = f"""你是一位专业的A股短线交易分析师。你的任务是基于日K线数据、技术指标和财经新闻，为用户提供短线操作建议。
 
-**当前日期: {date.today().isoformat()}（{["周一","周二","周三","周四","周五","周六","周日"][date.today().weekday()]}）**
+**当前日期: {date.today().isoformat()}（{["周一", "周二", "周三", "周四", "周五", "周六", "周日"][date.today().weekday()]}）**
 
 ## 你的能力
 - 查询A股沪深主板所有股票的日K线数据（过去5年）

@@ -1,8 +1,8 @@
 """东方财富实时行情数据源（基于akshare全市场快照）"""
-import time
+
 import threading
+import time
 from datetime import date, datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -10,14 +10,13 @@ from .base import RealtimeQuote, RealtimeQuoteSource
 
 
 class EastMoneyRealtimeSource(RealtimeQuoteSource):
-
     def __init__(self, cache_ttl: int = 30):
         """
         Args:
             cache_ttl: 全市场快照缓存有效期（秒），默认30秒
         """
         self._cache_ttl = cache_ttl
-        self._snapshot_cache: Optional[pd.DataFrame] = None
+        self._snapshot_cache: pd.DataFrame | None = None
         self._snapshot_time: float = 0
         self._lock = threading.Lock()
 
@@ -43,7 +42,7 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
             self._snapshot_time = time.time()
             return df
 
-    def _find_row(self, code: str) -> Optional[pd.Series]:
+    def _find_row(self, code: str) -> pd.Series | None:
         """从快照中按代码查找行"""
         df = self._get_snapshot()
         if df is None or df.empty:
@@ -55,7 +54,7 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
             return None
         return matches.iloc[0]
 
-    def fetch_quote(self, code: str) -> Optional[RealtimeQuote]:
+    def fetch_quote(self, code: str) -> RealtimeQuote | None:
         """从东财全市场快照中获取单只股票行情"""
         row = self._find_row(code)
         if row is None:
@@ -80,7 +79,7 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
                 result[quote.code] = quote
         return result
 
-    def _row_to_quote(self, row: pd.Series) -> Optional[RealtimeQuote]:
+    def _row_to_quote(self, row: pd.Series) -> RealtimeQuote | None:
         """将DataFrame行转换为RealtimeQuote"""
         try:
             current = self._safe_float(row.get("最新价"))
@@ -107,7 +106,7 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
             return None
 
     @staticmethod
-    def _safe_float(val) -> Optional[float]:
+    def _safe_float(val) -> float | None:
         """安全转换为float，处理NaN和空值"""
         if val is None:
             return None

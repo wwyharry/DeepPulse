@@ -1,5 +1,7 @@
 """BaoStock 数据源实现"""
+
 from datetime import date
+
 import baostock as bs
 import pandas as pd
 
@@ -7,7 +9,6 @@ from .base import DataSourceBase
 
 
 class BaoStockSource(DataSourceBase):
-
     def __init__(self):
         self._logged_in = False
 
@@ -15,9 +16,7 @@ class BaoStockSource(DataSourceBase):
         if not self._logged_in:
             login_result = bs.login()
             if login_result.error_code != "0":
-                raise RuntimeError(
-                    f"BaoStock登录失败: {login_result.error_code} {login_result.error_msg}"
-                )
+                raise RuntimeError(f"BaoStock登录失败: {login_result.error_code} {login_result.error_msg}")
             self._logged_in = True
 
     def _logout(self):
@@ -47,12 +46,12 @@ class BaoStockSource(DataSourceBase):
         while rs.error_code == "0" and rs.next():
             row = rs.get_row_data()
             # row: code, code_name, ipoDate, outDate, type, status
-            bs_code = row[0]        # sh.600000 格式
+            bs_code = row[0]  # sh.600000 格式
             name = row[1]
             ipo_date = row[2]
             out_date = row[3]
-            stock_type = row[4]     # 1=股票
-            status = row[5]         # 1=上市
+            stock_type = row[4]  # 1=股票
+            status = row[5]  # 1=上市
 
             if stock_type != "1" or status != "1":
                 continue
@@ -68,25 +67,27 @@ class BaoStockSource(DataSourceBase):
             else:
                 continue
 
-            results.append({
-                "code": code,
-                "name": name,
-                "market": market,
-                "board": board,
-                "list_date": ipo_date if ipo_date else None,
-                "delist_date": out_date if out_date else None,
-            })
+            results.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "market": market,
+                    "board": board,
+                    "list_date": ipo_date if ipo_date else None,
+                    "delist_date": out_date if out_date else None,
+                }
+            )
         return results
 
-    def fetch_daily_kline(self, code: str, start_date: date,
-                          end_date: date) -> pd.DataFrame:
+    def fetch_daily_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """通过BaoStock获取日K线数据"""
         self._ensure_login()
         bs_code = self._to_bs_code(code)
         fields = "date,open,high,low,close,volume,amount,turn"
 
         rs = bs.query_history_k_data_plus(
-            bs_code, fields,
+            bs_code,
+            fields,
             start_date=start_date.strftime("%Y-%m-%d"),
             end_date=end_date.strftime("%Y-%m-%d"),
             frequency="d",
@@ -115,6 +116,5 @@ class BaoStockSource(DataSourceBase):
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce").astype("Int64")
 
-        cols = ["code", "trade_date", "open", "high", "low", "close",
-                "volume", "amount", "turnover", "data_source"]
+        cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
         return df[[c for c in cols if c in df.columns]]

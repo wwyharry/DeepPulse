@@ -1,4 +1,5 @@
 """增量更新数据 - Agent启动时运行，只采集缺失的最近几天数据"""
+
 import sys
 import time
 from datetime import date, timedelta
@@ -7,12 +8,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
+from src.collector import fetch_and_store_stock_list, fetch_kline_with_timeout, get_sources
 from src.database import (
-    get_connection, init_tables, upsert_stock_info,
-    insert_daily_kline, log_fetch, get_latest_kline_date, get_stock_list,
+    get_connection,
+    get_latest_kline_date,
+    get_stock_list,
+    init_tables,
+    insert_daily_kline,
+    log_fetch,
 )
-from src.collector import fetch_and_store_stock_list, get_sources, fetch_kline_with_timeout
-
 
 RECONNECT_INTERVAL = 150
 FETCH_TIMEOUT = 30
@@ -25,9 +29,7 @@ def check_db_status() -> dict:
 
     stock_count = conn.execute("SELECT COUNT(*) FROM stock_info").fetchone()[0]
     kline_count = conn.execute("SELECT COUNT(*) FROM daily_kline").fetchone()[0]
-    latest = conn.execute(
-        "SELECT MAX(trade_date) FROM daily_kline"
-    ).fetchone()[0]
+    latest = conn.execute("SELECT MAX(trade_date) FROM daily_kline").fetchone()[0]
 
     conn.close()
     return {
@@ -129,8 +131,7 @@ def update_kline(max_days: int = 5) -> dict:
 
         # 进度报告
         if (i + 1) % 200 == 0:
-            print(f"  K线更新进度: {i + 1}/{len(codes)} "
-                  f"(新增{stats['rows']}行, 跳过{stats['skipped']})", flush=True)
+            print(f"  K线更新进度: {i + 1}/{len(codes)} (新增{stats['rows']}行, 跳过{stats['skipped']})", flush=True)
 
         time.sleep(config.FETCH_DELAY_SECONDS)
 
@@ -142,8 +143,7 @@ def update_kline(max_days: int = 5) -> dict:
     return stats
 
 
-def run_update(skip_stock_list: bool = False, skip_kline: bool = False,
-               max_days: int = 5, quiet: bool = False) -> dict:
+def run_update(skip_stock_list: bool = False, skip_kline: bool = False, max_days: int = 5, quiet: bool = False) -> dict:
     """执行增量更新，返回完整统计
 
     Args:
@@ -167,9 +167,7 @@ def run_update(skip_stock_list: bool = False, skip_kline: bool = False,
         if status["stock_count"] == 0:
             print("  数据库为空，需要首次初始化")
         else:
-            print(f"  股票: {status['stock_count']}只 | "
-                  f"K线: {status['kline_count']}行 | "
-                  f"最新: {status['latest_date']}")
+            print(f"  股票: {status['stock_count']}只 | K线: {status['kline_count']}行 | 最新: {status['latest_date']}")
 
     # 2. 更新股票列表
     if not skip_stock_list:
@@ -195,10 +193,12 @@ def run_update(skip_stock_list: bool = False, skip_kline: bool = False,
             elapsed = time.time() - start_time
             result["kline"] = kline_stats
             if not quiet:
-                print(f"  更新完成: 新增{kline_stats.get('rows', 0)}行 | "
-                      f"跳过{kline_stats.get('skipped', 0)}只 | "
-                      f"失败{kline_stats.get('failed', 0)}只 | "
-                      f"耗时{elapsed:.0f}秒")
+                print(
+                    f"  更新完成: 新增{kline_stats.get('rows', 0)}行 | "
+                    f"跳过{kline_stats.get('skipped', 0)}只 | "
+                    f"失败{kline_stats.get('failed', 0)}只 | "
+                    f"耗时{elapsed:.0f}秒"
+                )
         except Exception as e:
             result["kline_error"] = str(e)
             if not quiet:
@@ -208,15 +208,18 @@ def run_update(skip_stock_list: bool = False, skip_kline: bool = False,
     status_after = check_db_status()
     result["db_after"] = status_after
     if not quiet:
-        print(f"[数据更新] 完成! 股票: {status_after['stock_count']}只 | "
-              f"K线: {status_after['kline_count']}行 | "
-              f"最新: {status_after['latest_date']}")
+        print(
+            f"[数据更新] 完成! 股票: {status_after['stock_count']}只 | "
+            f"K线: {status_after['kline_count']}行 | "
+            f"最新: {status_after['latest_date']}"
+        )
 
     return result
 
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="增量更新A股数据（Agent启动时使用）")
     parser.add_argument("--skip-stocks", action="store_true", help="跳过股票列表更新")
     parser.add_argument("--skip-kline", action="store_true", help="跳过K线数据更新")

@@ -5,21 +5,21 @@
 - 东方财富: A股快讯/要闻
 - 新浪财经: 财经热点
 """
+
 import re
-import json
 import time
 from datetime import datetime
 from urllib.parse import quote
 
-from curl_cffi import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests
 
 # 通用请求头
 _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 }
 
 _TIMEOUT = 15
@@ -37,8 +37,7 @@ def search_baidu_news(keyword: str, num: int = 10) -> list[dict]:
     """
     url = f"https://www.baidu.com/s?tn=news&rtt=1&bsst=1&cl=2&wd={quote(keyword)}"
     try:
-        resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT,
-                            impersonate="chrome")
+        resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT, impersonate="chrome")
         resp.raise_for_status()
     except Exception as e:
         return [{"error": f"百度新闻请求失败: {e}"}]
@@ -48,10 +47,12 @@ def search_baidu_news(keyword: str, num: int = 10) -> list[dict]:
 
     for item in soup.select(".result, .c-container"):
         # 标题：尝试多种选择器
-        title_tag = (item.select_one(".news-title a") or
-                     item.select_one("h3 a") or
-                     item.select_one(".c-title a") or
-                     item.select_one("a[href]"))
+        title_tag = (
+            item.select_one(".news-title a")
+            or item.select_one("h3 a")
+            or item.select_one(".c-title a")
+            or item.select_one("a[href]")
+        )
         if not title_tag:
             continue
 
@@ -79,15 +80,17 @@ def search_baidu_news(keyword: str, num: int = 10) -> list[dict]:
         if not summary:
             # fallback: 取所有文本，去掉标题
             all_text = item.get_text(strip=True)
-            summary = all_text[len(title):].strip()
+            summary = all_text[len(title) :].strip()
 
-        results.append({
-            "title": title,
-            "source": source_name or "百度新闻",
-            "time": pub_time,
-            "summary": summary[:200],
-            "url": link,
-        })
+        results.append(
+            {
+                "title": title,
+                "source": source_name or "百度新闻",
+                "time": pub_time,
+                "summary": summary[:200],
+                "url": link,
+            }
+        )
 
         if len(results) >= num:
             break
@@ -118,8 +121,7 @@ def search_eastmoney_news(keyword: str = "", num: int = 10) -> list[dict]:
     }
 
     try:
-        resp = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT,
-                            impersonate="chrome")
+        resp = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT, impersonate="chrome")
         data = resp.json()
     except Exception as e:
         return [{"error": f"东方财富快讯请求失败: {e}"}]
@@ -141,14 +143,17 @@ def search_eastmoney_news(keyword: str = "", num: int = 10) -> list[dict]:
         # 清理 HTML 标签
         content_clean = re.sub(r"<[^>]+>", "", content or digest)
 
-        results.append({
-            "title": title or content_clean[:50],
-            "source": "东方财富",
-            "time": pub_time,
-            "summary": content_clean[:200],
-            "url": f"https://finance.eastmoney.com/a/{item.get('art_code', '')}.html"
-                   if item.get("art_code") else "",
-        })
+        results.append(
+            {
+                "title": title or content_clean[:50],
+                "source": "东方财富",
+                "time": pub_time,
+                "summary": content_clean[:200],
+                "url": f"https://finance.eastmoney.com/a/{item.get('art_code', '')}.html"
+                if item.get("art_code")
+                else "",
+            }
+        )
 
         if len(results) >= num:
             break
@@ -173,8 +178,7 @@ def search_sina_finance(num: int = 10) -> list[dict]:
     }
 
     try:
-        resp = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT,
-                            impersonate="chrome")
+        resp = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT, impersonate="chrome")
         data = resp.json()
     except Exception as e:
         return [{"error": f"新浪财经请求失败: {e}"}]
@@ -196,13 +200,15 @@ def search_sina_finance(num: int = 10) -> list[dict]:
             except Exception:
                 pub_time = ctime
 
-        results.append({
-            "title": title,
-            "source": "新浪财经",
-            "time": pub_time,
-            "summary": re.sub(r"<[^>]+>", "", intro)[:200],
-            "url": url_link,
-        })
+        results.append(
+            {
+                "title": title,
+                "source": "新浪财经",
+                "time": pub_time,
+                "summary": re.sub(r"<[^>]+>", "", intro)[:200],
+                "url": url_link,
+            }
+        )
 
     return results
 
@@ -295,5 +301,5 @@ def search_market_hot_news(num: int = 10) -> dict:
     return {
         "total": len(all_results),
         "sources": sources_used,
-        "results": all_results[:num * 2],
+        "results": all_results[: num * 2],
     }

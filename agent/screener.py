@@ -1,6 +1,6 @@
 """股票筛选器 - 基于技术指标的条件筛选"""
+
 import json
-from datetime import date, timedelta
 
 
 def screen_stocks(conditions: str, limit: int = 20) -> str:
@@ -13,6 +13,7 @@ def screen_stocks(conditions: str, limit: int = 20) -> str:
     """
     import sys
     from pathlib import Path
+
     sys.path.insert(0, str(Path(__file__).parent.parent))
     import config
     from src.database import get_connection
@@ -38,14 +39,17 @@ def screen_stocks(conditions: str, limit: int = 20) -> str:
             checked += 1
 
             # 取最近60个交易日数据（过滤掉含NULL的异常行）
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT trade_date, open, high, low, close, volume, amount
                 FROM daily_kline WHERE code = ?
                   AND open IS NOT NULL AND high IS NOT NULL
                   AND low IS NOT NULL AND close IS NOT NULL
                   AND volume IS NOT NULL
                 ORDER BY trade_date DESC LIMIT 60
-            """, [code]).fetchall()
+            """,
+                [code],
+            ).fetchall()
 
             if len(rows) < 20:
                 continue
@@ -59,20 +63,25 @@ def screen_stocks(conditions: str, limit: int = 20) -> str:
                 last_close = float(last[4])
                 prev_close = float(prev[4])
                 change_pct = (last_close - prev_close) / prev_close * 100 if prev_close > 0 else 0
-                results.append({
-                    "code": code,
-                    "name": name,
-                    "price": round(last_close, 2),
-                    "change_pct": round(change_pct, 2),
-                    "match_detail": detail,
-                })
+                results.append(
+                    {
+                        "code": code,
+                        "name": name,
+                        "price": round(last_close, 2),
+                        "change_pct": round(change_pct, 2),
+                        "match_detail": detail,
+                    }
+                )
 
-        return json.dumps({
-            "conditions": conditions,
-            "checked": checked,
-            "matched": len(results),
-            "results": results,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "conditions": conditions,
+                "checked": checked,
+                "matched": len(results),
+                "results": results,
+            },
+            ensure_ascii=False,
+        )
     except Exception as e:
         return json.dumps({"error": f"筛选失败: {e}"}, ensure_ascii=False)
     finally:
@@ -99,9 +108,9 @@ def _check_conditions(rows, conditions: str) -> tuple:
         return False, "有效数据不足"
 
     closes = [float(r[4]) for r in rows]
-    opens = [float(r[1]) for r in rows]
-    highs = [float(r[2]) for r in rows]
-    lows = [float(r[3]) for r in rows]
+    [float(r[1]) for r in rows]
+    [float(r[2]) for r in rows]
+    [float(r[3]) for r in rows]
     volumes = [float(r[5]) for r in rows]
     last_close = closes[-1]
     last_vol = volumes[-1]
@@ -116,7 +125,7 @@ def _check_conditions(rows, conditions: str) -> tuple:
     def calc_rsi(period):
         if len(closes) < period + 1:
             return None
-        deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
         recent = deltas[-period:]
         gains = sum(d for d in recent if d > 0) / period
         losses = sum(-d for d in recent if d < 0) / period
@@ -130,9 +139,9 @@ def _check_conditions(rows, conditions: str) -> tuple:
     # MACD
     ema12 = _ema(closes, 12)
     ema26 = _ema(closes, 26)
-    dif = [a - b for a, b in zip(ema12, ema26)]
+    dif = [a - b for a, b in zip(ema12, ema26, strict=False)]
     dea = _ema(dif, 9)
-    macd_hist = [(d - e) * 2 for d, e in zip(dif, dea)]
+    [(d - e) * 2 for d, e in zip(dif, dea, strict=False)]
 
     # 5日均量
     vol_avg5 = sum(volumes[-5:]) / 5 if len(volumes) >= 5 else last_vol
@@ -292,12 +301,13 @@ def _ema(data: list, span: int) -> list:
 def _extract_number(text: str, context: str = "") -> float:
     """从文本中提取数字"""
     import re
+
     # 尝试提取 *N 或 >N 或 <N 形式的数字
     patterns = [
-        r'\*\s*([\d.]+)',
-        r'>\s*([\d.]+)',
-        r'<\s*([\d.]+)',
-        r'(\d+\.?\d*)',
+        r"\*\s*([\d.]+)",
+        r">\s*([\d.]+)",
+        r"<\s*([\d.]+)",
+        r"(\d+\.?\d*)",
     ]
     for pattern in patterns:
         m = re.search(pattern, text)

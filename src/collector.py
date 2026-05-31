@@ -1,16 +1,22 @@
 """数据采集协调器 - 多源采集、去重合并、断点续传"""
-import time
+
 import threading
+import time
 from datetime import date, timedelta
+
 import pandas as pd
 
 import config
 from src.database import (
-    get_connection, init_tables, upsert_stock_info,
-    insert_daily_kline, log_fetch, get_latest_kline_date, get_stock_list,
+    get_connection,
+    get_latest_kline_date,
+    get_stock_list,
+    init_tables,
+    insert_daily_kline,
+    log_fetch,
+    upsert_stock_info,
 )
 from src.sources import AkShareSource, BaoStockSource
-
 
 # 数据源注册表
 SOURCE_REGISTRY = {
@@ -21,12 +27,10 @@ SOURCE_REGISTRY = {
 
 def get_sources() -> list:
     """获取配置中启用的数据源实例"""
-    return [SOURCE_REGISTRY[name]() for name in config.DATA_SOURCES
-            if name in SOURCE_REGISTRY]
+    return [SOURCE_REGISTRY[name]() for name in config.DATA_SOURCES if name in SOURCE_REGISTRY]
 
 
-def fetch_kline_with_timeout(source, code: str, start: date, end: date,
-                             timeout: int = 30) -> pd.DataFrame:
+def fetch_kline_with_timeout(source, code: str, start: date, end: date, timeout: int = 30) -> pd.DataFrame:
     """带超时保护采集单只股票K线，避免数据源卡死整个更新任务。"""
     result = [None]
     error = [None]
@@ -83,8 +87,7 @@ def fetch_and_store_stock_list() -> int:
     return count
 
 
-def fetch_kline_for_stock(code: str, source, start: date, end: date,
-                          conn) -> int:
+def fetch_kline_for_stock(code: str, source, start: date, end: date, conn) -> int:
     """为单只股票采集日K数据"""
     # 断点续传：以真实K线最新交易日为准，避免空成功日志导致跳过缺口
     last_date = get_latest_kline_date(conn, code, source.name)
@@ -107,8 +110,9 @@ def fetch_kline_for_stock(code: str, source, start: date, end: date,
     return count
 
 
-def fetch_all_kline(start_date: date = None, end_date: date = None,
-                    source_names: list[str] = None, codes: list[str] = None) -> dict:
+def fetch_all_kline(
+    start_date: date = None, end_date: date = None, source_names: list[str] = None, codes: list[str] = None
+) -> dict:
     """批量采集所有股票日K数据
 
     Args:

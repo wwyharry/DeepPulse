@@ -1,12 +1,11 @@
 """新浪财经实时行情数据源"""
+
 from datetime import date
-from typing import Optional
 
 from .base import RealtimeQuote, RealtimeQuoteSource
 
 
 class SinaRealtimeSource(RealtimeQuoteSource):
-
     @property
     def name(self) -> str:
         return "sina"
@@ -16,7 +15,7 @@ class SinaRealtimeSource(RealtimeQuoteSource):
         prefix = "sh" if code.startswith("6") else "sz"
         return f"{prefix}{code}"
 
-    def fetch_quote(self, code: str) -> Optional[RealtimeQuote]:
+    def fetch_quote(self, code: str) -> RealtimeQuote | None:
         """通过新浪接口获取单只股票实时行情"""
         from curl_cffi import requests as curl_requests
 
@@ -65,7 +64,7 @@ class SinaRealtimeSource(RealtimeQuoteSource):
                 continue
         return result
 
-    def _parse_response(self, code: str, text: str) -> Optional[RealtimeQuote]:
+    def _parse_response(self, code: str, text: str) -> RealtimeQuote | None:
         """解析新浪行情响应文本"""
         try:
             data_str = text.split('"')[1]

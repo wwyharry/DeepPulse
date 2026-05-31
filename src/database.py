@@ -1,6 +1,9 @@
 """DuckDB 数据库连接管理与表操作"""
-import duckdb
+
 from pathlib import Path
+
+import duckdb
+
 import config
 
 
@@ -61,6 +64,7 @@ def upsert_stock_info(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> i
     if not records:
         return 0
     import pandas as pd
+
     df = pd.DataFrame(records)
     df["updated_at"] = pd.Timestamp.now()
     # 确保列顺序，缺失列补None
@@ -82,10 +86,10 @@ def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> 
     if not records:
         return 0
     import pandas as pd
+
     df = pd.DataFrame(records)
     # 确保列顺序匹配表结构
-    cols = ["code", "trade_date", "open", "high", "low", "close",
-            "volume", "amount", "turnover", "data_source"]
+    cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
     df = df[[c for c in cols if c in df.columns]]
     # 使用INSERT OR IGNORE (DuckDB支持此语法)
     try:
@@ -98,42 +102,50 @@ def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> 
         inserted = 0
         for _, row in df.iterrows():
             try:
-                conn.execute(
-                    "INSERT INTO daily_kline VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    list(row)
-                )
+                conn.execute("INSERT INTO daily_kline VALUES (?,?,?,?,?,?,?,?,?,?)", list(row))
                 inserted += 1
             except Exception:
                 pass
         return inserted
 
 
-def log_fetch(conn: duckdb.DuckDBPyConnection, code: str, data_source: str,
-              start_date, end_date, row_count: int, status: str,
-              error_msg: str = None) -> None:
+def log_fetch(
+    conn: duckdb.DuckDBPyConnection,
+    code: str,
+    data_source: str,
+    start_date,
+    end_date,
+    row_count: int,
+    status: str,
+    error_msg: str = None,
+) -> None:
     """记录采集日志"""
     # 使用自增ID：取当前最大ID+1
     max_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM fetch_log").fetchone()[0]
     new_id = max_id + 1
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO fetch_log (id, code, data_source, start_date, end_date,
                                row_count, status, error_msg)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, [new_id, code, data_source, start_date, end_date, row_count, status, error_msg])
+    """,
+        [new_id, code, data_source, start_date, end_date, row_count, status, error_msg],
+    )
 
 
-def get_last_fetch_date(conn: duckdb.DuckDBPyConnection,
-                        code: str, data_source: str) -> str | None:
+def get_last_fetch_date(conn: duckdb.DuckDBPyConnection, code: str, data_source: str) -> str | None:
     """获取某股票某数据源最后采集日期，用于断点续传"""
-    result = conn.execute("""
+    result = conn.execute(
+        """
         SELECT MAX(end_date) FROM fetch_log
         WHERE code = ? AND data_source = ? AND status = 'success'
-    """, [code, data_source]).fetchone()
+    """,
+        [code, data_source],
+    ).fetchone()
     return str(result[0]) if result and result[0] else None
 
 
-def get_latest_kline_date(conn: duckdb.DuckDBPyConnection,
-                          code: str, data_source: str = None) -> str | None:
+def get_latest_kline_date(conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None) -> str | None:
     """获取某股票已有K线的真实最新交易日，用于增量更新断点。"""
     sql = "SELECT MAX(trade_date) FROM daily_kline WHERE code = ?"
     params = [code]
@@ -145,8 +157,7 @@ def get_latest_kline_date(conn: duckdb.DuckDBPyConnection,
     return str(result[0]) if result and result[0] else None
 
 
-def get_stock_list(conn: duckdb.DuckDBPyConnection,
-                   active_only: bool = True) -> list[str]:
+def get_stock_list(conn: duckdb.DuckDBPyConnection, active_only: bool = True) -> list[str]:
     """获取股票代码列表，默认只返回未退市股票。"""
     sql = "SELECT code FROM stock_info"
     if active_only:

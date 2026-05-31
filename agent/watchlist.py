@@ -1,17 +1,17 @@
 """自选股管理与盯盘告警系统 - 盘中监控、信号告警、桌面通知"""
-import json
-import time
-import threading
-from datetime import datetime, date, timedelta
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
 
+import json
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime
+
+import config
 from src.database import get_connection
 from src.query import StockQuery
-import config
-
 
 # ============ 自选股管理 ============
+
 
 class WatchlistManager:
     """自选股列表管理"""
@@ -65,9 +65,15 @@ class WatchlistManager:
         """)
         conn.close()
 
-    def add(self, code: str, name: str = "", group: str = "默认",
-            target_price: float = None, stop_loss: float = None,
-            notes: str = "") -> dict:
+    def add(
+        self,
+        code: str,
+        name: str = "",
+        group: str = "默认",
+        target_price: float = None,
+        stop_loss: float = None,
+        notes: str = "",
+    ) -> dict:
         """添加自选股"""
         if not name:
             info = StockQuery().get_stock_info(code)
@@ -76,11 +82,14 @@ class WatchlistManager:
 
         conn = get_connection(self.db_path)
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO watchlist
                 (code, name, group_name, target_price, stop_loss_price, notes)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, [code, name, group, target_price, stop_loss, notes])
+            """,
+                [code, name, group, target_price, stop_loss, notes],
+            )
             return {"status": "ok", "code": code, "name": name, "group": group}
         finally:
             conn.close()
@@ -88,8 +97,7 @@ class WatchlistManager:
     def remove(self, code: str, group: str = "默认") -> dict:
         """移除自选股"""
         conn = get_connection(self.db_path)
-        conn.execute("DELETE FROM watchlist WHERE code = ? AND group_name = ?",
-                      [code, group])
+        conn.execute("DELETE FROM watchlist WHERE code = ? AND group_name = ?", [code, group])
         conn.close()
         return {"status": "ok", "code": code}
 
@@ -97,9 +105,7 @@ class WatchlistManager:
         """列出自选股"""
         conn = get_connection(self.db_path)
         if group:
-            df = conn.execute(
-                "SELECT * FROM watchlist WHERE group_name = ? ORDER BY code", [group]
-            ).fetchdf()
+            df = conn.execute("SELECT * FROM watchlist WHERE group_name = ? ORDER BY code", [group]).fetchdf()
         else:
             df = conn.execute("SELECT * FROM watchlist ORDER BY group_name, code").fetchdf()
         conn.close()
@@ -110,9 +116,7 @@ class WatchlistManager:
     def list_groups(self) -> list:
         """列出所有分组"""
         conn = get_connection(self.db_path)
-        result = conn.execute(
-            "SELECT group_name, COUNT(*) as count FROM watchlist GROUP BY group_name"
-        ).fetchdf()
+        result = conn.execute("SELECT group_name, COUNT(*) as count FROM watchlist GROUP BY group_name").fetchdf()
         conn.close()
         if result.empty:
             return []
@@ -135,10 +139,13 @@ class WatchlistManager:
             rsi_zone: RSI进入 {zone: oversold/overbought}
         """
         conn = get_connection(self.db_path)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO alert_rules (code, rule_type, params)
             VALUES (?, ?, ?)
-        """, [code, rule_type, json.dumps(params, ensure_ascii=False)])
+        """,
+            [code, rule_type, json.dumps(params, ensure_ascii=False)],
+        )
         conn.close()
         return {"status": "ok", "code": code, "rule_type": rule_type}
 
@@ -146,31 +153,32 @@ class WatchlistManager:
         """获取告警规则"""
         conn = get_connection(self.db_path)
         if code:
-            df = conn.execute(
-                "SELECT * FROM alert_rules WHERE code = ? AND enabled = true", [code]
-            ).fetchdf()
+            df = conn.execute("SELECT * FROM alert_rules WHERE code = ? AND enabled = true", [code]).fetchdf()
         else:
-            df = conn.execute(
-                "SELECT * FROM alert_rules WHERE enabled = true"
-            ).fetchdf()
+            df = conn.execute("SELECT * FROM alert_rules WHERE enabled = true").fetchdf()
         conn.close()
         if df.empty:
             return []
         return df.to_dict("records")
 
-    def record_alert(self, code: str, rule_type: str, message: str,
-                     price: float = None) -> None:
+    def record_alert(self, code: str, rule_type: str, message: str, price: float = None) -> None:
         """记录告警触发"""
         conn = get_connection(self.db_path)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO alert_history (code, rule_type, message, price)
             VALUES (?, ?, ?, ?)
-        """, [code, rule_type, message, price])
+        """,
+            [code, rule_type, message, price],
+        )
         # 更新规则最后触发时间
-        conn.execute("""
+        conn.execute(
+            """
             UPDATE alert_rules SET last_triggered = current_timestamp
             WHERE code = ? AND rule_type = ?
-        """, [code, rule_type])
+        """,
+            [code, rule_type],
+        )
         conn.close()
 
     def get_alert_history(self, limit: int = 20, unack_only: bool = False) -> list:
@@ -188,6 +196,7 @@ class WatchlistManager:
 
 
 # ============ 盯盘引擎 ============
+
 
 @dataclass
 class AlertEvent:
@@ -223,9 +232,9 @@ class MarketMonitor:
 
     def check_now(self) -> list:
         """立即检查所有自选股的告警条件"""
-        from src.realtime import RealtimeQuoteManager
-        from agent.backtest import add_indicators, calc_rsi, calc_ma
+        from agent.backtest import add_indicators
         from src.query import StockQuery
+        from src.realtime import RealtimeQuoteManager
 
         manager = RealtimeQuoteManager(
             priority=config.REALTIME_SOURCES,
@@ -317,8 +326,11 @@ class MarketMonitor:
 
                 if triggered:
                     event = AlertEvent(
-                        code=code, name=name, rule_type=rule_type,
-                        message=msg, price=current_price,
+                        code=code,
+                        name=name,
+                        rule_type=rule_type,
+                        message=msg,
+                        price=current_price,
                         triggered_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     )
                     alerts.append(event)
@@ -342,9 +354,9 @@ class MarketMonitor:
                 now = datetime.now()
                 # 只在交易时间检查 (9:15-15:05)
                 if now.weekday() < 5 and (
-                    (now.hour == 9 and now.minute >= 15) or
-                    (10 <= now.hour < 15) or
-                    (now.hour == 15 and now.minute <= 5)
+                    (now.hour == 9 and now.minute >= 15)
+                    or (10 <= now.hour < 15)
+                    or (now.hour == 15 and now.minute <= 5)
                 ):
                     try:
                         self.check_now()
@@ -365,10 +377,12 @@ class MarketMonitor:
 
 # ============ 桌面通知 ============
 
+
 def send_desktop_notification(title: str, message: str) -> bool:
     """发送桌面通知（Windows Toast）"""
     try:
         from win10toast_click import ToastNotifier
+
         toaster = ToastNotifier()
         toaster.show_toast(title, message, duration=10, threaded=True)
         return True
@@ -378,7 +392,8 @@ def send_desktop_notification(title: str, message: str) -> bool:
     # 备用方案：Windows PowerShell toast
     try:
         import subprocess
-        ps_script = f'''
+
+        ps_script = f"""
         [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
         [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
         $template = @"
@@ -395,9 +410,8 @@ def send_desktop_notification(title: str, message: str) -> bool:
         $xml.LoadXml($template)
         $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("StockAgent").Show($toast)
-        '''
-        subprocess.run(["powershell", "-Command", ps_script],
-                       capture_output=True, timeout=5)
+        """
+        subprocess.run(["powershell", "-Command", ps_script], capture_output=True, timeout=5)
         return True
     except Exception:
         pass
@@ -405,6 +419,7 @@ def send_desktop_notification(title: str, message: str) -> bool:
     # 最终备用：蜂鸣
     try:
         import winsound
+
         winsound.MessageBeep()
     except Exception:
         pass
@@ -413,6 +428,7 @@ def send_desktop_notification(title: str, message: str) -> bool:
 
 
 # ============ Agent 集成 ============
+
 
 def format_watchlist_status(watchlist_mgr: WatchlistManager) -> str:
     """格式化自选股状态（带实时行情）"""
@@ -455,7 +471,7 @@ def format_watchlist_status(watchlist_mgr: WatchlistManager) -> str:
             arrow = "↑" if pct > 0 else "↓" if pct < 0 else "→"
             line += f" {price:.2f} {arrow}{pct:+.2f}%"
             if volume:
-                line += f" 量:{volume/1e4:.0f}万"
+                line += f" 量:{volume / 1e4:.0f}万"
         else:
             line += " [无实时数据]"
 

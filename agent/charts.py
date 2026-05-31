@@ -1,24 +1,31 @@
 """K线图与技术指标可视化 - 生成专业K线图并自动打开"""
+
 import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
-import numpy as np
 
+from agent.backtest import add_indicators, calc_ma, calc_macd, calc_rsi
 from src.query import StockQuery
-from agent.backtest import add_indicators, calc_ma, calc_macd, calc_rsi, calc_kdj, calc_boll
 
 # 输出目录
 CHARTS_DIR = Path(__file__).parent.parent / "charts"
 CHARTS_DIR.mkdir(exist_ok=True)
 
 
-def generate_kline_chart(code: str, days: int = 120, title: str = None,
-                         show_volume: bool = True, show_macd: bool = True,
-                         show_rsi: bool = False, show_kdj: bool = False,
-                         mark_signals: list = None,
-                         save_path: str = None, auto_open: bool = True) -> str:
+def generate_kline_chart(
+    code: str,
+    days: int = 120,
+    title: str = None,
+    show_volume: bool = True,
+    show_macd: bool = True,
+    show_rsi: bool = False,
+    show_kdj: bool = False,
+    mark_signals: list = None,
+    save_path: str = None,
+    auto_open: bool = True,
+) -> str:
     """
     生成K线图（带技术指标叠加）
 
@@ -40,8 +47,9 @@ def generate_kline_chart(code: str, days: int = 120, title: str = None,
     try:
         import mplfinance as mpf
     except ImportError:
-        return _generate_html_chart(code, days, title, show_volume, show_macd,
-                                     show_rsi, show_kdj, mark_signals, save_path, auto_open)
+        return _generate_html_chart(
+            code, days, title, show_volume, show_macd, show_rsi, show_kdj, mark_signals, save_path, auto_open
+        )
 
     query = StockQuery()
     df = query.get_daily_kline(code, limit=days)
@@ -61,8 +69,9 @@ def generate_kline_chart(code: str, days: int = 120, title: str = None,
     df = df.copy()
     df["trade_date"] = pd.to_datetime(df["trade_date"])
     df.set_index("trade_date", inplace=True)
-    df.rename(columns={"open": "Open", "high": "High", "low": "Low",
-                        "close": "Close", "volume": "Volume"}, inplace=True)
+    df.rename(
+        columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}, inplace=True
+    )
 
     # 添加技术指标
     for p in [5, 10, 20, 60]:
@@ -75,8 +84,7 @@ def generate_kline_chart(code: str, days: int = 120, title: str = None,
     colors = ["#FF6600", "#0066FF", "#00CC00", "#CC00CC"]
     for i, p in enumerate([5, 10, 20, 60]):
         if f"MA{p}" in df.columns:
-            addplots.append(mpf.make_addplot(df[f"MA{p}"], panel=0, color=colors[i],
-                                              width=0.8, label=f"MA{p}"))
+            addplots.append(mpf.make_addplot(df[f"MA{p}"], panel=0, color=colors[i], width=0.8, label=f"MA{p}"))
 
     # MACD
     if show_macd:
@@ -87,20 +95,16 @@ def generate_kline_chart(code: str, days: int = 120, title: str = None,
 
         macd_colors = ["#FF0000" if v >= 0 else "#00FF00" for v in macd_hist.dropna()]
         if len(macd_colors) > 0:
-            addplots.append(mpf.make_addplot(df["DIF"], panel=2, color="#FF6600",
-                                              width=0.8, ylabel="MACD"))
-            addplots.append(mpf.make_addplot(df["DEA"], panel=2, color="#0066FF",
-                                              width=0.8))
+            addplots.append(mpf.make_addplot(df["DIF"], panel=2, color="#FF6600", width=0.8, ylabel="MACD"))
+            addplots.append(mpf.make_addplot(df["DEA"], panel=2, color="#0066FF", width=0.8))
 
     # RSI
     if show_rsi:
         df["RSI6"] = calc_rsi(df["Close"], 6)
         df["RSI14"] = calc_rsi(df["Close"], 14)
         panel_id = 3 if show_macd else 2
-        addplots.append(mpf.make_addplot(df["RSI6"], panel=panel_id, color="#FF6600",
-                                          width=0.8, ylabel="RSI"))
-        addplots.append(mpf.make_addplot(df["RSI14"], panel=panel_id, color="#0066FF",
-                                          width=0.8))
+        addplots.append(mpf.make_addplot(df["RSI6"], panel=panel_id, color="#FF6600", width=0.8, ylabel="RSI"))
+        addplots.append(mpf.make_addplot(df["RSI14"], panel=panel_id, color="#0066FF", width=0.8))
 
     # 保存路径
     if save_path is None:
@@ -109,8 +113,9 @@ def generate_kline_chart(code: str, days: int = 120, title: str = None,
 
     # 绘图风格
     mc = mpf.make_marketcolors(up="#FF3333", down="#00AA00", inherit=True)
-    style = mpf.make_mpf_style(marketcolors=mc, gridstyle="--", gridcolor="#E0E0E0",
-                                rc={"font.family": "Microsoft YaHei"})
+    style = mpf.make_mpf_style(
+        marketcolors=mc, gridstyle="--", gridcolor="#E0E0E0", rc={"font.family": "Microsoft YaHei"}
+    )
 
     # 面板比例
     panel_ratios = [4, 1]  # K线 + 成交量
@@ -134,16 +139,24 @@ def generate_kline_chart(code: str, days: int = 120, title: str = None,
 
     if auto_open:
         import webbrowser
+
         webbrowser.open(f"file:///{save_path.replace(chr(92), '/')}")
 
     return save_path
 
 
-def _generate_html_chart(code: str, days: int = 120, title: str = None,
-                          show_volume: bool = True, show_macd: bool = True,
-                          show_rsi: bool = False, show_kdj: bool = False,
-                          mark_signals: list = None,
-                          save_path: str = None, auto_open: bool = True) -> str:
+def _generate_html_chart(
+    code: str,
+    days: int = 120,
+    title: str = None,
+    show_volume: bool = True,
+    show_macd: bool = True,
+    show_rsi: bool = False,
+    show_kdj: bool = False,
+    mark_signals: list = None,
+    save_path: str = None,
+    auto_open: bool = True,
+) -> str:
     """备用方案：生成 HTML 交互式K线图（ECharts）"""
     query = StockQuery()
     df = query.get_daily_kline(code, limit=days)
@@ -188,32 +201,34 @@ def _generate_html_chart(code: str, days: int = 120, title: str = None,
     mark_points = []
     if mark_signals:
         for sig in mark_signals:
-            mark_points.append({
-                "date": sig.get("date", ""),
-                "type": sig.get("type", "buy"),
-                "label": sig.get("label", ""),
-            })
+            mark_points.append(
+                {
+                    "date": sig.get("date", ""),
+                    "type": sig.get("type", "buy"),
+                    "label": sig.get("label", ""),
+                }
+            )
 
     # 生成HTML
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         save_path = str(CHARTS_DIR / f"{code}_{timestamp}.html")
 
-    html = _build_echarts_html(chart_title, dates, ohlc, volumes,
-                                ma5, ma10, ma20, ma60,
-                                macd_data, rsi_data, mark_points)
+    html = _build_echarts_html(
+        chart_title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd_data, rsi_data, mark_points
+    )
 
     Path(save_path).write_text(html, encoding="utf-8")
 
     if auto_open:
         import webbrowser
+
         webbrowser.open(f"file:///{save_path.replace(chr(92), '/')}")
 
     return save_path
 
 
-def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60,
-                         macd_data, rsi_data, mark_points) -> str:
+def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd_data, rsi_data, mark_points) -> str:
     """构建 ECharts K线图 HTML"""
 
     # 计算面板数量
@@ -238,28 +253,30 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60,
 
     # 子图
     grid_top_offset = int(main_height.rstrip("%")) + 12
-    for i, panel in enumerate(sub_panels):
+    for i, _panel in enumerate(sub_panels):
         top = f"{grid_top_offset + i * 15}%"
         grids.append({"left": "8%", "right": "3%", "top": top, "height": "12%"})
         y_axes.append({"gridIndex": i + 1, "scale": True, "splitNumber": 2})
-        x_axes.append({"gridIndex": i + 1, "data": dates,
-                        "show": i == len(sub_panels) - 1,
-                        "axisLabel": {"fontSize": 10}})
+        x_axes.append(
+            {"gridIndex": i + 1, "data": dates, "show": i == len(sub_panels) - 1, "axisLabel": {"fontSize": 10}}
+        )
 
     # K线 series
-    series = [{
-        "name": "K线",
-        "type": "candlestick",
-        "data": ohlc,
-        "xAxisIndex": 0,
-        "yAxisIndex": 0,
-        "itemStyle": {
-            "color": "#ef232a",
-            "color0": "#14b143",
-            "borderColor": "#ef232a",
-            "borderColor0": "#14b143",
-        },
-    }]
+    series = [
+        {
+            "name": "K线",
+            "type": "candlestick",
+            "data": ohlc,
+            "xAxisIndex": 0,
+            "yAxisIndex": 0,
+            "itemStyle": {
+                "color": "#ef232a",
+                "color0": "#14b143",
+                "borderColor": "#ef232a",
+                "borderColor0": "#14b143",
+            },
+        }
+    ]
 
     # 均线
     ma_configs = [
@@ -269,12 +286,18 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60,
         (ma60, "MA60", "#CC00CC"),
     ]
     for data, name, color in ma_configs:
-        series.append({
-            "name": name, "type": "line", "data": data,
-            "xAxisIndex": 0, "yAxisIndex": 0,
-            "lineStyle": {"width": 1}, "symbol": "none",
-            "itemStyle": {"color": color},
-        })
+        series.append(
+            {
+                "name": name,
+                "type": "line",
+                "data": data,
+                "xAxisIndex": 0,
+                "yAxisIndex": 0,
+                "lineStyle": {"width": 1},
+                "symbol": "none",
+                "itemStyle": {"color": color},
+            }
+        )
 
     # 信号标记
     if mark_points:
@@ -282,16 +305,19 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60,
         sell_points = [p for p in mark_points if p["type"] == "sell"]
         if buy_points:
             series[0]["markPoint"] = {
-                "data": [{"coord": [p["date"], 0], "value": p["label"],
-                           "itemStyle": {"color": "#FF0000"}}
-                          for p in buy_points],
-                "symbol": "triangle", "symbolSize": 15, "symbolRotate": 0,
+                "data": [
+                    {"coord": [p["date"], 0], "value": p["label"], "itemStyle": {"color": "#FF0000"}}
+                    for p in buy_points
+                ],
+                "symbol": "triangle",
+                "symbolSize": 15,
+                "symbolRotate": 0,
             }
         if sell_points:
             mp = series[0].get("markPoint", {"data": []})
-            mp["data"].extend([{"coord": [p["date"], 0], "value": p["label"],
-                                 "itemStyle": {"color": "#00AA00"}}
-                                for p in sell_points])
+            mp["data"].extend(
+                [{"coord": [p["date"], 0], "value": p["label"], "itemStyle": {"color": "#00AA00"}} for p in sell_points]
+            )
             mp["symbol"] = "triangle"
             mp["symbolSize"] = 15
             mp["symbolRotate"] = 180
@@ -303,48 +329,90 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60,
         if i == 0:
             vol_colors.append("#ef232a")
         else:
-            vol_colors.append("#ef232a" if ohlc[i][3] >= ohlc[i-1][3] else "#14b143")
+            vol_colors.append("#ef232a" if ohlc[i][3] >= ohlc[i - 1][3] else "#14b143")
 
     if volumes:
         vol_idx = sub_panels.index("volume") + 1
-        series.append({
-            "name": "成交量", "type": "bar", "data": volumes,
-            "xAxisIndex": vol_idx, "yAxisIndex": vol_idx,
-            "itemStyle": {"color": lambda p: vol_colors[p.dataIndex] if p.dataIndex < len(vol_colors) else "#ef232a"},
-        })
+        series.append(
+            {
+                "name": "成交量",
+                "type": "bar",
+                "data": volumes,
+                "xAxisIndex": vol_idx,
+                "yAxisIndex": vol_idx,
+                "itemStyle": {
+                    "color": lambda p: vol_colors[p.dataIndex] if p.dataIndex < len(vol_colors) else "#ef232a"
+                },
+            }
+        )
 
     # MACD
     if macd_data:
         macd_idx = sub_panels.index("macd") + 1
         dif, dea, hist = macd_data
         hist_colors = ["#ef232a" if (v is not None and v >= 0) else "#14b143" for v in hist]
-        series.extend([
-            {"name": "DIF", "type": "line", "data": dif,
-             "xAxisIndex": macd_idx, "yAxisIndex": macd_idx,
-             "lineStyle": {"width": 1}, "symbol": "none",
-             "itemStyle": {"color": "#FF6600"}},
-            {"name": "DEA", "type": "line", "data": dea,
-             "xAxisIndex": macd_idx, "yAxisIndex": macd_idx,
-             "lineStyle": {"width": 1}, "symbol": "none",
-             "itemStyle": {"color": "#0066FF"}},
-            {"name": "MACD", "type": "bar", "data": hist,
-             "xAxisIndex": macd_idx, "yAxisIndex": macd_idx,
-             "itemStyle": {"color": lambda p: hist_colors[p.dataIndex] if p.dataIndex < len(hist_colors) else "#ef232a"}},
-        ])
+        series.extend(
+            [
+                {
+                    "name": "DIF",
+                    "type": "line",
+                    "data": dif,
+                    "xAxisIndex": macd_idx,
+                    "yAxisIndex": macd_idx,
+                    "lineStyle": {"width": 1},
+                    "symbol": "none",
+                    "itemStyle": {"color": "#FF6600"},
+                },
+                {
+                    "name": "DEA",
+                    "type": "line",
+                    "data": dea,
+                    "xAxisIndex": macd_idx,
+                    "yAxisIndex": macd_idx,
+                    "lineStyle": {"width": 1},
+                    "symbol": "none",
+                    "itemStyle": {"color": "#0066FF"},
+                },
+                {
+                    "name": "MACD",
+                    "type": "bar",
+                    "data": hist,
+                    "xAxisIndex": macd_idx,
+                    "yAxisIndex": macd_idx,
+                    "itemStyle": {
+                        "color": lambda p: hist_colors[p.dataIndex] if p.dataIndex < len(hist_colors) else "#ef232a"
+                    },
+                },
+            ]
+        )
 
     # RSI
     if rsi_data:
         rsi_idx = sub_panels.index("rsi") + 1
-        series.extend([
-            {"name": "RSI6", "type": "line", "data": rsi_data[0],
-             "xAxisIndex": rsi_idx, "yAxisIndex": rsi_idx,
-             "lineStyle": {"width": 1}, "symbol": "none",
-             "itemStyle": {"color": "#FF6600"}},
-            {"name": "RSI14", "type": "line", "data": rsi_data[1],
-             "xAxisIndex": rsi_idx, "yAxisIndex": rsi_idx,
-             "lineStyle": {"width": 1}, "symbol": "none",
-             "itemStyle": {"color": "#0066FF"}},
-        ])
+        series.extend(
+            [
+                {
+                    "name": "RSI6",
+                    "type": "line",
+                    "data": rsi_data[0],
+                    "xAxisIndex": rsi_idx,
+                    "yAxisIndex": rsi_idx,
+                    "lineStyle": {"width": 1},
+                    "symbol": "none",
+                    "itemStyle": {"color": "#FF6600"},
+                },
+                {
+                    "name": "RSI14",
+                    "type": "line",
+                    "data": rsi_data[1],
+                    "xAxisIndex": rsi_idx,
+                    "yAxisIndex": rsi_idx,
+                    "lineStyle": {"width": 1},
+                    "symbol": "none",
+                    "itemStyle": {"color": "#0066FF"},
+                },
+            ]
+        )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -382,9 +450,9 @@ window.addEventListener('resize', () => chart.resize());
 </html>"""
 
 
-def generate_comparison_chart(codes: list[str], days: int = 60,
-                               metric: str = "close", save_path: str = None,
-                               auto_open: bool = True) -> str:
+def generate_comparison_chart(
+    codes: list[str], days: int = 60, metric: str = "close", save_path: str = None, auto_open: bool = True
+) -> str:
     """生成多只股票对比图（归一化涨幅对比）"""
     query = StockQuery()
     all_data = {}
@@ -413,11 +481,15 @@ def generate_comparison_chart(codes: list[str], days: int = 60,
 
     series = []
     for col in combined.columns:
-        series.append({
-            "name": col, "type": "line",
-            "data": combined[col].round(2).where(combined[col].notna(), None).tolist(),
-            "symbol": "none", "lineStyle": {"width": 2},
-        })
+        series.append(
+            {
+                "name": col,
+                "type": "line",
+                "data": combined[col].round(2).where(combined[col].notna(), None).tolist(),
+                "symbol": "none",
+                "lineStyle": {"width": 2},
+            }
+        )
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -451,6 +523,7 @@ window.addEventListener('resize', () => chart.resize());
 
     if auto_open:
         import webbrowser
+
         webbrowser.open(f"file:///{save_path.replace(chr(92), '/')}")
 
     return save_path

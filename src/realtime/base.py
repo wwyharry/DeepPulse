@@ -1,24 +1,24 @@
 """实时行情数据类与数据源抽象基类"""
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import date, datetime
-from typing import Optional
+from dataclasses import dataclass
 
 
 @dataclass
 class RealtimeQuote:
     """统一的实时行情数据结构"""
+
     code: str
     name: str
-    current: Optional[float] = None
-    open: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    yesterday_close: Optional[float] = None
-    change_amount: Optional[float] = None
-    change_pct: Optional[float] = None
-    volume: Optional[int] = None
-    amount: Optional[float] = None
+    current: float | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    yesterday_close: float | None = None
+    change_amount: float | None = None
+    change_pct: float | None = None
+    volume: int | None = None
+    amount: float | None = None
     trade_date: str = ""
     trade_time: str = ""
     data_source: str = ""
@@ -42,7 +42,7 @@ class RealtimeQuoteSource(ABC):
         ...
 
     @abstractmethod
-    def fetch_quote(self, code: str) -> Optional[RealtimeQuote]:
+    def fetch_quote(self, code: str) -> RealtimeQuote | None:
         """获取单只股票实时行情
 
         Args:

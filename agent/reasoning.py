@@ -1,6 +1,5 @@
 """动态推理链 - 根据市场状态自动生成分析策略和推理路径"""
 
-
 # 市场状态与分析策略映射
 MARKET_STATE_STRATEGIES = {
     "高潮期": {
@@ -140,8 +139,7 @@ def get_analysis_strategy(market_state: str = None) -> dict:
     }
 
 
-def build_dynamic_system_prompt(base_prompt: str, market_state: str = None,
-                                 user_profile: dict = None) -> str:
+def build_dynamic_system_prompt(base_prompt: str, market_state: str = None, user_profile: dict = None) -> str:
     """构建动态 system prompt，融入市场状态和用户画像
 
     Args:
@@ -157,10 +155,10 @@ def build_dynamic_system_prompt(base_prompt: str, market_state: str = None,
     if market_state:
         additions.append(f"""
 ## 当前市场状态: {market_state}
-- 风险等级: {strategy['risk_level']}
-- 分析重点: {'、'.join(strategy['focus'])}
-- 工具优先级: {' → '.join(strategy['priority_tools'])}
-- 操作风格: {strategy['output_style']}
+- 风险等级: {strategy["risk_level"]}
+- 分析重点: {"、".join(strategy["focus"])}
+- 工具优先级: {" → ".join(strategy["priority_tools"])}
+- 操作风格: {strategy["output_style"]}
 
 ### 动态推理步骤
 """)
@@ -178,8 +176,8 @@ def build_dynamic_system_prompt(base_prompt: str, market_state: str = None,
         if style or risk:
             additions.append(f"""
 ## 用户画像适配
-- 交易风格: {style or '未确定'}
-- 风险偏好: {risk or '未确定'}
+- 交易风格: {style or "未确定"}
+- 风险偏好: {risk or "未确定"}
 """)
             if "低吸" in style:
                 additions.append("- 优先推荐低吸类战法，避免追高建议")
@@ -198,8 +196,7 @@ def build_dynamic_system_prompt(base_prompt: str, market_state: str = None,
     return base_prompt
 
 
-def analyze_stock_dynamic(code: str, market_state: str = None,
-                           user_profile: dict = None) -> dict:
+def analyze_stock_dynamic(code: str, market_state: str = None, user_profile: dict = None) -> dict:
     """生成单只股票的动态分析计划
 
     Returns:
@@ -215,25 +212,31 @@ def analyze_stock_dynamic(code: str, market_state: str = None,
     }
 
     # 基础步骤
-    plan["steps"].append({
-        "action": "update_stock",
-        "reason": "确保数据最新",
-        "priority": "必做",
-    })
+    plan["steps"].append(
+        {
+            "action": "update_stock",
+            "reason": "确保数据最新",
+            "priority": "必做",
+        }
+    )
 
-    plan["steps"].append({
-        "action": "realtime_price",
-        "reason": "获取实时价格",
-        "priority": "必做",
-    })
+    plan["steps"].append(
+        {
+            "action": "realtime_price",
+            "reason": "获取实时价格",
+            "priority": "必做",
+        }
+    )
 
     # 根据市场状态动态调整
     for tool in strategy["priority_tools"]:
-        plan["steps"].append({
-            "action": tool,
-            "reason": f"市场{market_state}下的重点分析",
-            "priority": "高",
-        })
+        plan["steps"].append(
+            {
+                "action": tool,
+                "reason": f"市场{market_state}下的重点分析",
+                "priority": "高",
+            }
+        )
 
     # 标准分析步骤
     standard_steps = [
@@ -248,17 +251,21 @@ def analyze_stock_dynamic(code: str, market_state: str = None,
     existing_tools = {s["action"] for s in plan["steps"]}
     for tool, reason in standard_steps:
         if tool not in existing_tools:
-            plan["steps"].append({
-                "action": tool,
-                "reason": reason,
-                "priority": "中",
-            })
+            plan["steps"].append(
+                {
+                    "action": tool,
+                    "reason": reason,
+                    "priority": "中",
+                }
+            )
 
-    plan["steps"].append({
-        "action": "save_prediction",
-        "reason": "保存预测结论",
-        "priority": "必做",
-    })
+    plan["steps"].append(
+        {
+            "action": "save_prediction",
+            "reason": "保存预测结论",
+            "priority": "必做",
+        }
+    )
 
     plan["analysis_focus"] = strategy["focus"]
     plan["strategy_preference"] = strategy["strategy_preference"]

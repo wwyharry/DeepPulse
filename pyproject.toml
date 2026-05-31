@@ -64,6 +64,10 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # line-too-long — pervasive with Chinese strings
+    "E741",   # ambiguous-variable-name — `l` for low is common in financial code
+]
 
 [tool.ruff.lint.per-file-ignores]
 "agent/tools.py" = ["E402", "F401", "F811"]

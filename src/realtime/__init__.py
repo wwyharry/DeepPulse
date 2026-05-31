@@ -1,8 +1,9 @@
 """实时行情模块"""
+
 from .base import RealtimeQuote, RealtimeQuoteSource
+from .eastmoney_source import EastMoneyRealtimeSource
 from .manager import RealtimeQuoteManager
 from .sina_source import SinaRealtimeSource
-from .eastmoney_source import EastMoneyRealtimeSource
 
 __all__ = [
     "RealtimeQuote",

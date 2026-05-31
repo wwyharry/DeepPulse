@@ -1,21 +1,20 @@
 """批量采集日K线数据"""
-import sys
+
 import argparse
+import sys
 from datetime import date
+
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from src.collector import fetch_all_kline
 import config
+from src.collector import fetch_all_kline
 
 
 def main():
     parser = argparse.ArgumentParser(description="采集A股日K线数据")
-    parser.add_argument("--start", type=str, help="开始日期 YYYY-MM-DD",
-                        default=str(config.START_DATE))
-    parser.add_argument("--end", type=str, help="结束日期 YYYY-MM-DD",
-                        default=str(config.END_DATE))
-    parser.add_argument("--source", type=str, nargs="*", help="指定数据源",
-                        choices=["akshare", "baostock"])
+    parser.add_argument("--start", type=str, help="开始日期 YYYY-MM-DD", default=str(config.START_DATE))
+    parser.add_argument("--end", type=str, help="结束日期 YYYY-MM-DD", default=str(config.END_DATE))
+    parser.add_argument("--source", type=str, nargs="*", help="指定数据源", choices=["akshare", "baostock"])
     parser.add_argument("--codes", type=str, nargs="*", help="指定股票代码")
     args = parser.parse_args()
 

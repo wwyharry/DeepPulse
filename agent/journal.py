@@ -1,10 +1,9 @@
 """交易日志与复盘系统 - 记录操作、对比预测、生成复盘报告"""
-import json
-from datetime import datetime, date, timedelta
-from dataclasses import dataclass, field, asdict
 
-from src.database import get_connection
+from datetime import date, datetime, timedelta
+
 import config
+from src.database import get_connection
 
 
 class TradeJournal:
@@ -65,10 +64,20 @@ class TradeJournal:
         """)
         conn.close()
 
-    def record_trade(self, code: str, action: str, price: float, shares: int,
-                     name: str = "", direction: str = "long", reason: str = "",
-                     strategy: str = "", emotion: str = "", notes: str = "",
-                     prediction_id: str = None) -> dict:
+    def record_trade(
+        self,
+        code: str,
+        action: str,
+        price: float,
+        shares: int,
+        name: str = "",
+        direction: str = "long",
+        reason: str = "",
+        strategy: str = "",
+        emotion: str = "",
+        notes: str = "",
+        prediction_id: str = None,
+    ) -> dict:
         """记录一笔交易
 
         Args:
@@ -89,44 +98,63 @@ class TradeJournal:
 
         conn = get_connection(self.db_path)
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO trade_journal
                 (code, name, action, price, shares, amount, trade_date, trade_time,
                  direction, reason, strategy, emotion, notes, related_prediction_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [code, name, action, price, shares, amount,
-                  now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"),
-                  direction, reason, strategy, emotion, notes, prediction_id])
+            """,
+                [
+                    code,
+                    name,
+                    action,
+                    price,
+                    shares,
+                    amount,
+                    now.strftime("%Y-%m-%d"),
+                    now.strftime("%H:%M:%S"),
+                    direction,
+                    reason,
+                    strategy,
+                    emotion,
+                    notes,
+                    prediction_id,
+                ],
+            )
 
             # 更新持仓
             self._update_portfolio(conn, code, name, action, price, shares)
 
-            return {"status": "ok", "action": action, "code": code,
-                    "price": price, "shares": shares, "amount": amount}
+            return {"status": "ok", "action": action, "code": code, "price": price, "shares": shares, "amount": amount}
         finally:
             conn.close()
 
     def _update_portfolio(self, conn, code, name, action, price, shares):
         """更新持仓信息"""
-        existing = conn.execute(
-            "SELECT * FROM portfolio WHERE code = ?", [code]
-        ).fetchdf()
+        existing = conn.execute("SELECT * FROM portfolio WHERE code = ?", [code]).fetchdf()
 
         if action in ("买入", "加仓"):
             if existing.empty:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO portfolio (code, name, shares, avg_cost, first_buy_date)
                     VALUES (?, ?, ?, ?, ?)
-                """, [code, name, shares, price, date.today().isoformat()])
+                """,
+                    [code, name, shares, price, date.today().isoformat()],
+                )
             else:
                 old_shares = int(existing.iloc[0]["shares"])
                 old_cost = float(existing.iloc[0]["avg_cost"])
                 new_shares = old_shares + shares
                 new_cost = (old_cost * old_shares + price * shares) / new_shares if new_shares > 0 else 0
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE portfolio SET shares = ?, avg_cost = ?, name = ?,
                     last_update = current_timestamp WHERE code = ?
-                """, [new_shares, round(new_cost, 3), name, code])
+                """,
+                    [new_shares, round(new_cost, 3), name, code],
+                )
 
         elif action in ("卖出", "减仓"):
             if not existing.empty:
@@ -135,10 +163,13 @@ class TradeJournal:
                 if new_shares == 0:
                     conn.execute("DELETE FROM portfolio WHERE code = ?", [code])
                 else:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE portfolio SET shares = ?, last_update = current_timestamp
                         WHERE code = ?
-                    """, [new_shares, code])
+                    """,
+                        [new_shares, code],
+                    )
 
     def get_portfolio(self) -> list:
         """获取当前持仓"""
@@ -149,23 +180,28 @@ class TradeJournal:
             return []
         return df.to_dict("records")
 
-    def get_trade_history(self, code: str = None, days: int = 30,
-                          limit: int = 50) -> list:
+    def get_trade_history(self, code: str = None, days: int = 30, limit: int = 50) -> list:
         """获取交易历史"""
         conn = get_connection(self.db_path)
         start_date = (date.today() - timedelta(days=days)).isoformat()
         if code:
-            df = conn.execute("""
+            df = conn.execute(
+                """
                 SELECT * FROM trade_journal
                 WHERE code = ? AND trade_date >= ?
                 ORDER BY trade_date DESC, trade_time DESC LIMIT ?
-            """, [code, start_date, limit]).fetchdf()
+            """,
+                [code, start_date, limit],
+            ).fetchdf()
         else:
-            df = conn.execute("""
+            df = conn.execute(
+                """
                 SELECT * FROM trade_journal
                 WHERE trade_date >= ?
                 ORDER BY trade_date DESC, trade_time DESC LIMIT ?
-            """, [start_date, limit]).fetchdf()
+            """,
+                [start_date, limit],
+            ).fetchdf()
         conn.close()
         if df.empty:
             return []
@@ -217,10 +253,13 @@ class TradeJournal:
             start = (date.today() - timedelta(days=90)).isoformat()
 
         conn = get_connection(self.db_path)
-        df = conn.execute("""
+        df = conn.execute(
+            """
             SELECT * FROM trade_journal WHERE trade_date >= ?
             ORDER BY trade_date
-        """, [start]).fetchdf()
+        """,
+            [start],
+        ).fetchdf()
         conn.close()
 
         if df.empty:
@@ -260,25 +299,31 @@ class TradeJournal:
             "emotion_distribution": emotion_counts,
         }
 
-    def save_review(self, period: str, summary: str, what_went_well: str,
-                    what_to_improve: str, key_lessons: str) -> dict:
+    def save_review(
+        self, period: str, summary: str, what_went_well: str, what_to_improve: str, key_lessons: str
+    ) -> dict:
         """保存复盘笔记"""
         conn = get_connection(self.db_path)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO review_notes
             (review_date, period, summary, what_went_well, what_to_improve, key_lessons)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, [date.today().isoformat(), period, summary,
-              what_went_well, what_to_improve, key_lessons])
+        """,
+            [date.today().isoformat(), period, summary, what_went_well, what_to_improve, key_lessons],
+        )
         conn.close()
         return {"status": "ok", "period": period}
 
     def get_reviews(self, limit: int = 10) -> list:
         """获取复盘笔记"""
         conn = get_connection(self.db_path)
-        df = conn.execute("""
+        df = conn.execute(
+            """
             SELECT * FROM review_notes ORDER BY created_at DESC LIMIT ?
-        """, [limit]).fetchdf()
+        """,
+            [limit],
+        ).fetchdf()
         conn.close()
         if df.empty:
             return []
