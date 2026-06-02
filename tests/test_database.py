@@ -1,6 +1,5 @@
 """Unit tests for src/database.py — DuckDB CRUD operations with in-memory database."""
 
-
 from src.database import (
     get_last_fetch_date,
     get_latest_kline_date,
@@ -39,18 +38,14 @@ class TestInitTables:
 
 class TestUpsertStockInfo:
     def test_insert(self, in_memory_db):
-        records = [
-            {"code": "600000", "name": "浦发银行", "market": "sh", "board": "main", "list_date": "1999-11-10"}
-        ]
+        records = [{"code": "600000", "name": "浦发银行", "market": "sh", "board": "main", "list_date": "1999-11-10"}]
         count = upsert_stock_info(in_memory_db, records)
         assert count == 1
         result = in_memory_db.execute("SELECT name FROM stock_info WHERE code='600000'").fetchone()
         assert result[0] == "浦发银行"
 
     def test_update(self, in_memory_db):
-        records = [
-            {"code": "600000", "name": "浦发银行", "market": "sh", "board": "main", "list_date": "1999-11-10"}
-        ]
+        records = [{"code": "600000", "name": "浦发银行", "market": "sh", "board": "main", "list_date": "1999-11-10"}]
         upsert_stock_info(in_memory_db, records)
         records[0]["name"] = "浦发银行(更新)"
         upsert_stock_info(in_memory_db, records)

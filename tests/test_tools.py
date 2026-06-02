@@ -1,7 +1,5 @@
 """Unit tests for agent/tools.py — tool definitions integrity and dispatch mapping."""
 
-import pytest
-
 from agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
 
 

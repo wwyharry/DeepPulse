@@ -112,13 +112,15 @@ class TestSingleCandlePatterns:
         # Use: open=9.0, high=9.12, low=7.0, close=9.3 → invalid (close>high)
         # Use: open=9.0, close=9.3 → body=0.3. high must be >= close=9.3. Use high=9.35 → upper=0.05.
         # low=7.0 → lower=2.3. lower(2.3) > body*2(0.6) ✓. upper(0.05) < body*0.5(0.15) ✓.
-        df = _make_multi_df([
-            (11.0, 11.1, 10.5, 10.6, 100000),
-            (10.6, 10.7, 10.0, 10.1, 100000),
-            (10.1, 10.2, 9.5, 9.6, 100000),
-            (9.6, 9.7, 9.0, 9.1, 100000),
-            (9.0, 9.35, 7.0, 9.3, 100000),  # hammer: body=0.3, lower=2.3, upper=0.05
-        ])
+        df = _make_multi_df(
+            [
+                (11.0, 11.1, 10.5, 10.6, 100000),
+                (10.6, 10.7, 10.0, 10.1, 100000),
+                (10.1, 10.2, 9.5, 9.6, 100000),
+                (9.6, 9.7, 9.0, 9.1, 100000),
+                (9.0, 9.35, 7.0, 9.3, 100000),  # hammer: body=0.3, lower=2.3, upper=0.05
+            ]
+        )
         patterns = _single_candle_patterns(df)
         names = [p["name"] for p in patterns]
         assert "锤子线" in names
@@ -128,13 +130,15 @@ class TestSingleCandlePatterns:
         # Condition: upper > body*2 AND lower < body*0.5 AND body > 0
         # Last row: open=10.0, high=12.0, low=10.02, close=10.1 → body=0.1, upper=1.9, lower=0.02
         # upper(1.9) > body*2(0.2) ✓, lower(0.02) < body*0.5(0.05) ✓
-        df = _make_multi_df([
-            (9.0, 9.1, 8.5, 9.0, 100000),
-            (9.0, 9.5, 8.9, 9.4, 100000),
-            (9.4, 9.9, 9.3, 9.8, 100000),
-            (9.8, 10.3, 9.7, 10.2, 100000),
-            (10.0, 12.0, 10.02, 10.1, 100000),  # shooting star: body=0.1, upper=1.9, lower=0.02
-        ])
+        df = _make_multi_df(
+            [
+                (9.0, 9.1, 8.5, 9.0, 100000),
+                (9.0, 9.5, 8.9, 9.4, 100000),
+                (9.4, 9.9, 9.3, 9.8, 100000),
+                (9.8, 10.3, 9.7, 10.2, 100000),
+                (10.0, 12.0, 10.02, 10.1, 100000),  # shooting star: body=0.1, upper=1.9, lower=0.02
+            ]
+        )
         patterns = _single_candle_patterns(df)
         names = [p["name"] for p in patterns]
         assert "射击之星" in names

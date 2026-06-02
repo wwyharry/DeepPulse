@@ -76,8 +76,20 @@ def test_memory_crud_and_search():
     mm.init_tables()
 
     memories_data = [
-        ("贵州茅台600519在2000元有强支撑，RSI接近超卖区，可以低吸", "insight", "600519,贵州茅台,RSI,支撑位", "技术分析,白酒", 0.7),
-        ("平安银行000001放量突破MA20，MACD金叉，短线看涨", "insight", "000001,平安银行,MACD,突破", "技术分析,银行", 0.6),
+        (
+            "贵州茅台600519在2000元有强支撑，RSI接近超卖区，可以低吸",
+            "insight",
+            "600519,贵州茅台,RSI,支撑位",
+            "技术分析,白酒",
+            0.7,
+        ),
+        (
+            "平安银行000001放量突破MA20，MACD金叉，短线看涨",
+            "insight",
+            "000001,平安银行,MACD,突破",
+            "技术分析,银行",
+            0.6,
+        ),
         ("用户偏好低吸操作，不喜欢追高", "preference", "低吸,交易风格", "用户偏好", 0.8),
         ("RSI超卖时要结合成交量看，不能单独使用", "learning", "RSI,成交量", "用户教学", 0.8),
         ("市场情绪处于冰点期，应等待转机再入场", "fact", "市场情绪,冰点", "市场分析", 0.5),
@@ -184,7 +196,16 @@ def test_context_injection():
     mm.init_tables()
 
     mm.save_memory("茅台RSI超卖", "insight", "600519,RSI", "test", 0.7)
-    mm.save_memory("用户偏好低吸", "learning", "低吸", "test", 0.8, learned_what="低吸为主", learned_why="风险低", apply_when="RSI超卖时")
+    mm.save_memory(
+        "用户偏好低吸",
+        "learning",
+        "低吸",
+        "test",
+        0.8,
+        learned_what="低吸为主",
+        learned_why="风险低",
+        apply_when="RSI超卖时",
+    )
 
     ctx = mm.get_context_block("茅台短线分析")
     assert len(ctx) > 0, "Context block is empty"

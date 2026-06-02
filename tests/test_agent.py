@@ -11,7 +11,11 @@ from agent.agent import StockAgent
 @pytest.fixture
 def mock_agent():
     """Create a StockAgent with mocked LLM client and memory."""
-    with patch("agent.agent.LLMClient"), patch("agent.agent.MemoryManager") as MockMem, patch("agent.agent.get_strategy_loader") as MockStrat:
+    with (
+        patch("agent.agent.LLMClient"),
+        patch("agent.agent.MemoryManager") as MockMem,
+        patch("agent.agent.get_strategy_loader") as MockStrat,
+    ):
         mock_mem = MockMem.return_value
         mock_mem.get_context_block.return_value = ""
         mock_mem.detect_learning_signals.return_value = []

@@ -1,6 +1,5 @@
 """Unit tests for agent/memory.py — pure functions (no DB or network required)."""
 
-
 import pytest
 
 from agent.memory import BM25Index, EmbeddingIndex, KnowledgeGraph, MemoryManager, UserProfile

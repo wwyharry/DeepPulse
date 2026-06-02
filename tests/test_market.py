@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from agent.market import get_market_sentiment
 
 
@@ -32,7 +30,7 @@ class TestGetMarketSentiment:
         ]
         # Need 80+ stocks; fill with stubs
         for i in range(78):
-            stocks.append({"code": f"000{i+3:03d}", "name": f"S{i}", "streak": 1, "industry": "科技"})
+            stocks.append({"code": f"000{i + 3:03d}", "name": f"S{i}", "streak": 1, "industry": "科技"})
         mock_zt.return_value = _make_zt_result(80, stocks)
 
         result = get_market_sentiment("20240115")
@@ -44,7 +42,10 @@ class TestGetMarketSentiment:
     @patch("agent.market.get_limit_up_pool")
     def test_fermentation_sentiment(self, mock_zt, mock_dt, mock_zb):
         """40+ limit-ups, 4+ streak, <35% fail rate → 发酵期"""
-        stocks = [{"code": f"000{i:03d}", "name": f"S{i}", "streak": 4 if i == 0 else 1, "industry": "医药"} for i in range(45)]
+        stocks = [
+            {"code": f"000{i:03d}", "name": f"S{i}", "streak": 4 if i == 0 else 1, "industry": "医药"}
+            for i in range(45)
+        ]
         mock_zt.return_value = _make_zt_result(45, stocks)
 
         result = get_market_sentiment("20240115")
@@ -55,7 +56,10 @@ class TestGetMarketSentiment:
     @patch("agent.market.get_limit_up_pool")
     def test_startup_sentiment(self, mock_zt, mock_dt, mock_zb):
         """20+ limit-ups, 3+ streak → 启动期"""
-        stocks = [{"code": f"000{i:03d}", "name": f"S{i}", "streak": 3 if i == 0 else 1, "industry": "能源"} for i in range(25)]
+        stocks = [
+            {"code": f"000{i:03d}", "name": f"S{i}", "streak": 3 if i == 0 else 1, "industry": "能源"}
+            for i in range(25)
+        ]
         mock_zt.return_value = _make_zt_result(25, stocks)
 
         result = get_market_sentiment("20240115")
