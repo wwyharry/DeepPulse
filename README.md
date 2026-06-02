@@ -551,6 +551,10 @@ DeepPulse/
 ### 如果遇到技术问题或者有好的想法欢迎加入社区交流讨论。
 #### 微信
 
-<img width="540" height="798" alt="2654592b62e4dffac4130505b5769a12" src="https://github.com/user-attachments/assets/82cc8f44-74e7-4858-8a7e-8451888fac23" />
+<img width="540" height="798" alt="c1efacc50913367c9dfe0baa51c3f1e3" src="https://github.com/user-attachments/assets/36e2a3e5-dae3-4153-8b9a-d56eacce75ad" />
 
+#### QQ
+扫描二维码或搜索群号
+
+<img width="642" height="1141.5" alt="00d3453e3477fb8321001bf33e00be67" src="https://github.com/user-attachments/assets/b26a797b-375d-4d79-b6c0-5ea3903dde6a" />
 
