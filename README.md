@@ -185,7 +185,7 @@ python scripts/fetch_kline.py      # 3. 采集日 K 数据（约 30-60 分钟）
   # 指定日期范围
   python scripts/fetch_kline.py --source baostock --start 2024-01-01 --end 2026-06-04
 
-在初始数据更新完成后，通过与Agent交互式对话来更新数据也可以。在交易时间DeepPulse Agent会自动获取实时数据（免费数据源可能会有延时）。
+# 在初始数据更新完成后，通过与Agent交互式对话来更新数据也可以。在交易时间DeepPulse Agent会自动获取实时数据（免费数据源可能会有延时）。
 
 ```
 
