@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class BaoStockSource(DataSourceBase):
-    # BaoStock session 约 50 秒超时，主动重连间隔设为 30 秒
-    SESSION_MAX_AGE = 30
+    # BaoStock session 约 50 秒超时，主动重连间隔设为 40 秒
+    SESSION_MAX_AGE = 40
 
     def __init__(self):
         self._logged_in = False

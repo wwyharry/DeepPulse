@@ -166,7 +166,7 @@ def fetch_all_kline(
 
             consecutive_failures = 0
             last_reconnect_time = time.time()
-            RECONNECT_TIME_INTERVAL = 30  # 每30秒主动重连（BaoStock session约50秒超时）
+            RECONNECT_TIME_INTERVAL = 40  # 每40秒主动重连（BaoStock session约50秒超时）
 
             for i, code in enumerate(codes):
                 # 周期性重连：按数量 或 按时间，先到先触发
