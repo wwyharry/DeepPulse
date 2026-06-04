@@ -13,11 +13,11 @@ DB_PATH = PROJECT_ROOT / "db" / "astock.duckdb"
 END_DATE = date.today()
 START_DATE = END_DATE - timedelta(days=5 * 365)  # 过去5年
 
-# 数据源列表（按优先级排序）
-DATA_SOURCES = ["akshare", "baostock"]
+# 数据源列表（按优先级排序，首选BaoStock，AkShare作为备选）
+DATA_SOURCES = ["baostock", "akshare"]
 
 # 采集控制
-FETCH_DELAY_SECONDS = 0.1  # 每次API调用间隔（秒），BaoStock无限流可适当降低
+FETCH_DELAY_SECONDS = 0.5  # 每次API调用间隔（秒），BaoStock服务端有隐式限流，不宜过低
 BATCH_SIZE = 50  # 批量写入数据库的行数
 
 # 市场筛选：沪深主板

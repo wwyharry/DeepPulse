@@ -156,37 +156,37 @@ API Key 支持环境变量：`"${ENV_VAR_NAME}"`
 ### 第三步：初始化数据库
 
 ```bash
-# 一键全量采集（约 3500 只股票 x 5 年日K）
+# 一键全量采集（约 3500 只股票 x 5 年日K，使用 BaoStock 数据源）
 python scripts/fetch_all.py
 ```
 
 > **为什么这么慢？**
 >
-> 首次采集需要从 BaoStock/AkShare 下载约 3500 只沪深主板股票的 5 年日 K 线数据，数据量约 400 万条记录。数据源为免费公开接口，有请求频率限制，因此全程约需 30-60 分钟。这是一次性操作，后续只需增量更新（几秒钟）。
+> 首次采集需要从 BaoStock 下载约 3500 只沪深主板股票的 5 年日 K 线数据，数据量约 400 万条记录。BaoStock 为免费公开接口，有隐式频率限制，因此全程约需 30-60 分钟。这是一次性操作，后续只需增量更新（几秒钟）。
 >
-> `fetch_all.py` 会自动检测股票列表是否已采集，首次运行时会自动完成股票列表采集，无需手动执行其他步骤。
+> `fetch_all.py` 默认使用 BaoStock 作为首选数据源（连接稳定、无限流），AkShare 作为备选。脚本内置断点续传、定期重连、socket 错误自动恢复等机制，可放心中断后重新运行。
 
-也可以分步执行：
+也可以使用通用采集脚本（支持指定数据源）：
 
 ```bash
 python scripts/init_db.py          # 1. 初始化数据库表结构
 python scripts/fetch_stocks.py     # 2. 采集股票列表（约 1 分钟）
-python scripts/fetch_kline.py      # 3. 采集日 K 数据（约 30-60 分钟）
+python scripts/fetch_kline.py --source baostock  # 3. 采集日 K 数据（约 30-60 分钟）
+```
 
-# 如果Akshare限流，那么通用脚本指定 BaoStock
+也可以指定股票范围或日期：
 
-  python scripts/fetch_kline.py --source baostock
+```bash
+# 只采集特定股票
+python scripts/fetch_kline.py --source baostock --codes 600519 000001
 
-  也可以指定股票范围：
+# 指定日期范围
+python scripts/fetch_kline.py --source baostock --start 2024-01-01 --end 2026-06-04
+```
 
-  # 只采集特定股票
-  python scripts/fetch_kline.py --source baostock --codes 600519 000001
+> 在初始数据更新完成后，通过与 Agent 交互式对话来更新数据也可以。在交易时间 DeepPulse Agent 会自动获取实时数据（免费数据源可能会有延时）。
 
-  # 指定日期范围
-  python scripts/fetch_kline.py --source baostock --start 2024-01-01 --end 2026-06-04
-
-# 在初始数据更新完成后，通过与Agent交互式对话来更新数据也可以。在交易时间DeepPulse Agent会自动获取实时数据（免费数据源可能会有延时）。
-
+```bash
 ```
 
 ### 第四步：启动 DeepPulse
@@ -270,7 +270,7 @@ DeepPulse: [自动保存为 learning 记忆，后续分析中应用]
 
 ## 更换数据源
 
-DeepPulse 默认使用免费的 BaoStock + AkShare 作为历史数据源。如果你有更好的私有数据源，可以自行替换。
+DeepPulse 默认使用免费的 BaoStock 作为首选历史数据源（连接稳定、无限流），AkShare 作为备选。数据源优先级可在 `config.py` 的 `DATA_SOURCES` 中调整。如果你有更好的私有数据源，可以自行替换。
 
 ### 数据源接口
 
@@ -535,7 +535,7 @@ DeepPulse/
 |------|------|
 | LLM | DeepSeek / OpenAI / Claude |
 | 数据库 | DuckDB（嵌入式列式引擎） |
-| 历史数据 | AkShare + BaoStock（免费） |
+| 历史数据 | BaoStock（首选） + AkShare（备选），均为免费 |
 | 实时行情 | 新浪财经 + 东方财富（双源冗余） |
 | 语义搜索 | sentence-transformers（本地 768 维） + BM25 |
 | 新闻爬虫 | curl_cffi + BeautifulSoup |

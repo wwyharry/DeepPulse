@@ -138,6 +138,20 @@ def main():
                 pass
             time.sleep(2)
             source = create_source()
+        except (ConnectionError, ConnectionResetError, OSError) as e:
+            total_failed += 1
+            consecutive_failures += 1
+            log_fetch(conn, code, "baostock", actual_start, end_date, 0, "failed", str(e))
+            log(f"  FAIL {code}: {e}")
+            # socket 类错误立即重连
+            log(f"  连接异常，立即重连...")
+            try:
+                source._logout()
+            except Exception:
+                pass
+            time.sleep(3)
+            source = create_source()
+            consecutive_failures = 0
         except Exception as e:
             total_failed += 1
             consecutive_failures += 1
