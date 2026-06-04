@@ -209,8 +209,9 @@ python scripts/fetch_kline.py --source baostock --start 2024-01-01 --end 2026-06
 
 > 在初始数据更新完成后，通过与 Agent 交互式对话来更新数据也可以。在交易时间 DeepPulse Agent 会自动获取实时数据（免费数据源可能会有延时）。
 
-```bash
-```
+采集示例，如果数据较多可能会等待较长时间。
+<img width="1112" height="696" alt="d7e0a3c35cac0e983e4df8f06b8f6136" src="https://github.com/user-attachments/assets/3e79f4e0-f199-4203-84b1-69d73f8be7dc" />
+
 
 ### 第四步：启动 DeepPulse
 
