@@ -550,9 +550,6 @@ DeepPulse/
 - 使用 DeepPulse 即表示您已阅读、理解并同意本免责声明
 
 ### 如果遇到技术问题或者有好的想法欢迎加入社区交流讨论。
-#### 微信
-
-<img width="540" height="798" alt="c1efacc50913367c9dfe0baa51c3f1e3" src="https://github.com/user-attachments/assets/36e2a3e5-dae3-4153-8b9a-d56eacce75ad" />
 
 #### QQ
 扫描二维码或搜索群号
