@@ -306,7 +306,9 @@ class JudgeAgent:
             return json.dumps(short, ensure_ascii=False)
         return str(arguments)[:100]
 
-    def _find_tool_result(self, tool_call: dict, current_results: list, rounds: list, round_idx: int, call_idx: int) -> str:
+    def _find_tool_result(
+        self, tool_call: dict, current_results: list, rounds: list, round_idx: int, call_idx: int
+    ) -> str:
         """查找工具调用对应的结果
 
         优先在当前轮的 tool_results 中按 tool_call_id 匹配，
@@ -339,10 +341,10 @@ class JudgeAgent:
         """兜底：简单上下文（当无法解析完整流程时）"""
         return f"""请评判以下分析：
 
-**用户问题**：{user_query or '（未识别到）'}
+**用户问题**：{user_query or "（未识别到）"}
 
 **主Agent的最终分析**：
-{last_content or '（无内容）'}
+{last_content or "（无内容）"}
 
 ---
 

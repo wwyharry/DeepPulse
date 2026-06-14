@@ -110,9 +110,7 @@ class DeepPulseTUI(App):
 
         # 显示欢迎消息
         self.chat_log.add_system_message(
-            "✨ 欢迎使用 DeepPulse v0.2.0！\n"
-            "⏳ 正在后台初始化 Agent，请稍候...\n"
-            "💡 输入 /help 查看所有命令和快捷键"
+            "✨ 欢迎使用 DeepPulse v0.2.0！\n⏳ 正在后台初始化 Agent，请稍候...\n💡 输入 /help 查看所有命令和快捷键"
         )
 
         self.chat_input.focus()
@@ -139,8 +137,7 @@ class DeepPulseTUI(App):
             self._init_done = True
 
             self.chat_log.add_system_message(
-                "✅ Agent 初始化完成！现在可以开始提问。\n"
-                "💡 输入「评判一下」或按 Ctrl+J 让评判Agent检查分析质量。"
+                "✅ Agent 初始化完成！现在可以开始提问。\n💡 输入「评判一下」或按 Ctrl+J 让评判Agent检查分析质量。"
             )
 
             # 加载面板数据并启动定时刷新
@@ -186,12 +183,14 @@ class DeepPulseTUI(App):
             for code in codes:
                 q = quotes.get(code)
                 if q:
-                    stocks.append({
-                        "code": code,
-                        "name": q.name or code,
-                        "price": f"{q.current:.2f}" if q.current else "--",
-                        "change": f"{q.change_pct:+.2f}%" if q.change_pct is not None else "--",
-                    })
+                    stocks.append(
+                        {
+                            "code": code,
+                            "name": q.name or code,
+                            "price": f"{q.current:.2f}" if q.current else "--",
+                            "change": f"{q.change_pct:+.2f}%" if q.change_pct is not None else "--",
+                        }
+                    )
                 else:
                     stocks.append({"code": code, "name": code, "price": "--", "change": "--"})
 
@@ -240,13 +239,15 @@ class DeepPulseTUI(App):
                 pnl = value - cost
                 pnl_pct = (current - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
 
-                positions.append({
-                    "code": code,
-                    "name": name,
-                    "shares": shares,
-                    "profit": pnl,
-                    "profit_pct": pnl_pct,
-                })
+                positions.append(
+                    {
+                        "code": code,
+                        "name": name,
+                        "shares": shares,
+                        "profit": pnl,
+                        "profit_pct": pnl_pct,
+                    }
+                )
 
             if positions:
                 self.portfolio_panel.set_positions(positions)
@@ -675,7 +676,12 @@ class DeepPulseTUI(App):
             # 显示会话统计
             tools_used = list({m.get("name", "") for m in self.agent.messages if m.get("role") == "tool"})
             self.chat_log.add_session_stats(
-                {"rounds": current_round, "tool_count": self.status_bar.tool_count, "elapsed": elapsed, "tools_used": tools_used}
+                {
+                    "rounds": current_round,
+                    "tool_count": self.status_bar.tool_count,
+                    "elapsed": elapsed,
+                    "tools_used": tools_used,
+                }
             )
 
         except Exception as e:
