@@ -108,51 +108,66 @@ def my_new_tool(param1: str, param2: int = 10) -> str:
 
 ## 添加新数据源
 
-在 `src/sources/` 下创建新文件，继承 `BaseDataSource`：
+### 历史数据源
+
+在 `src/sources/` 下创建新文件，继承 `DataSourceBase`：
 
 ```python
-from src.sources.base import BaseDataSource
+from src.sources.base import DataSourceBase
 
-class MySource(BaseDataSource):
-    def get_stock_list(self) -> list[dict]:
+class MySource(DataSourceBase):
+    def fetch_stock_list(self) -> list[dict]:
         ...
 
-    def get_daily_kline(self, code: str, start_date: str, end_date: str) -> list[dict]:
+    def fetch_daily_kline(self, code: str, start_date: str, end_date: str) -> list[dict]:
         ...
 ```
 
-详见 `src/sources/base.py` 的接口定义。
+### 实时行情源
+
+在 `src/realtime/` 下创建新文件，继承 `RealtimeQuoteSource`：
+
+```python
+from src.realtime.base import RealtimeQuoteSource, RealtimeQuote
+
+class MyRealtimeSource(RealtimeQuoteSource):
+    def fetch_quote(self, code: str) -> RealtimeQuote | None:
+        ...
+
+    def fetch_quotes(self, codes: list[str]) -> dict[str, RealtimeQuote]:
+        ...
+```
+
+然后在 `src/realtime/manager.py` 的 `SOURCE_REGISTRY` 中注册。
 
 ## 运行测试
 
 ```bash
 # 运行所有单元测试
-python -m pytest tests/ -m "not integration" -q
+python -m pytest tests/ -q
 
 # 运行指定文件
 python -m pytest tests/test_patterns.py -v
 
 # 查看覆盖率
-python -m pytest tests/ -m "not integration" --cov --cov-report=term-missing
-
-# 运行集成测试（需要数据库）
-python -m pytest tests/ -m "integration" -v
+python -m pytest tests/ --cov --cov-report=term-missing
 ```
 
 ## 架构概览
 
 ```
-用户输入 → CLI (cli.py) → Agent (agent.py) → LLM (client.py)
-                                ↓
-                          ReAct 推理循环
-                                ↓
-                    工具调度 (tools.py, 59 个工具)
-                    ├── 数据层 (src/)
-                    ├── 技术分析 (backtest.py, patterns.py, screener.py)
-                    ├── 市场分析 (market.py, news.py, datalink.py)
-                    └── 记忆系统 (memory.py)
-                                ↓
-                          输出分析结论
+用户输入
+  ↓
+CLI (cli.py) / TUI (tui/app.py)
+  ↓
+StockAgent (agent.py) — ReAct 推理循环
+  ├── LLMClient (client.py) — OpenAI/Anthropic 双协议
+  ├── 59 个工具 (tools.py)
+  │   ├── 数据层 (src/) — DuckDB + BaoStock/AkShare + 新浪/东财
+  │   ├── 技术分析 (patterns.py, screener.py, backtest.py)
+  │   ├── 市场分析 (market.py, news.py, datalink.py)
+  │   └── 记忆系统 (memory.py) — 向量/BM25/关键词三级检索
+  └── 评判Agent (judge_agent.py) — 全流程质量评测
 ```
 
 ## 问题反馈
