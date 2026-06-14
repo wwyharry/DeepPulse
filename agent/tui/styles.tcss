@@ -1,76 +1,215 @@
-/* DeepPulse TUI 样式 - 两栏布局 */
+/* DeepPulse TUI 样式 - 暗色金融主题 · 三栏布局 */
+
+/* ═══════════════════ 全局主题 ═══════════════════ */
 
 Screen {
-    background: $surface;
+    background: #0d1117;
+    color: #c9d1d9;
 }
+
+/* ═══════════════════ 状态栏 ═══════════════════ */
+
+#status-bar {
+    height: 1;
+    dock: top;
+    width: 100%;
+    background: #161b22;
+    color: #8b949e;
+    padding: 0 1;
+}
+
+#status-bar .status-item {
+    color: #8b949e;
+}
+
+#status-bar .status-accent {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+#status-bar .status-success {
+    color: #3fb950;
+}
+
+#status-bar .status-warning {
+    color: #d29922;
+}
+
+/* ═══════════════════ 主容器三栏 ═══════════════════ */
 
 #main-container {
     width: 100%;
     height: 1fr;
 }
 
+/* 左栏：自选股 + 持仓 + 市场 */
+#left-panel {
+    width: 24;
+    height: 1fr;
+    background: #0d1117;
+    padding: 0 1 1 0;
+    overflow-y: auto;
+    scrollbar-color: #30363d;
+    scrollbar-color-hover: #484f58;
+    scrollbar-color-active: #6e7681;
+}
+
+/* 中栏：对话流 */
 #chat-panel {
     width: 1fr;
     height: 100%;
-    background: $background;
+    background: #0d1117;
 }
 
+/* 右栏：工具 + 数据 */
 #right-panel {
-    width: 35;
-    height: 100%;
-    background: $panel;
+    width: 34;
+    height: 1fr;
+    background: #0d1117;
+    padding: 0 0 1 1;
+    overflow-y: auto;
+    scrollbar-color: #30363d;
+    scrollbar-color-hover: #484f58;
+    scrollbar-color-active: #6e7681;
 }
+
+/* ═══════════════════ 对话区域 ═══════════════════ */
 
 #chat-log {
     height: 1fr;
-    border: solid $primary;
-    padding: 1;
+    border: solid #30363d;
+    background: #0d1117;
+    scrollbar-color: #30363d;
+    scrollbar-color-hover: #484f58;
+    scrollbar-color-active: #6e7681;
     scrollbar-gutter: stable;
 }
 
 #chat-input {
     dock: bottom;
     height: 3;
-    border: solid $accent;
+    border: solid #30363d;
+    background: #161b22;
+    color: #c9d1d9;
 }
 
 #chat-input:focus {
-    border: solid $accent;
+    border: solid #58a6ff;
 }
 
-/* 面板样式 */
-WatchlistPanel, PortfolioPanel, ToolPanel, DataPanel, MarketPanel {
-    margin: 0 1;
+#chat-input .input--placeholder {
+    color: #484f58;
 }
 
-/* 按钮样式 */
-Button {
-    min-width: 16;
-    height: 3;
-    margin: 0 1;
+/* ═══════════════════ 面板通用 ═══════════════════ */
+
+.panel-box {
+    margin: 0 0 1 0;
+    background: #0d1117;
 }
 
-Button:hover {
-    background: $accent;
+/* 左侧面板 */
+#left-panel .panel-box {
+    margin: 0 1 1 0;
 }
 
-Button.-primary {
-    background: $success;
+/* 右侧面板 */
+#right-panel .panel-box {
+    margin: 0 0 1 1;
 }
 
-Button.-primary:hover {
-    background: $success-lighten-1;
+/* ═══════════════════ 消息样式 ═══════════════════ */
+
+/* 用户消息 */
+.user-message {
+    margin: 0 0 1 0;
 }
 
-/* 消息容器 */
+/* Agent 消息容器 */
 AgentMessageContainer {
-    margin: 1 0;
+    margin: 0 0 1 0;
 }
 
-/* 确认按钮组 */
+/* 系统消息 */
+.system-message {
+    margin: 0 0 0 0;
+}
+
+/* ═══════════════════ 确认按钮 ═══════════════════ */
+
 ConfirmationButtons {
     height: auto;
     layout: horizontal;
     align: center middle;
-    padding: 1;
+    padding: 0 0 1 0;
+    background: #0d1117;
+}
+
+ConfirmationButtons Button {
+    margin: 0 1;
+    min-width: 14;
+    height: 3;
+    background: #21262d;
+    border: solid #30363d;
+    color: #c9d1d9;
+}
+
+ConfirmationButtons Button:hover {
+    background: #30363d;
+    border: solid #58a6ff;
+}
+
+ConfirmationButtons Button.-primary {
+    background: #238636;
+    border: solid #2ea043;
+    color: #ffffff;
+}
+
+ConfirmationButtons Button.-primary:hover {
+    background: #2ea043;
+    border: solid #3fb950;
+}
+
+/* ═══════════════════ 滚动条 ═══════════════════ */
+
+ScrollBar {
+    background: #161b22;
+}
+
+ScrollBar:hover {
+    background: #21262d;
+}
+
+/* ═══════════════════ Footer ═══════════════════ */
+
+Footer {
+    background: #161b22;
+    color: #8b949e;
+}
+
+Footer > .footer--key {
+    background: #21262d;
+    color: #58a6ff;
+}
+
+Footer > .footer--description {
+    color: #8b949e;
+}
+
+/* ═══════════════════ Header ═══════════════════ */
+
+Header {
+    background: #161b22;
+    color: #c9d1d9;
+}
+
+Header > .header--title {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+/* ═══════════════════ Loading 动画 ═══════════════════ */
+
+.loading-indicator {
+    color: #58a6ff;
 }
