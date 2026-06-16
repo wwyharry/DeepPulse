@@ -54,7 +54,7 @@ jobs:
         run: python -m pytest tests/ -m "not integration" --tb=short -q --cov --cov-report=xml --cov-report=term-missing
       - name: Upload coverage
         if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
