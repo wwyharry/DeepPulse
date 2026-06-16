@@ -32,6 +32,57 @@
 | 学习能力 | 自动检测用户纠错/教学，保存为结构化知识并在后续分析中应用 |
 | 预测跟踪 | 保存预测并自动验证结果，从对错中持续学习 |
 
+## 系统架构
+
+```mermaid
+graph TB
+    subgraph 入口层
+        CLI[CLI 命令行]
+        TUI[TUI 终端界面]
+    end
+
+    subgraph Agent 核心
+        REACT[ReAct 推理引擎]
+        CLIENT[LLM 客户端<br/>OpenAI / Anthropic]
+        TOOLS[59 个工具]
+        MEMORY[长期记忆系统]
+        JUDGE[评判 Agent]
+    end
+
+    subgraph 记忆系统
+        EMB[向量语义搜索]
+        BM25S[BM25 关键词搜索]
+        PRED[预测跟踪]
+        PROF[用户画像]
+        KG[知识图谱]
+    end
+
+    subgraph 数据层
+        DB[(DuckDB)]
+        COLLECT[数据采集器]
+        REALTIME[实时行情管理器]
+    end
+
+    subgraph 数据源
+        BS[BaoStock]
+        AK[AkShare]
+        SINA[新浪财经]
+        EM[东方财富]
+    end
+
+    CLI --> REACT
+    TUI --> REACT
+    REACT --> CLIENT
+    REACT --> TOOLS
+    REACT --> MEMORY
+    REACT --> JUDGE
+    MEMORY --> EMB & BM25S & PRED & PROF & KG
+    TOOLS --> DB & REALTIME & COLLECT
+    COLLECT --> BS & AK
+    REALTIME --> SINA & EM
+    DB --> COLLECT
+```
+
 ## 核心技术
 
 ### ReAct 推理引擎

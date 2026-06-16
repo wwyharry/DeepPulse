@@ -208,8 +208,8 @@ class LLMClient:
 
         return result
 
-    def _stream_openai(self, messages, tools):
-        """OpenAI 协议流式输出，支持 DeepSeek thinking 模型"""
+    def _build_openai_stream_kwargs(self, messages, tools) -> dict:
+        """构造 OpenAI 流式调用参数"""
         kwargs = {
             "model": self.llm_config["model"],
             "messages": messages,
@@ -220,315 +220,193 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        return kwargs
 
-        stream = self.client.chat.completions.create(**kwargs)
+    def _process_openai_chunk(self, chunk, state: dict):
+        """处理单个 OpenAI 流式 chunk，更新 state，返回 StreamChunk 或 None"""
+        if not chunk.choices:
+            return None
+        delta = chunk.choices[0].delta
+        finish = chunk.choices[0].finish_reason
 
-        # 累积状态
-        reasoning_buf = ""
-        content_buf = ""
-        tool_calls_buf = {}  # index -> {id, name, arguments}
+        result_chunk = None
+        rc = getattr(delta, "reasoning_content", None)
+        if rc:
+            state["reasoning_buf"] += rc
+            result_chunk = StreamChunk(type="thinking", text=rc)
 
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            finish = chunk.choices[0].finish_reason
+        if delta.content:
+            state["content_buf"] += delta.content
+            result_chunk = StreamChunk(type="content", text=delta.content)
 
-            # DeepSeek thinking: reasoning_content 字段
-            rc = getattr(delta, "reasoning_content", None)
-            if rc:
-                reasoning_buf += rc
-                yield StreamChunk(type="thinking", text=rc)
+        if delta.tool_calls:
+            for tc in delta.tool_calls:
+                idx = tc.index
+                if idx not in state["tool_calls_buf"]:
+                    state["tool_calls_buf"][idx] = {
+                        "id": tc.id or "",
+                        "name": tc.function.name if tc.function and tc.function.name else "",
+                        "arguments": "",
+                    }
+                else:
+                    if tc.id:
+                        state["tool_calls_buf"][idx]["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        state["tool_calls_buf"][idx]["name"] = tc.function.name
+                if tc.function and tc.function.arguments:
+                    state["tool_calls_buf"][idx]["arguments"] += tc.function.arguments
 
-            # 正文内容
-            if delta.content:
-                content_buf += delta.content
-                yield StreamChunk(type="content", text=delta.content)
+        state["done"] = finish in ("stop", "tool_calls")
+        return result_chunk
 
-            # 工具调用（流式累积）
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_buf:
-                        tool_calls_buf[idx] = {
-                            "id": tc.id or "",
-                            "name": tc.function.name if tc.function and tc.function.name else "",
-                            "arguments": "",
-                        }
-                    else:
-                        if tc.id:
-                            tool_calls_buf[idx]["id"] = tc.id
-                        if tc.function and tc.function.name:
-                            tool_calls_buf[idx]["name"] = tc.function.name
-                    if tc.function and tc.function.arguments:
-                        tool_calls_buf[idx]["arguments"] += tc.function.arguments
-
-            # 流结束
-            if finish == "stop":
-                break
-            if finish == "tool_calls":
-                break
-
-        # 构造最终结果
+    def _build_openai_result(self, state: dict) -> dict:
+        """从累积 state 构造 OpenAI 最终结果"""
         result = {
-            "content": content_buf,
+            "content": state["content_buf"],
             "tool_calls": None,
             "stop_reason": "stop",
-            "reasoning_content": reasoning_buf or None,
+            "reasoning_content": state["reasoning_buf"] or None,
         }
-
-        if tool_calls_buf:
+        if state["tool_calls_buf"]:
             result["tool_calls"] = []
             result["stop_reason"] = "tool_calls"
-            for idx in sorted(tool_calls_buf.keys()):
-                tc = tool_calls_buf[idx]
+            for idx in sorted(state["tool_calls_buf"].keys()):
+                tc = state["tool_calls_buf"][idx]
                 try:
                     args = json.loads(tc["arguments"])
                 except json.JSONDecodeError:
                     args = {}
-                result["tool_calls"].append(
-                    {
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "arguments": args,
-                    }
-                )
-
-        yield StreamChunk(type="done")
+                result["tool_calls"].append({"id": tc["id"], "name": tc["name"], "arguments": args})
         return result
 
+    def _stream_openai(self, messages, tools):
+        """OpenAI 协议流式输出"""
+        kwargs = self._build_openai_stream_kwargs(messages, tools)
+        stream = self.client.chat.completions.create(**kwargs)
+        state = {"reasoning_buf": "", "content_buf": "", "tool_calls_buf": {}, "done": False}
+
+        for chunk in stream:
+            sc = self._process_openai_chunk(chunk, state)
+            if sc:
+                yield sc
+            if state["done"]:
+                break
+
+        result = self._build_openai_result(state)
+        self.last_stream_response = result
+        yield StreamChunk(type="done")
+
     async def _stream_openai_async(self, messages, tools):
-        """OpenAI 协议异步流式输出，支持 DeepSeek thinking 模型"""
-        kwargs = {
-            "model": self.llm_config["model"],
-            "messages": messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
-            "stream": True,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-
+        """OpenAI 协议异步流式输出"""
+        kwargs = self._build_openai_stream_kwargs(messages, tools)
         stream = await self.async_client.chat.completions.create(**kwargs)
-
-        # 累积状态
-        reasoning_buf = ""
-        content_buf = ""
-        tool_calls_buf = {}  # index -> {id, name, arguments}
+        state = {"reasoning_buf": "", "content_buf": "", "tool_calls_buf": {}, "done": False}
 
         async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            finish = chunk.choices[0].finish_reason
-
-            # DeepSeek thinking: reasoning_content 字段
-            rc = getattr(delta, "reasoning_content", None)
-            if rc:
-                reasoning_buf += rc
-                yield StreamChunk(type="thinking", text=rc)
-
-            # 正文内容
-            if delta.content:
-                content_buf += delta.content
-                yield StreamChunk(type="content", text=delta.content)
-
-            # 工具调用（流式累积）
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_buf:
-                        tool_calls_buf[idx] = {
-                            "id": tc.id or "",
-                            "name": tc.function.name if tc.function and tc.function.name else "",
-                            "arguments": "",
-                        }
-                    else:
-                        if tc.id:
-                            tool_calls_buf[idx]["id"] = tc.id
-                        if tc.function and tc.function.name:
-                            tool_calls_buf[idx]["name"] = tc.function.name
-                    if tc.function and tc.function.arguments:
-                        tool_calls_buf[idx]["arguments"] += tc.function.arguments
-
-            # 流结束
-            if finish == "stop":
-                break
-            if finish == "tool_calls":
+            sc = self._process_openai_chunk(chunk, state)
+            if sc:
+                yield sc
+            if state["done"]:
                 break
 
-        # 构造最终结果
+        result = self._build_openai_result(state)
+        self.last_stream_response = result
+        yield StreamChunk(type="done")
+
+    def _build_anthropic_stream_kwargs(self, messages, tools) -> tuple:
+        """构造 Anthropic 流式调用参数，返回 (kwargs, api_messages)"""
+        system_msg = ""
+        api_messages = []
+        for m in messages:
+            if m["role"] == "system":
+                system_msg = m["content"]
+            else:
+                api_messages.append(m)
+
+        kwargs = {
+            "model": self.llm_config["model"],
+            "messages": api_messages,
+            "max_tokens": self.llm_config["max_tokens"],
+            "temperature": self.llm_config["temperature"],
+        }
+        if system_msg:
+            kwargs["system"] = system_msg
+        if tools:
+            kwargs["tools"] = self._convert_tools_to_anthropic(tools)
+        return kwargs
+
+    def _process_anthropic_event(self, event, state: dict):
+        """处理单个 Anthropic 流式事件，更新 state，返回 StreamChunk 或 None"""
+        result_chunk = None
+        if event.type == "content_block_start":
+            if event.content_block.type == "tool_use":
+                state["current_tool"] = {
+                    "id": event.content_block.id,
+                    "name": event.content_block.name,
+                    "arguments": "",
+                }
+        elif event.type == "content_block_delta":
+            if event.delta.type == "thinking_delta":
+                result_chunk = StreamChunk(type="thinking", text=event.delta.thinking)
+            elif event.delta.type == "text_delta":
+                state["content_buf"] += event.delta.text
+                result_chunk = StreamChunk(type="content", text=event.delta.text)
+            elif event.delta.type == "input_json_delta":
+                if state["current_tool"]:
+                    state["current_tool"]["arguments"] += event.delta.partial_json
+        elif event.type == "content_block_stop":
+            if state["current_tool"]:
+                state["tool_calls_buf"].append(state["current_tool"])
+                state["current_tool"] = None
+        return result_chunk
+
+    def _build_anthropic_result(self, state: dict) -> dict:
+        """从累积 state 构造 Anthropic 最终结果"""
         result = {
-            "content": content_buf,
+            "content": state["content_buf"],
             "tool_calls": None,
             "stop_reason": "stop",
-            "reasoning_content": reasoning_buf or None,
         }
-
-        if tool_calls_buf:
+        if state["tool_calls_buf"]:
             result["tool_calls"] = []
             result["stop_reason"] = "tool_calls"
-            for idx in sorted(tool_calls_buf.keys()):
-                tc = tool_calls_buf[idx]
+            for tc in state["tool_calls_buf"]:
                 try:
                     args = json.loads(tc["arguments"])
                 except json.JSONDecodeError:
                     args = {}
-                result["tool_calls"].append(
-                    {
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "arguments": args,
-                    }
-                )
+                result["tool_calls"].append({"id": tc["id"], "name": tc["name"], "arguments": args})
+        return result
 
+    def _stream_anthropic(self, messages, tools):
+        """Anthropic 协议流式输出"""
+        kwargs = self._build_anthropic_stream_kwargs(messages, tools)
+        state = {"content_buf": "", "tool_calls_buf": [], "current_tool": None}
+
+        with self.client.messages.stream(**kwargs) as stream:
+            for event in stream:
+                sc = self._process_anthropic_event(event, state)
+                if sc:
+                    yield sc
+
+        result = self._build_anthropic_result(state)
         self.last_stream_response = result
         yield StreamChunk(type="done")
 
     async def _stream_anthropic_async(self, messages, tools):
         """Anthropic 协议异步流式输出"""
-        system_msg = ""
-        api_messages = []
-        for m in messages:
-            if m["role"] == "system":
-                system_msg = m["content"]
-            else:
-                api_messages.append(m)
-
-        kwargs = {
-            "model": self.llm_config["model"],
-            "messages": api_messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
-        }
-        if system_msg:
-            kwargs["system"] = system_msg
-        if tools:
-            kwargs["tools"] = self._convert_tools_to_anthropic(tools)
-
-        content_buf = ""
-        tool_calls_buf = []
-        current_tool = None
+        kwargs = self._build_anthropic_stream_kwargs(messages, tools)
+        state = {"content_buf": "", "tool_calls_buf": [], "current_tool": None}
 
         async with self.async_client.messages.stream(**kwargs) as stream:
             async for event in stream:
-                if event.type == "content_block_start":
-                    if event.content_block.type == "tool_use":
-                        current_tool = {
-                            "id": event.content_block.id,
-                            "name": event.content_block.name,
-                            "arguments": "",
-                        }
-                elif event.type == "content_block_delta":
-                    if event.delta.type == "thinking_delta":
-                        yield StreamChunk(type="thinking", text=event.delta.thinking)
-                    elif event.delta.type == "text_delta":
-                        content_buf += event.delta.text
-                        yield StreamChunk(type="content", text=event.delta.text)
-                    elif event.delta.type == "input_json_delta":
-                        if current_tool:
-                            current_tool["arguments"] += event.delta.partial_json
-                elif event.type == "content_block_stop":
-                    if current_tool:
-                        tool_calls_buf.append(current_tool)
-                        current_tool = None
+                sc = self._process_anthropic_event(event, state)
+                if sc:
+                    yield sc
 
-        result = {
-            "content": content_buf,
-            "tool_calls": None,
-            "stop_reason": "stop",
-        }
-        if tool_calls_buf:
-            result["tool_calls"] = []
-            result["stop_reason"] = "tool_calls"
-            for tc in tool_calls_buf:
-                try:
-                    args = json.loads(tc["arguments"])
-                except json.JSONDecodeError:
-                    args = {}
-                result["tool_calls"].append(
-                    {
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "arguments": args,
-                    }
-                )
-
+        result = self._build_anthropic_result(state)
         self.last_stream_response = result
         yield StreamChunk(type="done")
-
-    def _stream_anthropic(self, messages, tools):
-        """Anthropic 协议流式输出"""
-        system_msg = ""
-        api_messages = []
-        for m in messages:
-            if m["role"] == "system":
-                system_msg = m["content"]
-            else:
-                api_messages.append(m)
-
-        kwargs = {
-            "model": self.llm_config["model"],
-            "messages": api_messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
-        }
-        if system_msg:
-            kwargs["system"] = system_msg
-        if tools:
-            kwargs["tools"] = self._convert_tools_to_anthropic(tools)
-
-        content_buf = ""
-        tool_calls_buf = []
-        current_tool = None
-
-        with self.client.messages.stream(**kwargs) as stream:
-            for event in stream:
-                if event.type == "content_block_start":
-                    if event.content_block.type == "tool_use":
-                        current_tool = {
-                            "id": event.content_block.id,
-                            "name": event.content_block.name,
-                            "arguments": "",
-                        }
-                elif event.type == "content_block_delta":
-                    if event.delta.type == "thinking_delta":
-                        yield StreamChunk(type="thinking", text=event.delta.thinking)
-                    elif event.delta.type == "text_delta":
-                        content_buf += event.delta.text
-                        yield StreamChunk(type="content", text=event.delta.text)
-                    elif event.delta.type == "input_json_delta":
-                        if current_tool:
-                            current_tool["arguments"] += event.delta.partial_json
-                elif event.type == "content_block_stop":
-                    if current_tool:
-                        tool_calls_buf.append(current_tool)
-                        current_tool = None
-
-        result = {
-            "content": content_buf,
-            "tool_calls": None,
-            "stop_reason": "stop",
-        }
-        if tool_calls_buf:
-            result["tool_calls"] = []
-            result["stop_reason"] = "tool_calls"
-            for tc in tool_calls_buf:
-                try:
-                    args = json.loads(tc["arguments"])
-                except json.JSONDecodeError:
-                    args = {}
-                result["tool_calls"].append(
-                    {
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "arguments": args,
-                    }
-                )
-
-        yield StreamChunk(type="done")
-        return result
 
     def _convert_tools_to_anthropic(self, tools) -> list:
         """将 OpenAI 格式的 tools 转换为 Anthropic 格式"""

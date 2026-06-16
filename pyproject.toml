@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deeppulse"
-version = "0.1.0"
+version = "0.2.1"
 description = "DeepPulse — A-share short-term stock analysis AI Agent with memory, pattern recognition, and backtesting"
 readme = "README.md"
 license = {text = "Apache-2.0"}

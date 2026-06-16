@@ -21,6 +21,20 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+      - run: mypy agent/ src/ --ignore-missing-imports
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -31,9 +45,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Run tests
-        run: python -m pytest tests/ -m "not integration" --tb=short -q
+      - name: Run tests with coverage
+        run: python -m pytest tests/ -m "not integration" --tb=short -q --cov --cov-report=xml --cov-report=term-missing
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml

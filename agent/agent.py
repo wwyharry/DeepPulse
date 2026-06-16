@@ -65,13 +65,30 @@ class StockAgent:
 
         return "分析轮次已达上限，请简化问题后重试。"
 
+    def _prepare_user_input(self, user_input: str):
+        """公共预处理：追踪会话信息、追加用户消息"""
+        self._track_session_info(user_input)
+        self.messages.append({"role": "user", "content": user_input})
+
+    def _process_stream_response(self, response: dict):
+        """公共后处理：将 LLM 响应追加到消息历史，判断是否结束"""
+        self.messages.append(self.client.format_assistant_message(response))
+        return response["stop_reason"] == "stop" or not response["tool_calls"]
+
+    def _yield_tool_execution(self, tc: dict, result: str):
+        """公共工具执行结果 yield"""
+        args_str = json.dumps(tc["arguments"], ensure_ascii=False)
+        tool_start = f"{tc['name']}({args_str})"
+        tool_result = result[:300] if len(result) > 300 else result
+        self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
+        return tool_start, tool_result
+
     def chat_stream(self, user_input: str):
         """流式处理用户输入，yield (type, text) 元组。
 
         type: "thinking" / "content" / "tool_start" / "tool_result" / "round" / "done"
         """
-        self._track_session_info(user_input)
-        self.messages.append({"role": "user", "content": user_input})
+        self._prepare_user_input(user_input)
 
         for round_num in range(self.max_rounds):
             yield ("round", round_num + 1)
@@ -79,31 +96,24 @@ class StockAgent:
             if self.verbose:
                 print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
-            # 流式调用，逐 chunk yield
             for chunk in self.client.chat_stream(self.messages, tools=TOOL_DEFINITIONS):
                 if chunk.type == "thinking":
                     yield ("thinking", chunk.text)
                 elif chunk.type == "content":
                     yield ("content", chunk.text)
 
-            # 流式完成后从 client 获取完整结构化结果
             response = self.client.last_stream_response
+            is_done = self._process_stream_response(response)
 
-            self.messages.append(self.client.format_assistant_message(response))
-
-            if response["stop_reason"] == "stop" or not response["tool_calls"]:
+            if is_done:
                 yield ("done", "")
                 return
 
-            # 执行工具
             for tc in response["tool_calls"]:
-                args_str = json.dumps(tc["arguments"], ensure_ascii=False)
-                yield ("tool_start", f"{tc['name']}({args_str})")
-
                 result = self._run_tool(tc["name"], tc["arguments"])
-                yield ("tool_result", result[:300] if len(result) > 300 else result)
-
-                self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
+                tool_start, tool_result = self._yield_tool_execution(tc, result)
+                yield ("tool_start", tool_start)
+                yield ("tool_result", tool_result)
 
             self._append_pending_system_notes()
 
@@ -114,8 +124,7 @@ class StockAgent:
 
         type: "thinking" / "content" / "tool_start" / "tool_result" / "round" / "done"
         """
-        self._track_session_info(user_input)
-        self.messages.append({"role": "user", "content": user_input})
+        self._prepare_user_input(user_input)
 
         for round_num in range(self.max_rounds):
             yield ("round", round_num + 1)
@@ -123,53 +132,28 @@ class StockAgent:
             if self.verbose:
                 print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
-            # 异步流式调用，逐 chunk yield
             async for chunk in self.client.chat_stream_async(self.messages, tools=TOOL_DEFINITIONS):
                 if chunk.type == "thinking":
                     yield ("thinking", chunk.text)
                 elif chunk.type == "content":
                     yield ("content", chunk.text)
 
-            # 流式完成后从 client 获取完整结构化结果
             response = self.client.last_stream_response
+            is_done = self._process_stream_response(response)
 
-            self.messages.append(self.client.format_assistant_message(response))
-
-            if response["stop_reason"] == "stop" or not response["tool_calls"]:
+            if is_done:
                 yield ("done", "")
                 return
 
-            # 执行工具（异步）
             for tc in response["tool_calls"]:
-                args_str = json.dumps(tc["arguments"], ensure_ascii=False)
-                yield ("tool_start", f"{tc['name']}({args_str})")
-
-                result = await self._run_tool_async(tc["name"], tc["arguments"])
-                yield ("tool_result", result[:300] if len(result) > 300 else result)
-
-                self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
+                result = await asyncio.to_thread(self._run_tool, tc["name"], tc["arguments"])
+                tool_start, tool_result = self._yield_tool_execution(tc, result)
+                yield ("tool_start", tool_start)
+                yield ("tool_result", tool_result)
 
             self._append_pending_system_notes()
 
         yield ("done", "")
-
-    async def _run_tool_async(self, tool_name: str, tool_args: dict) -> str:
-        """异步执行单个工具"""
-        # 在线程池中执行同步工具函数
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run_tool, tool_name, tool_args)
-
-    def _drain_stream(self, gen, yield_fn):
-        """消费流式生成器，返回最终结果"""
-        response = None
-        try:
-            for chunk in gen:
-                if yield_fn and chunk.type in ("thinking", "content"):
-                    yield_fn(chunk)
-                # done chunk 不需要转发
-        except StopIteration as e:
-            response = e.value
-        return response
 
     def _run_tool(self, tool_name: str, tool_args: dict) -> str:
         """执行单个工具，结果超长时自动截断以防上下文溢出"""
