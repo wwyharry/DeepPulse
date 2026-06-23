@@ -110,7 +110,10 @@ class LLMClient:
                 chunk = next(gen)
                 yield chunk
             except StopIteration as e:
-                self.last_stream_response = e.value
+                # 内部生成器通过 self.last_stream_response 设置结果，
+                # 仅在内部生成器显式 return 了值时才覆盖
+                if e.value is not None:
+                    self.last_stream_response = e.value
                 break
 
     async def chat_stream_async(self, messages: list, tools: list = None):

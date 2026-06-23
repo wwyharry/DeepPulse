@@ -72,6 +72,8 @@ class StockAgent:
 
     def _process_stream_response(self, response: dict):
         """公共后处理：将 LLM 响应追加到消息历史，判断是否结束"""
+        if response is None:
+            return True
         self.messages.append(self.client.format_assistant_message(response))
         return response["stop_reason"] == "stop" or not response["tool_calls"]
 
