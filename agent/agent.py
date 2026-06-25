@@ -210,7 +210,7 @@ class StockAgent:
 
             if truncated:
                 data["_truncated"] = True
-                data["_truncated_hint"] = f"数据已严重截断，仅保留部分记录。请缩小查询范围。"
+                data["_truncated_hint"] = "数据已严重截断，仅保留部分记录。请缩小查询范围。"
                 result = json.dumps(data, ensure_ascii=False, default=str)
                 if len(result) <= max_chars:
                     return result
@@ -222,7 +222,7 @@ class StockAgent:
         last_newline = truncated.rfind("\n")
         if last_newline > max_chars * 0.8:
             truncated = truncated[:last_newline]
-        return truncated + f'\n...[结果过长已截断，原始长度{len(result)}字符，请缩小查询范围]'
+        return truncated + f"\n...[结果过长已截断，原始长度{len(result)}字符，请缩小查询范围]"
 
     @staticmethod
     def _is_error_result(result: str) -> bool:
@@ -287,7 +287,7 @@ class StockAgent:
         call_sig = (tool_name, args_sig)
 
         # 去重检测
-        recent_calls = self._tool_call_history[-getattr(_config, "TOOL_REPEAT_DETECTION_WINDOW", 5):]
+        recent_calls = self._tool_call_history[-getattr(_config, "TOOL_REPEAT_DETECTION_WINDOW", 5) :]
         if call_sig in recent_calls:
             self._pending_system_notes.append(
                 f"[系统提示] 工具 `{tool_name}` 使用相同参数刚刚调用过，结果相同。"
