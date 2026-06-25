@@ -10,6 +10,9 @@ from rich.text import Text
 from textual.containers import Container, ScrollableContainer
 from textual.widgets import Button, Static
 
+# Markdown 渲染节流间隔（秒），防止流式输出时 O(n²) 重渲染
+_RENDER_THROTTLE = 0.2
+
 # ═══════════════════ 状态栏 ═══════════════════
 
 
@@ -204,6 +207,8 @@ class AgentMessageContainer(Static):
         self.complete = False
         self.start_time = time.time()
         self.thinking_collapsed = True
+        self._last_render_time: float = 0.0
+        self._pending_render: bool = False
 
     def update_thinking(self, text: str):
         self.thinking_text = text
@@ -223,11 +228,23 @@ class AgentMessageContainer(Static):
 
     def mark_complete(self):
         self.complete = True
+        self._last_render_time = 0  # 重置节流，确保最终渲染立即执行
         self.refresh_display()
 
     def refresh_display(self):
+        now = time.time()
+
+        # 流式输出期间节流：未完成且距上次渲染不足 200ms 时跳过
+        if not self.complete and self._last_render_time > 0:
+            if now - self._last_render_time < _RENDER_THROTTLE:
+                self._pending_render = True
+                return
+
+        self._last_render_time = now
+        self._pending_render = False
+
         parts = []
-        elapsed = time.time() - self.start_time
+        elapsed = now - self.start_time
 
         # 思考过程（折叠/展开）
         if self.thinking_text and len(self.thinking_text) > 20:
@@ -247,9 +264,13 @@ class AgentMessageContainer(Static):
             tool_badges = " ".join([f"[{t}]" for t in self.tools[-6:]])
             parts.append(Text(f"🔧 {tool_badges}", style="#d29922"))
 
-        # 输出内容（Markdown渲染）
+        # 输出内容（Markdown渲染，带异常保护）
         if self.content_text:
-            parts.append(Markdown(self.content_text))
+            try:
+                parts.append(Markdown(self.content_text))
+            except Exception:
+                # Markdown 解析失败（不完整语法等），fallback 到纯文本
+                parts.append(Text(self.content_text, style="#c9d1d9"))
 
         # 状态指示
         if not self.complete:

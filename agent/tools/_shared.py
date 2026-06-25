@@ -1,4 +1,7 @@
-"""共享的全局实例 - 延迟初始化，避免 import 时副作用"""
+"""共享的全局实例与工具函数 - 延迟初始化，避免 import 时副作用"""
+
+# 成交量单位：数据库存储为股，展示时转为手（1手=100股）
+LOTS_PER_SHARE = 100  # 1手 = 100股
 
 _query = None
 _realtime_manager = None
@@ -58,3 +61,21 @@ def get_memory():
 def get_strategy_loader():
     ensure_initialized()
     return _strategy_loader
+
+
+def shares_to_lots(volume) -> int | None:
+    """将成交量从股转换为手（1手=100股），向下取整"""
+    if volume is None:
+        return None
+    try:
+        return int(float(volume) // LOTS_PER_SHARE)
+    except (ValueError, TypeError):
+        return None
+
+
+def convert_volume_in_records(records: list[dict], volume_key: str = "volume") -> list[dict]:
+    """将记录列表中的成交量字段从股转为手（原地修改，返回原列表）"""
+    for r in records:
+        if volume_key in r and r[volume_key] is not None:
+            r[volume_key] = shares_to_lots(r[volume_key])
+    return records

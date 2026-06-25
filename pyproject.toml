@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deeppulse"
-version = "0.2.1"
+version = "0.2.2"
 description = "DeepPulse — A-share short-term stock analysis AI Agent with memory, pattern recognition, and backtesting"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -51,6 +51,7 @@ dev = [
 
 [project.scripts]
 deeppulse = "agent.cli:main"
+deeppulse-tui = "agent.tui_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["agent*", "src*"]

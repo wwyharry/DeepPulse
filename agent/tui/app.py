@@ -73,6 +73,29 @@ class DeepPulseTUI(App):
         self._history_index = -1
         self._init_done = False
 
+        # 后台任务管理（防止 GC 回收 + 异常捕获）
+        self._background_tasks: set[asyncio.Task] = set()
+
+        # 面板错误计数（连续失败 N 次后显示提示）
+        self._panel_errors: dict[str, int] = {"watchlist": 0, "portfolio": 0, "market": 0}
+
+    def _create_task(self, coro, name: str = ""):
+        """创建后台任务并保存引用，防止 GC 回收；异常时显示到 ChatLog"""
+        task = asyncio.create_task(coro, name=name)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_task_done)
+        return task
+
+    def _on_task_done(self, task: asyncio.Task):
+        """后台任务完成回调：清理引用 + 捕获异常"""
+        self._background_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc and self.verbose:
+            task_name = task.get_name() or "unknown"
+            self.chat_log.add_system_message(f"⚠️ 后台任务 [{task_name}] 异常: {exc}")
+
     def compose(self) -> ComposeResult:
         """构建三栏布局"""
         yield Header()
@@ -114,47 +137,62 @@ class DeepPulseTUI(App):
         )
 
         self.chat_input.focus()
-        asyncio.create_task(self._init_agents_async())
+        self._create_task(self._init_agents_async(), "init_agents")
 
     async def _init_agents_async(self):
-        """异步初始化Agent"""
-        self.status_bar.set_status("初始化中...")
-        try:
-            loop = asyncio.get_event_loop()
+        """异步初始化Agent（带重试）"""
+        max_retries = 3
+        retry_delays = [3, 6, 12]  # 指数退避秒数
 
-            self.agent = await loop.run_in_executor(
-                None, lambda: StockAgent(setting=self.setting, verbose=self.verbose)
-            )
+        for attempt in range(max_retries):
+            self.status_bar.set_status(f"初始化中{'...' if attempt == 0 else f' (重试 {attempt}/{max_retries - 1})'}")
+            try:
+                loop = asyncio.get_running_loop()
 
-            self.judge_agent = await loop.run_in_executor(None, lambda: JudgeAgent(setting=self.setting))
+                self.agent = await loop.run_in_executor(
+                    None, lambda: StockAgent(setting=self.setting, verbose=self.verbose)
+                )
 
-            # 更新状态栏
-            model = (self.setting or {}).get("llm", {}).get("model", "unknown")
-            self.status_bar.set_model(model)
-            self.status_bar.set_session(self.agent.session_id)
-            self.status_bar.set_status("就绪")
+                self.judge_agent = await loop.run_in_executor(None, lambda: JudgeAgent(setting=self.setting))
 
-            self._init_done = True
+                # 更新状态栏
+                model = (self.setting or {}).get("llm", {}).get("model", "unknown")
+                self.status_bar.set_model(model)
+                self.status_bar.set_session(self.agent.session_id)
+                self.status_bar.set_status("就绪")
 
-            self.chat_log.add_system_message(
-                "✅ Agent 初始化完成！现在可以开始提问。\n💡 输入「评判一下」或按 Ctrl+J 让评判Agent检查分析质量。"
-            )
+                self._init_done = True
 
-            # 加载面板数据并启动定时刷新
-            asyncio.create_task(self._load_watchlist())
-            asyncio.create_task(self._load_portfolio())
-            asyncio.create_task(self._load_market())
-            self.set_interval(60, self._refresh_watchlist)
-            self.set_interval(60, self._refresh_portfolio)
-            self.set_interval(300, self._refresh_market)
+                self.chat_log.add_system_message(
+                    "✅ Agent 初始化完成！现在可以开始提问。\n💡 输入「评判一下」或按 Ctrl+J 让评判Agent检查分析质量。"
+                )
 
-        except Exception as e:
-            self.chat_log.add_system_message(f"❌ Agent 初始化失败: {str(e)}")
-            self.status_bar.set_status("初始化失败")
+                # 加载面板数据并启动定时刷新
+                self._create_task(self._load_watchlist(), "init_watchlist")
+                self._create_task(self._load_portfolio(), "init_portfolio")
+                self._create_task(self._load_market(), "init_market")
+                self.set_interval(60, self._refresh_watchlist)
+                self.set_interval(60, self._refresh_portfolio)
+                self.set_interval(300, self._refresh_market)
+                return  # 成功，退出
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    self.chat_log.add_system_message(
+                        f"⚠️ Agent 初始化失败 ({attempt + 1}/{max_retries}): {str(e)}\n⏳ {delay}秒后自动重试..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    self.chat_log.add_system_message(
+                        f"❌ Agent 初始化失败（已重试 {max_retries} 次）: {str(e)}\n"
+                        f"💡 请检查网络连接和 setting.json 配置，然后重启程序。"
+                    )
+                    self.status_bar.set_status("初始化失败")
 
     def _refresh_watchlist(self):
         """定时刷新自选股（由 set_interval 回调）"""
-        asyncio.create_task(self._load_watchlist())
+        self._create_task(self._load_watchlist(), "refresh_watchlist")
 
     async def _load_watchlist(self):
         """后台加载自选股实时数据"""
@@ -163,7 +201,7 @@ class DeepPulseTUI(App):
             from agent.watchlist import WatchlistManager
             from src.realtime.manager import RealtimeQuoteManager
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
 
             # 获取自选股代码列表（线程池执行，不阻塞UI）
             wl = WatchlistManager()
@@ -196,12 +234,15 @@ class DeepPulseTUI(App):
 
             if stocks:
                 self.watchlist_panel.set_stocks(stocks)
-        except Exception:
-            pass
+            self._panel_errors["watchlist"] = 0  # 成功，重置计数
+        except Exception as e:
+            self._panel_errors["watchlist"] += 1
+            if self._panel_errors["watchlist"] >= 3 and self.verbose:
+                self.chat_log.add_system_message(f"⚠️ 自选股数据加载连续失败: {e}")
 
     def _refresh_portfolio(self):
         """定时刷新持仓"""
-        asyncio.create_task(self._load_portfolio())
+        self._create_task(self._load_portfolio(), "refresh_portfolio")
 
     async def _load_portfolio(self):
         """后台加载持仓实时数据"""
@@ -210,7 +251,7 @@ class DeepPulseTUI(App):
             from agent.journal import TradeJournal
             from src.realtime.manager import RealtimeQuoteManager
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
 
             journal = TradeJournal()
             portfolio = await loop.run_in_executor(None, journal.get_portfolio)
@@ -251,22 +292,28 @@ class DeepPulseTUI(App):
 
             if positions:
                 self.portfolio_panel.set_positions(positions)
-        except Exception:
-            pass
+            self._panel_errors["portfolio"] = 0  # 成功，重置计数
+        except Exception as e:
+            self._panel_errors["portfolio"] += 1
+            if self._panel_errors["portfolio"] >= 3 and self.verbose:
+                self.chat_log.add_system_message(f"⚠️ 持仓数据加载连续失败: {e}")
 
     def _refresh_market(self):
         """定时刷新市场概况"""
-        asyncio.create_task(self._load_market())
+        self._create_task(self._load_market(), "refresh_market")
 
     async def _load_market(self):
         """后台加载三大指数（新浪实时）"""
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             data = await loop.run_in_executor(None, self._fetch_indices)
             if data:
                 self.market_panel.update_market(data)
-        except Exception:
-            pass
+            self._panel_errors["market"] = 0  # 成功，重置计数
+        except Exception as e:
+            self._panel_errors["market"] += 1
+            if self._panel_errors["market"] >= 3 and self.verbose:
+                self.chat_log.add_system_message(f"⚠️ 市场数据加载连续失败: {e}")
 
     @staticmethod
     def _fetch_indices() -> dict | None:
@@ -571,7 +618,7 @@ class DeepPulseTUI(App):
             wl = WatchlistManager()
 
             # 同步刷新面板
-            asyncio.create_task(self._load_watchlist())
+            self._create_task(self._load_watchlist(), "cmd_watchlist")
 
             if not arg or arg == "list":
                 result = format_watchlist_status(wl)
@@ -597,7 +644,7 @@ class DeepPulseTUI(App):
             j = TradeJournal()
 
             # 同步刷新面板
-            asyncio.create_task(self._load_portfolio())
+            self._create_task(self._load_portfolio(), "cmd_portfolio")
 
             if not arg or arg == "list":
                 result = format_portfolio_status(j)

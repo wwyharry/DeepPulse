@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import duckdb
 
-from agent.tools._shared import get_query, get_realtime_manager
+from agent.tools._shared import get_query, get_realtime_manager, shares_to_lots
 
 
 def search_stock(keyword: str) -> str:
@@ -51,9 +51,10 @@ def query_kline(code: str, days: int = 60, source: str = "") -> str:
         for k in ["open", "high", "low", "close", "amount", "turnover"]:
             if r.get(k) is not None:
                 r[k] = round(float(r[k]), 4)
+        # 成交量：数据库存储为股，转为手（1手=100股）
         if r.get("volume") is not None:
-            r["volume"] = int(r["volume"])
-    return json.dumps({"code": code, "count": len(records), "kline": records}, ensure_ascii=False)
+            r["volume"] = shares_to_lots(r["volume"])
+    return json.dumps({"code": code, "count": len(records), "volume_unit": "手", "kline": records}, ensure_ascii=False)
 
 
 def latest_price(codes: str) -> str:
@@ -72,7 +73,10 @@ def latest_price(codes: str) -> str:
                 r[k] = round(v, 4)
             elif hasattr(v, "item"):
                 r[k] = v.item()
-    return json.dumps({"results": records}, ensure_ascii=False, default=str)
+        # 成交量：股→手
+        if "volume" in r and r["volume"] is not None:
+            r["volume"] = shares_to_lots(r["volume"])
+    return json.dumps({"results": records, "volume_unit": "手"}, ensure_ascii=False, default=str)
 
 
 def realtime_price(code: str) -> str:
@@ -82,7 +86,12 @@ def realtime_price(code: str) -> str:
     quote = rm.fetch_quote(code)
     if quote is None:
         return json.dumps({"error": f"股票 {code} 无实时数据（可能代码错误或停牌）"}, ensure_ascii=False)
-    return json.dumps(quote.to_dict(), ensure_ascii=False)
+    d = quote.to_dict()
+    # 成交量：股→手
+    if "volume" in d and d["volume"] is not None:
+        d["volume"] = shares_to_lots(d["volume"])
+    d["volume_unit"] = "手"
+    return json.dumps(d, ensure_ascii=False)
 
 
 def realtime_prices(codes: str) -> str:
@@ -94,8 +103,15 @@ def realtime_prices(codes: str) -> str:
     quotes = rm.fetch_quotes(code_list)
     if not quotes:
         return json.dumps({"error": "所有股票均无实时数据"}, ensure_ascii=False)
-    results = [quotes[c].to_dict() for c in code_list if c in quotes]
-    return json.dumps({"results": results, "count": len(results)}, ensure_ascii=False)
+    results = []
+    for c in code_list:
+        if c in quotes:
+            d = quotes[c].to_dict()
+            # 成交量：股→手
+            if "volume" in d and d["volume"] is not None:
+                d["volume"] = shares_to_lots(d["volume"])
+            results.append(d)
+    return json.dumps({"results": results, "count": len(results), "volume_unit": "手"}, ensure_ascii=False)
 
 
 def market_overview() -> str:
@@ -283,8 +299,9 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi") 
         )
         vol_change = (vol_avg - vol_prev) / vol_prev * 100 if vol_prev > 0 else 0
         result["量价分析"] = {
-            "近5日均量": int(vol_avg),
-            "前5日均量": int(vol_prev),
+            "近5日均量": shares_to_lots(vol_avg),
+            "前5日均量": shares_to_lots(vol_prev),
+            "volume_unit": "手",
             "量变化": f"{vol_change:+.1f}%",
             "今日涨跌": f"{price_change:+.2f}%",
             "判断": "放量上涨"

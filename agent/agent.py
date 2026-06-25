@@ -31,6 +31,11 @@ class StockAgent:
         # 用户消息历史（用于画像提取）
         self._user_messages = []
 
+        # 工具调用追踪（防重复、防编造）
+        self._tool_call_history: list[tuple[str, str]] = []  # (tool_name, args_signature)
+        self._consecutive_tool_errors: int = 0  # 连续工具异常计数
+        self._truncated_tools: set[str] = set()  # 本轮被截断过的工具名
+
         # 跟踪会话中的股票和主题
         self._session_stocks = set()
         self._session_topics = set()
@@ -66,9 +71,13 @@ class StockAgent:
         return "分析轮次已达上限，请简化问题后重试。"
 
     def _prepare_user_input(self, user_input: str):
-        """公共预处理：追踪会话信息、追加用户消息"""
+        """公共预处理：追踪会话信息、追加用户消息、重置轮内状态"""
         self._track_session_info(user_input)
         self.messages.append({"role": "user", "content": user_input})
+        # 每轮用户输入重置工具追踪状态（跨 ReAct 轮次保持）
+        self._tool_call_history.clear()
+        self._consecutive_tool_errors = 0
+        self._truncated_tools.clear()
 
     def _process_stream_response(self, response: dict):
         """公共后处理：将 LLM 响应追加到消息历史，判断是否结束"""
@@ -78,10 +87,11 @@ class StockAgent:
         return response["stop_reason"] == "stop" or not response["tool_calls"]
 
     def _yield_tool_execution(self, tc: dict, result: str):
-        """公共工具执行结果 yield"""
+        """公共工具执行结果 yield（含去重/错误检测）"""
         args_str = json.dumps(tc["arguments"], ensure_ascii=False)
         tool_start = f"{tc['name']}({args_str})"
         tool_result = result[:300] if len(result) > 300 else result
+        self._track_tool_result(tc["name"], tc["arguments"], result)
         self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
         return tool_start, tool_result
 
@@ -158,18 +168,80 @@ class StockAgent:
         yield ("done", "")
 
     def _run_tool(self, tool_name: str, tool_args: dict) -> str:
-        """执行单个工具，结果超长时自动截断以防上下文溢出"""
+        """执行单个工具，结果超长时智能截断以防上下文溢出"""
         if tool_name in TOOL_DISPATCH:
             try:
                 result = TOOL_DISPATCH[tool_name](**tool_args)
                 max_chars = getattr(_config, "MAX_TOOL_RESULT_CHARS", 8000)
                 if len(result) > max_chars:
-                    result = result[:max_chars] + f"\n...[结果过长已截断，原始长度{len(result)}字符，请缩小查询范围]"
+                    result = self._smart_truncate(result, max_chars, tool_name)
                 self._check_memory_update(tool_name, result)
                 return result
             except Exception as e:
-                return json.dumps({"error": str(e)}, ensure_ascii=False)
+                return json.dumps({"error": str(e), "tool": tool_name}, ensure_ascii=False)
         return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
+
+    def _smart_truncate(self, result: str, max_chars: int, tool_name: str) -> str:
+        """智能截断工具结果：尝试保留合法JSON结构"""
+        # 尝试 JSON 感知截断
+        try:
+            data = json.loads(result)
+            # 找到主要的数据列表字段（kline, results, patterns 等）
+            truncated = False
+            for key in ("kline", "results", "patterns", "data", "news", "memories"):
+                if isinstance(data.get(key), list) and len(data[key]) > 3:
+                    original_len = len(data[key])
+                    # 逐步缩减直到满足大小限制
+                    for keep_ratio in [0.7, 0.5, 0.3, 0.2]:
+                        test_data = dict(data)
+                        test_data[key] = data[key][: max(3, int(original_len * keep_ratio))]
+                        test_data["_truncated"] = True
+                        test_data["_truncated_hint"] = (
+                            f"数据已截断：原始{original_len}条，当前{len(test_data[key])}条。"
+                            f"如需完整数据请缩小查询范围（如减少天数）"
+                        )
+                        test_str = json.dumps(test_data, ensure_ascii=False, default=str)
+                        if len(test_str) <= max_chars:
+                            return test_str
+                    # 都不行，至少保留3条
+                    data[key] = data[key][:3]
+                    truncated = True
+                    break
+
+            if truncated:
+                data["_truncated"] = True
+                data["_truncated_hint"] = f"数据已严重截断，仅保留部分记录。请缩小查询范围。"
+                result = json.dumps(data, ensure_ascii=False, default=str)
+                if len(result) <= max_chars:
+                    return result
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+
+        # 兜底：在最后一个换行符处截断，保持可读
+        truncated = result[:max_chars]
+        last_newline = truncated.rfind("\n")
+        if last_newline > max_chars * 0.8:
+            truncated = truncated[:last_newline]
+        return truncated + f'\n...[结果过长已截断，原始长度{len(result)}字符，请缩小查询范围]'
+
+    @staticmethod
+    def _is_error_result(result: str) -> bool:
+        """检测工具返回是否为错误"""
+        try:
+            data = json.loads(result)
+            return isinstance(data, dict) and "error" in data
+        except (json.JSONDecodeError, TypeError):
+            return False
+
+    @staticmethod
+    def _is_truncated_result(result: str) -> bool:
+        """检测工具返回是否被截断"""
+        try:
+            data = json.loads(result)
+            return isinstance(data, dict) and data.get("_truncated") is True
+        except (json.JSONDecodeError, TypeError):
+            # 非JSON结果中包含截断标记
+            return "结果过长已截断" in result or "[_truncated]" in result
 
     def _check_memory_update(self, tool_name: str, tool_result: str):
         """记忆保存后注入提醒，让 LLM 知道新记忆已生效"""
@@ -209,6 +281,48 @@ class StockAgent:
             system_content += "\n\n## 可用短线战法一览\n" + strategy_summary
         self.messages[0]["content"] = system_content
 
+    def _track_tool_result(self, tool_name: str, tool_args: dict, result: str):
+        """追踪工具调用结果：去重检测、错误/截断注入 system note"""
+        args_sig = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
+        call_sig = (tool_name, args_sig)
+
+        # 去重检测
+        recent_calls = self._tool_call_history[-getattr(_config, "TOOL_REPEAT_DETECTION_WINDOW", 5):]
+        if call_sig in recent_calls:
+            self._pending_system_notes.append(
+                f"[系统提示] 工具 `{tool_name}` 使用相同参数刚刚调用过，结果相同。"
+                f"请勿重复调用，直接使用已有结果。如果数据被截断，请缩小查询范围（如减少 days 参数）而非重试。"
+            )
+        self._tool_call_history.append(call_sig)
+
+        # 错误/截断检测
+        is_error = self._is_error_result(result)
+        is_truncated = self._is_truncated_result(result)
+
+        if is_error:
+            self._consecutive_tool_errors += 1
+            self._pending_system_notes.append(
+                f"[系统提示] 工具 `{tool_name}` 调用失败：{result[:200]}。"
+                f"请**不要编造**该工具应返回的数据。可尝试其他工具获取信息，或直接告知用户数据获取失败。"
+            )
+        elif is_truncated:
+            self._consecutive_tool_errors = 0
+            self._truncated_tools.add(tool_name)
+            self._pending_system_notes.append(
+                f"[系统提示] 工具 `{tool_name}` 返回数据被截断，当前数据不完整。"
+                f"分析时请注明数据范围有限。如需完整数据，请用更小的参数重新查询（如减少天数）。"
+            )
+        else:
+            self._consecutive_tool_errors = 0
+
+        if self._consecutive_tool_errors >= 3:
+            self._pending_system_notes.append(
+                "[系统提示] ⚠️ 连续多次工具调用异常，当前分析环境受限。"
+                "请停止尝试工具调用，直接基于已有数据给出分析，或告知用户当前无法完成分析。"
+                "**严禁编造数据**。"
+            )
+            self._consecutive_tool_errors = 0
+
     def _execute_tools(self, response: dict):
         """执行工具调用并更新消息历史"""
         if self.verbose:
@@ -218,6 +332,7 @@ class StockAgent:
 
         for tc in response["tool_calls"]:
             result = self._run_tool(tc["name"], tc["arguments"])
+            self._track_tool_result(tc["name"], tc["arguments"], result)
 
             if self.verbose:
                 display = result[:200] + "..." if len(result) > 200 else result
@@ -318,6 +433,9 @@ class StockAgent:
         self._session_stocks.clear()
         self._session_topics.clear()
         self._pending_system_notes.clear()
+        self._tool_call_history.clear()
+        self._consecutive_tool_errors = 0
+        self._truncated_tools.clear()
         # 重新加载记忆上下文
         memory_context = self.memory.get_context_block("", max_chars=2000)
         system_content = SYSTEM_PROMPT

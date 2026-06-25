@@ -3,15 +3,21 @@
 ## 启动
 
 ```bash
+# 方式一：通过 pip install 后的命令（推荐）
+deeppulse-tui
+
+# 方式二：直接运行模块
 python -m agent.tui_cli
 ```
 
 命令行参数：
 ```bash
-python -m agent.tui_cli --model MODEL    # 覆盖模型
-python -m agent.tui_cli --verbose        # 显示详细日志
-python -m agent.tui_cli --no-judge       # 禁用评判Agent
+deeppulse-tui --model MODEL    # 覆盖模型
+deeppulse-tui --verbose        # 显示详细日志
+deeppulse-tui --no-judge       # 禁用评判Agent
 ```
+
+> **Windows 用户**：推荐使用 Windows Terminal，已自动处理中文编码。如遇乱码，请确保终端使用 UTF-8 编码（`chcp 65001`）。
 
 ## 界面布局
 

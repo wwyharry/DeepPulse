@@ -2,14 +2,37 @@
 """DeepPulse TUI模式启动入口"""
 
 import argparse
+import io
+import os
 import sys
 from pathlib import Path
+
+# Windows 终端 UTF-8 支持（必须在所有 print 之前）
+if sys.platform == "win32":
+    # 设置控制台代码页为 UTF-8
+    try:
+        os.system("chcp 65001 >nul 2>&1")
+    except Exception:
+        pass
+    # 包装 stdout/stderr 为 UTF-8 模式，防止 emoji/中文乱码
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # 确保项目根目录在 sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agent.client import load_setting
 from agent.tui.app import run_tui
+
+
+def _safe_print(msg: str):
+    """编码安全的 print，防止 Windows GBK 终端崩溃"""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode("utf-8", errors="replace").decode("utf-8", errors="replace"))
 
 
 def main():
@@ -25,11 +48,11 @@ def main():
     try:
         setting = load_setting()
     except FileNotFoundError:
-        print("❌ 未找到 setting.json，请先配置 LLM")
-        print("💡 提示: 复制 setting.example.json 为 setting.json 并填入 API Key")
+        _safe_print("❌ 未找到 setting.json，请先配置 LLM")
+        _safe_print("💡 提示: 复制 setting.example.json 为 setting.json 并填入 API Key")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ 配置加载失败: {e}")
+        _safe_print(f"❌ 配置加载失败: {e}")
         sys.exit(1)
 
     # 覆盖模型
@@ -42,17 +65,17 @@ def main():
     else:
         setting["agent"]["enable_judge"] = True
 
-    print("✨ 正在启动 DeepPulse TUI...")
-    print("💡 提示: Ctrl+Q 退出, Ctrl+R 重置对话, Ctrl+L 清屏")
-    print()
+    _safe_print("✨ 正在启动 DeepPulse TUI...")
+    _safe_print("💡 提示: Ctrl+Q 退出, Ctrl+R 重置对话, Ctrl+L 清屏")
+    _safe_print("")
 
     # 启动TUI
     try:
         run_tui(setting=setting, verbose=args.verbose)
     except KeyboardInterrupt:
-        print("\n👋 再见！")
+        _safe_print("\n👋 再见！")
     except Exception as e:
-        print(f"\n❌ 运行错误: {e}")
+        _safe_print(f"\n❌ 运行错误: {e}")
         import traceback
 
         traceback.print_exc()

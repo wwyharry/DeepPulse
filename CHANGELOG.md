@@ -1,5 +1,40 @@
 # 更新日志
 
+## v0.2.2 (2026-06-25)
+
+### 📊 数据准确性
+
+- **修复** 成交量单位：所有工具输出从"股"统一转换为"手"（1手=100股），符合A股市场惯例
+- **新增** 工具返回中标注 `volume_unit: "手"` 字段，消除LLM单位混淆
+- **影响** `query_kline`、`latest_price`、`realtime_price`、`realtime_prices`、`calc_technical`、`query_timeframe_kline`、`multi_timeframe_analysis`
+
+### 🛡️ 数据真实性防护
+
+- **新增** System Prompt "数据真实性铁律"：严禁编造数据、工具失败禁止编造、截断数据必须声明
+- **新增** Agent 工具调用去重检测：相同参数的重复调用自动提醒LLM停止重试
+- **新增** 工具 error 结果自动注入"禁止编造"系统提示
+- **新增** 连续3次工具异常自动注入"停止尝试"保护提示
+- **新增** 工具截断智能处理：JSON感知截断保留合法结构，添加 `_truncated` 元数据标记
+- **新增** `TOOL_REPEAT_DETECTION_WINDOW` 配置项（默认5）
+
+### 🎨 TUI 稳定性修复
+
+- **修复** Windows 终端编码乱码：`tui_cli.py` 添加 UTF-8 编码保护（`chcp 65001` + `TextIOWrapper`）
+- **修复** 流式输出 O(n²) 卡顿：`AgentMessageContainer` 渲染节流（200ms 间隔），消除每token全量Markdown重解析
+- **修复** 不完整Markdown语法导致渲染崩溃：`Markdown()` 添加 try/except，失败时降级为纯文本
+- **修复** 7处裸 `asyncio.create_task` 泄漏：统一使用 `_create_task()` 封装，Task引用被持有防止GC回收
+- **修复** 后台任务异常静默丢失：`_on_task_done()` 回调在verbose模式下显示到ChatLog
+- **修复** `asyncio.get_event_loop()` 弃用警告：全部替换为 `asyncio.get_running_loop()`
+- **修复** 面板刷新 `except Exception: pass` 完全静默：添加连续失败计数，3次后verbose模式显示错误
+- **新增** Agent 初始化自动重试（3次，3s/6s/12s 指数退避），网络抖动不再永久卡在"初始化失败"
+- **新增** `deeppulse-tui` 命令行入口（`pip install` 后直接运行）
+
+### 🔧 配置
+
+- **新增** `config.py` 中 `TOOL_REPEAT_DETECTION_WINDOW = 5`
+
+---
+
 ## v0.2.1 (2026-06-14)
 
 ### 🎨 TUI 全面升级

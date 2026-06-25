@@ -5,7 +5,7 @@ import json
 from agent.patterns import format_patterns as _format_patterns
 from agent.patterns import recognize_patterns as _recognize_patterns
 from agent.screener import screen_stocks as _screen_stocks
-from agent.tools._shared import get_query
+from agent.tools._shared import convert_volume_in_records, get_query
 
 
 def recognize_kline_patterns(code: str, days: int = 60) -> str:
@@ -44,6 +44,10 @@ def query_timeframe_kline(code: str, timeframe: str = "5m", limit: int = 100) ->
     from agent.timeframes import query_timeframe
 
     result = query_timeframe(code, timeframe, int(limit))
+    # 成交量：股→手
+    if isinstance(result.get("kline"), list):
+        convert_volume_in_records(result["kline"])
+    result["volume_unit"] = "手"
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -52,6 +56,12 @@ def multi_timeframe_analysis(code: str, limit: int = 50) -> str:
     from agent.timeframes import get_multi_timeframe_data
 
     result = get_multi_timeframe_data(code, ["daily", "60m", "15m"], int(limit))
+    # 成交量：股→手（遍历每个周期的数据）
+    if isinstance(result.get("timeframes"), dict):
+        for tf_data in result["timeframes"].values():
+            if isinstance(tf_data.get("kline"), list):
+                convert_volume_in_records(tf_data["kline"])
+    result["volume_unit"] = "手"
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
