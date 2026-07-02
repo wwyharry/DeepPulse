@@ -45,6 +45,8 @@ def generate_kline_chart(
         生成的文件路径
     """
     try:
+        import matplotlib
+        matplotlib.use("Agg")  # 使用非交互后端，避免在子线程初始化 Tcl/Tk
         import mplfinance as mpf
     except ImportError:
         return _generate_html_chart(
