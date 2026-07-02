@@ -46,6 +46,7 @@ def generate_kline_chart(
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")  # 使用非交互后端，避免在子线程初始化 Tcl/Tk
         import mplfinance as mpf
     except ImportError:
