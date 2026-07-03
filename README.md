@@ -324,10 +324,6 @@ DeepPulse 提供两种界面模式：
 #### 🎨 TUI 模式（推荐）— 全屏终端界面
 
 ```bash
-# 方式一：pip install 后直接运行（推荐）
-deeppulse-tui
-
-# 方式二：直接运行模块
 python -m agent.tui_cli
 ```
 
