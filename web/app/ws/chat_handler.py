@@ -84,16 +84,21 @@ async def chat_ws(websocket: WebSocket):
                     # 保存用户消息和助手回复到会话存储
                     session_store.save_message(session_id, {"role": "user", "content": content})
                     if full_content:
-                        session_store.save_message(session_id, {
-                            "role": "assistant",
-                            "content": full_content,
-                        })
+                        session_store.save_message(
+                            session_id,
+                            {
+                                "role": "assistant",
+                                "content": full_content,
+                            },
+                        )
 
                 except Exception as e:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": str(e),
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": str(e),
+                        }
+                    )
 
     except WebSocketDisconnect:
         pass
@@ -121,34 +126,42 @@ async def _run_judge(websocket: WebSocket, agent):
             if isinstance(event, tuple):
                 event_type, content = event
             else:
-                event_type = getattr(event, 'type', None)
-                content = getattr(event, 'text', '')
+                event_type = getattr(event, "type", None)
+                content = getattr(event, "text", "")
 
             if event_type == "content":
                 full_content += content
-                await websocket.send_json({
-                    "type": "judge_content",
-                    "delta": content,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "judge_content",
+                        "delta": content,
+                    }
+                )
 
             elif event_type == "score":
-                await websocket.send_json({
-                    "type": "judge_score",
-                    "score": content,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "judge_score",
+                        "score": content,
+                    }
+                )
 
             elif event_type == "dimension_score":
-                await websocket.send_json({
-                    "type": "judge_dimension",
-                    "data": json.loads(content) if isinstance(content, str) else content,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "judge_dimension",
+                        "data": json.loads(content) if isinstance(content, str) else content,
+                    }
+                )
 
             elif event_type == "summary":
                 summary = json.loads(content) if isinstance(content, str) else content
-                await websocket.send_json({
-                    "type": "judge_summary",
-                    "data": summary,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "judge_summary",
+                        "data": summary,
+                    }
+                )
 
         # 保存评测历史
         history = JudgeHistory()
@@ -157,7 +170,9 @@ async def _run_judge(websocket: WebSocket, agent):
         await websocket.send_json({"type": "judge_done"})
 
     except Exception as e:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"评测失败: {str(e)}",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"评测失败: {str(e)}",
+            }
+        )

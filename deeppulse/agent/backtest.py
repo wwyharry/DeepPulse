@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 import pandas as pd
 
+from deeppulse.agent.indicators import TechnicalIndicators
 from deeppulse.src.query import StockQuery
 
 # ============ 数据结构 ============
@@ -89,8 +90,6 @@ class BacktestResult:
 
 
 # ============ 技术指标计算（委托统一引擎） ============
-
-from deeppulse.agent.indicators import TechnicalIndicators
 
 # 保持向后兼容的别名
 calc_ma = TechnicalIndicators.ma

@@ -59,11 +59,16 @@ def start_backend(host: str, port: int) -> subprocess.Popen:
 
     proc = subprocess.Popen(
         [
-            sys.executable, "-m", "uvicorn",
+            sys.executable,
+            "-m",
+            "uvicorn",
             "web.app.main:app",
-            "--host", host,
-            "--port", str(port),
-            "--log-level", "info",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--log-level",
+            "info",
         ],
         cwd=str(ROOT),
         env=env,
@@ -77,6 +82,7 @@ def start_backend(host: str, port: int) -> subprocess.Popen:
 def wait_for_port(port: int, timeout: int = 30) -> bool:
     """等待端口可用"""
     import socket
+
     start = time.time()
     while time.time() - start < timeout:
         try:

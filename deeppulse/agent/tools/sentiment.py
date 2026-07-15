@@ -28,6 +28,7 @@ def sector_ranking(board_type: str = "industry", top_n: int = 10) -> str:
 def stock_fund_flow(code: str) -> str:
     """获取个股资金流向（多数据源，自动降级）"""
     from deeppulse.agent.fund_flow import get_stock_fund_flow
+
     result = get_stock_fund_flow(code)
     return json.dumps(result, ensure_ascii=False, default=str)
 

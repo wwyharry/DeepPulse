@@ -190,18 +190,24 @@ def get_sector_ranking(board_type: str = "industry", top_n: int = 10) -> dict:
             if df is not None and not df.empty:
                 sectors = []
                 for _, row in df.head(top_n).iterrows():
-                    sectors.append({
-                        "name": str(row.get("板块", "")),
-                        "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else 0,
-                        "volume": round(float(row.get("总成交量", 0)), 2) if row.get("总成交量") else 0,
-                        "amount": round(float(row.get("总成交额", 0)), 2) if row.get("总成交额") else 0,
-                        "inflow": round(float(row.get("净流入", 0)), 2) if row.get("净流入") else 0,
-                        "up_count": int(row.get("上涨家数", 0)) if row.get("上涨家数") else 0,
-                        "down_count": int(row.get("下跌家数", 0)) if row.get("下跌家数") else 0,
-                        "leader": str(row.get("领涨股", "")),
-                        "leader_price": round(float(row.get("领涨股-最新价", 0)), 2) if row.get("领涨股-最新价") else 0,
-                        "leader_change": round(float(row.get("领涨股-涨跌幅", 0)), 2) if row.get("领涨股-涨跌幅") else 0,
-                    })
+                    sectors.append(
+                        {
+                            "name": str(row.get("板块", "")),
+                            "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else 0,
+                            "volume": round(float(row.get("总成交量", 0)), 2) if row.get("总成交量") else 0,
+                            "amount": round(float(row.get("总成交额", 0)), 2) if row.get("总成交额") else 0,
+                            "inflow": round(float(row.get("净流入", 0)), 2) if row.get("净流入") else 0,
+                            "up_count": int(row.get("上涨家数", 0)) if row.get("上涨家数") else 0,
+                            "down_count": int(row.get("下跌家数", 0)) if row.get("下跌家数") else 0,
+                            "leader": str(row.get("领涨股", "")),
+                            "leader_price": round(float(row.get("领涨股-最新价", 0)), 2)
+                            if row.get("领涨股-最新价")
+                            else 0,
+                            "leader_change": round(float(row.get("领涨股-涨跌幅", 0)), 2)
+                            if row.get("领涨股-涨跌幅")
+                            else 0,
+                        }
+                    )
                 return {"type": "行业板块", "source": "同花顺详情", "sectors": sectors}
         except Exception:
             pass
@@ -213,12 +219,14 @@ def get_sector_ranking(board_type: str = "industry", top_n: int = 10) -> dict:
             if df is not None and not df.empty:
                 sectors = []
                 for _, row in df.head(top_n).iterrows():
-                    sectors.append({
-                        "name": str(row.get("概念名称", "")),
-                        "driver": str(row.get("驱动事件", "")),
-                        "leader": str(row.get("龙头股", "")),
-                        "count": int(row.get("成分股数量", 0)) if row.get("成分股数量") else 0,
-                    })
+                    sectors.append(
+                        {
+                            "name": str(row.get("概念名称", "")),
+                            "driver": str(row.get("驱动事件", "")),
+                            "leader": str(row.get("龙头股", "")),
+                            "count": int(row.get("成分股数量", 0)) if row.get("成分股数量") else 0,
+                        }
+                    )
                 return {"type": "概念板块", "source": "同花顺", "sectors": sectors}
         except Exception:
             pass
@@ -233,12 +241,19 @@ def get_sector_ranking(board_type: str = "industry", top_n: int = 10) -> dict:
         if df is not None and not df.empty:
             sectors = []
             for _, row in df.head(top_n).iterrows():
-                sectors.append({
-                    "name": str(row.get("name", row.iloc[0] if len(row) > 0 else "")),
-                    "code": str(row.get("code", row.iloc[1] if len(row) > 1 else "")),
-                })
+                sectors.append(
+                    {
+                        "name": str(row.get("name", row.iloc[0] if len(row) > 0 else "")),
+                        "code": str(row.get("code", row.iloc[1] if len(row) > 1 else "")),
+                    }
+                )
             board_label = "概念板块" if board_type == "concept" else "行业板块"
-            return {"type": board_label, "source": "同花顺列表", "sectors": sectors, "note": "仅板块列表，无实时涨跌数据"}
+            return {
+                "type": board_label,
+                "source": "同花顺列表",
+                "sectors": sectors,
+                "note": "仅板块列表，无实时涨跌数据",
+            }
     except Exception:
         pass
 
@@ -249,16 +264,25 @@ def get_sector_ranking(board_type: str = "industry", top_n: int = 10) -> dict:
             if df is not None and not df.empty:
                 sectors = []
                 for _, row in df.head(top_n).iterrows():
-                    sectors.append({
-                        "name": str(row.get("行业名称", "")),
-                        "code": str(row.get("行业代码", "")),
-                        "count": int(row.get("成份个数", 0)) if row.get("成份个数") else 0,
-                        "pe": round(float(row.get("静态市盈率", 0)), 2) if row.get("静态市盈率") else 0,
-                        "pe_ttm": round(float(row.get("TTM(滚动)市盈率", 0)), 2) if row.get("TTM(滚动)市盈率") else 0,
-                        "pb": round(float(row.get("市净率", 0)), 2) if row.get("市净率") else 0,
-                        "dividend": round(float(row.get("静态股息率", 0)), 2) if row.get("静态股息率") else 0,
-                    })
-                return {"type": "行业板块", "source": "申万分类", "sectors": sectors, "note": "申万一级行业分类，含估值数据"}
+                    sectors.append(
+                        {
+                            "name": str(row.get("行业名称", "")),
+                            "code": str(row.get("行业代码", "")),
+                            "count": int(row.get("成份个数", 0)) if row.get("成份个数") else 0,
+                            "pe": round(float(row.get("静态市盈率", 0)), 2) if row.get("静态市盈率") else 0,
+                            "pe_ttm": round(float(row.get("TTM(滚动)市盈率", 0)), 2)
+                            if row.get("TTM(滚动)市盈率")
+                            else 0,
+                            "pb": round(float(row.get("市净率", 0)), 2) if row.get("市净率") else 0,
+                            "dividend": round(float(row.get("静态股息率", 0)), 2) if row.get("静态股息率") else 0,
+                        }
+                    )
+                return {
+                    "type": "行业板块",
+                    "source": "申万分类",
+                    "sectors": sectors,
+                    "note": "申万一级行业分类，含估值数据",
+                }
         except Exception:
             pass
 
@@ -320,12 +344,14 @@ def get_sector_detail(board_name: str) -> dict:
         if df is not None and not df.empty:
             stocks = []
             for _, row in df.head(20).iterrows():
-                stocks.append({
-                    "code": str(row.get("代码", "")),
-                    "name": str(row.get("名称", "")),
-                    "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else 0,
-                    "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else 0,
-                })
+                stocks.append(
+                    {
+                        "code": str(row.get("代码", "")),
+                        "name": str(row.get("名称", "")),
+                        "price": round(float(row.get("最新价", 0)), 2) if row.get("最新价") else 0,
+                        "change_pct": round(float(row.get("涨跌幅", 0)), 2) if row.get("涨跌幅") else 0,
+                    }
+                )
             return {"board": board_name, "type": "行业", "stocks": stocks}
     except Exception:
         pass
@@ -335,8 +361,9 @@ def get_sector_detail(board_name: str) -> dict:
 
 def get_hot_industries_from_zt() -> dict:
     """从涨停股数据推断热门行业"""
-    import akshare as ak
     from collections import Counter
+
+    import akshare as ak
 
     try:
         df = ak.stock_zt_pool_em(date=date.today().strftime("%Y%m%d"))
@@ -358,11 +385,13 @@ def get_hot_industries_from_zt() -> dict:
         for ind, count in industry_counts.most_common(10):
             # 获取该行业的涨停股
             zt_stocks = df[df[industry_col] == ind][["代码", "名称"]].head(3).to_dict("records")
-            hot_industries.append({
-                "name": str(ind),
-                "zt_count": count,
-                "stocks": [{"code": str(s.get("代码", "")), "name": str(s.get("名称", ""))} for s in zt_stocks],
-            })
+            hot_industries.append(
+                {
+                    "name": str(ind),
+                    "zt_count": count,
+                    "stocks": [{"code": str(s.get("代码", "")), "name": str(s.get("名称", ""))} for s in zt_stocks],
+                }
+            )
 
         return {"date": date.today().strftime("%Y-%m-%d"), "hot_industries": hot_industries}
     except Exception as e:

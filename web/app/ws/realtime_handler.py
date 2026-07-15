@@ -34,10 +34,12 @@ async def realtime_ws(websocket: WebSocket):
             if data["type"] == "subscribe":
                 codes = data.get("codes", [])
                 subscribed_codes.update(codes)
-                await websocket.send_json({
-                    "type": "subscribed",
-                    "codes": list(subscribed_codes),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "subscribed",
+                        "codes": list(subscribed_codes),
+                    }
+                )
 
             elif data["type"] == "unsubscribe":
                 codes = data.get("codes", [])
@@ -66,21 +68,23 @@ async def _push_quotes(websocket: WebSocket, subscribed_codes: set[str]):
 
         try:
             quotes = manager.get_realtime(list(subscribed_codes))
-            await websocket.send_json({
-                "type": "quotes",
-                "data": [
-                    {
-                        "code": q.code,
-                        "name": q.name,
-                        "price": q.price,
-                        "change": q.change,
-                        "change_pct": q.change_pct,
-                        "volume": q.volume,
-                        "amount": q.amount,
-                    }
-                    for q in quotes
-                ],
-            })
+            await websocket.send_json(
+                {
+                    "type": "quotes",
+                    "data": [
+                        {
+                            "code": q.code,
+                            "name": q.name,
+                            "price": q.price,
+                            "change": q.change,
+                            "change_pct": q.change_pct,
+                            "volume": q.volume,
+                            "amount": q.amount,
+                        }
+                        for q in quotes
+                    ],
+                }
+            )
         except Exception as e:
             try:
                 await websocket.send_json({"type": "error", "message": str(e)})

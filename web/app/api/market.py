@@ -71,8 +71,8 @@ async def get_market_sentiment():
 @router.get("/sectors")
 async def get_sector_ranking(board_type: str = Query("industry"), top_n: int = Query(30, ge=1, le=100)):
     """板块排名"""
+
     from deeppulse.agent.market import get_sector_ranking
-    import json
 
     result = get_sector_ranking(board_type=board_type, top_n=top_n)
     return result

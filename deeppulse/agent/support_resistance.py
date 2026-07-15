@@ -3,7 +3,6 @@
 自动识别关键支撑位和压力位，基于前高前低、均线、布林带、整数关口等。
 """
 
-import numpy as np
 import pandas as pd
 
 from deeppulse.agent.indicators import TechnicalIndicators
@@ -64,13 +63,21 @@ def detect_support_resistance(df: pd.DataFrame) -> dict:
     upper, mid, lower = TechnicalIndicators.boll(close)
     if pd.notna(upper.iloc[-1]):
         if float(upper.iloc[-1]) > current:
-            resistance.append({"price": round(float(upper.iloc[-1]), 2), "type": "布林上轨", "strength": 2, "source": "boll"})
+            resistance.append(
+                {"price": round(float(upper.iloc[-1]), 2), "type": "布林上轨", "strength": 2, "source": "boll"}
+            )
         if float(lower.iloc[-1]) < current:
-            support.append({"price": round(float(lower.iloc[-1]), 2), "type": "布林下轨", "strength": 2, "source": "boll"})
+            support.append(
+                {"price": round(float(lower.iloc[-1]), 2), "type": "布林下轨", "strength": 2, "source": "boll"}
+            )
         if float(mid.iloc[-1]) > current:
-            resistance.append({"price": round(float(mid.iloc[-1]), 2), "type": "布林中轨", "strength": 1, "source": "boll"})
+            resistance.append(
+                {"price": round(float(mid.iloc[-1]), 2), "type": "布林中轨", "strength": 1, "source": "boll"}
+            )
         elif float(mid.iloc[-1]) < current:
-            support.append({"price": round(float(mid.iloc[-1]), 2), "type": "布林中轨", "strength": 1, "source": "boll"})
+            support.append(
+                {"price": round(float(mid.iloc[-1]), 2), "type": "布林中轨", "strength": 1, "source": "boll"}
+            )
 
     # 4. 整数关口
     for base in [50, 100, 200, 500, 1000, 2000, 5000]:
@@ -107,12 +114,14 @@ def _find_pivots(series: pd.Series, window: int = 5, kind: str = "high") -> list
     pivots = []
     for i in range(window, len(values) - window):
         if kind == "high":
-            if all(values[i] >= values[i - j] for j in range(1, window + 1)) and \
-               all(values[i] >= values[i + j] for j in range(1, min(window + 1, len(values) - i))):
+            if all(values[i] >= values[i - j] for j in range(1, window + 1)) and all(
+                values[i] >= values[i + j] for j in range(1, min(window + 1, len(values) - i))
+            ):
                 pivots.append(float(values[i]))
         else:
-            if all(values[i] <= values[i - j] for j in range(1, window + 1)) and \
-               all(values[i] <= values[i + j] for j in range(1, min(window + 1, len(values) - i))):
+            if all(values[i] <= values[i - j] for j in range(1, window + 1)) and all(
+                values[i] <= values[i + j] for j in range(1, min(window + 1, len(values) - i))
+            ):
                 pivots.append(float(values[i]))
     return pivots
 

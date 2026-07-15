@@ -1,6 +1,5 @@
 """资金流向数据模块 - 多数据源、自动降级"""
 
-import json
 from datetime import date
 
 
@@ -16,6 +15,7 @@ def get_stock_fund_flow(code: str) -> dict:
     # 数据源1: 东方财富个股资金流
     try:
         import akshare as ak
+
         market = "sh" if code.startswith("6") else "sz"
         df = ak.stock_individual_fund_flow(stock=code, market=market)
         if df is not None and not df.empty:
@@ -37,6 +37,7 @@ def get_stock_fund_flow(code: str) -> dict:
     # 数据源2: 从龙虎榜数据推断
     try:
         import akshare as ak
+
         df = ak.stock_lhb_stock_statistic_em(symbol="近一月")
         if df is not None and not df.empty:
             stock_row = df[df["代码"] == code]
@@ -56,6 +57,7 @@ def get_stock_fund_flow(code: str) -> dict:
     # 数据源3: 基于成交量估算
     try:
         from deeppulse.src.query import StockQuery
+
         query = StockQuery()
         # 尝试获取最近数据（不限制日期，取最新可用）
         df = query.get_daily_kline(code, limit=10)
@@ -99,17 +101,20 @@ def get_sector_fund_flow() -> dict:
     # 数据源1: 同花顺行业板块（含净流入）
     try:
         import akshare as ak
+
         df = ak.stock_board_industry_summary_ths()
         if df is not None and not df.empty:
             sectors = []
             for _, row in df.head(20).iterrows():
                 inflow = _safe_float(row.get("净流入"))
                 if inflow is not None:
-                    sectors.append({
-                        "name": str(row.get("板块", "")),
-                        "inflow": inflow,
-                        "change_pct": _safe_float(row.get("涨跌幅")),
-                    })
+                    sectors.append(
+                        {
+                            "name": str(row.get("板块", "")),
+                            "inflow": inflow,
+                            "change_pct": _safe_float(row.get("涨跌幅")),
+                        }
+                    )
             if sectors:
                 # 按净流入排序
                 sectors.sort(key=lambda x: x.get("inflow", 0), reverse=True)
@@ -123,8 +128,10 @@ def get_sector_fund_flow() -> dict:
 
     # 数据源2: 从涨停股行业分布推断资金流向
     try:
-        import akshare as ak
         from collections import Counter
+
+        import akshare as ak
+
         df = ak.stock_zt_pool_em(date=date.today().strftime("%Y%m%d"))
         if df is not None and not df.empty:
             industry_col = None

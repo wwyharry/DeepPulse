@@ -31,7 +31,7 @@ def assess_trend(df: pd.DataFrame) -> dict:
     high = df["high"]
     low = df["low"]
     volume = df["volume"]
-    last = close.iloc[-1]
+    close.iloc[-1]
 
     scores = {}  # 各维度得分
     signals = {}
@@ -210,7 +210,7 @@ def _score_position(close: pd.Series) -> tuple[int, str]:
 def _assess_phase(close: pd.Series, volume: pd.Series, score: float) -> str:
     """判断市场阶段"""
     vol_trend = volume.tail(10).mean() / volume.tail(30).mean() if volume.tail(30).mean() > 0 else 1
-    price_trend = close.iloc[-1] / close.iloc[-10] - 1 if len(close) > 10 else 0
+    close.iloc[-1] / close.iloc[-10] - 1 if len(close) > 10 else 0
 
     if score >= 65:
         if vol_trend > 1.2:

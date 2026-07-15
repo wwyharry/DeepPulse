@@ -106,11 +106,15 @@ def generate_chart(code: str, days: int = 120, show_macd: bool = True, show_rsi:
     """生成K线图（带均线、MACD等技术指标），保存到本地文件。"""
     # Web 模式下跳过图表生成，前端已有交互式图表
     import os
+
     if os.environ.get("DEEPPULSE_WEB_MODE"):
-        return json.dumps({
-            "status": "skipped",
-            "message": f"K线图已在前端交互式展示，无需生成静态文件。请使用「分析」页面查看 {code} 的K线图。"
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "skipped",
+                "message": f"K线图已在前端交互式展示，无需生成静态文件。请使用「分析」页面查看 {code} 的K线图。",
+            },
+            ensure_ascii=False,
+        )
 
     from deeppulse.agent.charts import generate_kline_chart
 
@@ -125,11 +129,11 @@ def compare_stocks_chart(codes: str, days: int = 60) -> str:
     """生成多只股票涨幅对比图（归一化），保存到本地文件。"""
     # Web 模式下跳过图表生成
     import os
+
     if os.environ.get("DEEPPULSE_WEB_MODE"):
-        return json.dumps({
-            "status": "skipped",
-            "message": f"对比图已在前端交互式展示，无需生成静态文件。"
-        }, ensure_ascii=False)
+        return json.dumps(
+            {"status": "skipped", "message": "对比图已在前端交互式展示，无需生成静态文件。"}, ensure_ascii=False
+        )
 
     from deeppulse.agent.charts import generate_comparison_chart
 
@@ -147,7 +151,9 @@ def compare_stocks_chart(codes: str, days: int = 60) -> str:
 def detect_divergence(code: str, indicator: str = "rsi", days: int = 60) -> str:
     """检测价格与技术指标的背离信号（底背离/顶背离），是高价值的反转预警。"""
     from datetime import date, timedelta
-    from deeppulse.agent.divergence import detect_all_divergences, detect_divergence as _detect
+
+    from deeppulse.agent.divergence import detect_all_divergences
+    from deeppulse.agent.divergence import detect_divergence as _detect
 
     query = get_query()
     end = date.today()
@@ -169,6 +175,7 @@ def detect_divergence(code: str, indicator: str = "rsi", days: int = 60) -> str:
 def detect_support_resistance(code: str, days: int = 60) -> str:
     """自动检测股票的关键支撑位和压力位（前高前低、均线、布林带、整数关口）。"""
     from datetime import date, timedelta
+
     from deeppulse.agent.support_resistance import detect_support_resistance as _detect
 
     query = get_query()
@@ -187,6 +194,7 @@ def detect_support_resistance(code: str, days: int = 60) -> str:
 def assess_trend(code: str, days: int = 60) -> str:
     """综合评估股票的趋势方向、强度和阶段（吸筹/拉升/派发/下跌），给出0-100评分。"""
     from datetime import date, timedelta
+
     from deeppulse.agent.trend import assess_trend as _assess
 
     query = get_query()
@@ -205,6 +213,7 @@ def assess_trend(code: str, days: int = 60) -> str:
 def analyze_volume_price(code: str, days: int = 60) -> str:
     """深度量价分析：量能趋势、量价同步性、异常量能检测、量价背离。"""
     from datetime import date, timedelta
+
     from deeppulse.agent.volume_analysis import analyze_volume_price as _analyze
 
     query = get_query()
@@ -223,6 +232,7 @@ def analyze_volume_price(code: str, days: int = 60) -> str:
 def analyze_confluence(code: str) -> str:
     """多周期共振分析：分析日线+60分钟+15分钟的信号一致性，给出共振评分。"""
     from deeppulse.agent.timeframe_confluence import analyze_confluence as _analyze
+
     return _analyze(code)
 
 
@@ -260,6 +270,7 @@ def _parse_conditions(conditions: str) -> list:
 
         # 数值条件
         import re
+
         m = re.search(r"MA(\d+)\s*>\s*MA(\d+)", part)
         if m:
             cond_list.append({"indicator": "ma_cross", "params": {"fast": int(m.group(1)), "slow": int(m.group(2))}})

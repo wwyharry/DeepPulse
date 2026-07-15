@@ -50,24 +50,30 @@ def detect_divergence(df: pd.DataFrame, indicator: str = "rsi", lookback: int = 
         il1, il2 = ind_lows[-2], ind_lows[-1]
 
         # 价格新低但指标不新低
-        if recent["close"].iloc[pl2] < recent["close"].iloc[pl1] and \
-           recent["indicator"].iloc[il2] > recent["indicator"].iloc[il1]:
+        if (
+            recent["close"].iloc[pl2] < recent["close"].iloc[pl1]
+            and recent["indicator"].iloc[il2] > recent["indicator"].iloc[il1]
+        ):
             strength = _calc_divergence_strength(
-                recent["close"].iloc[pl1], recent["close"].iloc[pl2],
-                recent["indicator"].iloc[il1], recent["indicator"].iloc[il2]
+                recent["close"].iloc[pl1],
+                recent["close"].iloc[pl2],
+                recent["indicator"].iloc[il1],
+                recent["indicator"].iloc[il2],
             )
-            results.append({
-                "type": "bullish_divergence",
-                "type_cn": "底背离",
-                "indicator": indicator,
-                "date": str(recent.index[pl2]) if hasattr(recent.index[pl2], "strftime") else str(pl2),
-                "price_prev": round(float(recent["close"].iloc[pl1]), 2),
-                "price_curr": round(float(recent["close"].iloc[pl2]), 2),
-                "ind_prev": round(float(recent["indicator"].iloc[il1]), 2),
-                "ind_curr": round(float(recent["indicator"].iloc[il2]), 2),
-                "strength": strength,
-                "description": f"价格创新低 {recent['close'].iloc[pl2]:.2f} 但{indicator.upper()}未创新低，底背离信号"
-            })
+            results.append(
+                {
+                    "type": "bullish_divergence",
+                    "type_cn": "底背离",
+                    "indicator": indicator,
+                    "date": str(recent.index[pl2]) if hasattr(recent.index[pl2], "strftime") else str(pl2),
+                    "price_prev": round(float(recent["close"].iloc[pl1]), 2),
+                    "price_curr": round(float(recent["close"].iloc[pl2]), 2),
+                    "ind_prev": round(float(recent["indicator"].iloc[il1]), 2),
+                    "ind_curr": round(float(recent["indicator"].iloc[il2]), 2),
+                    "strength": strength,
+                    "description": f"价格创新低 {recent['close'].iloc[pl2]:.2f} 但{indicator.upper()}未创新低，底背离信号",
+                }
+            )
 
     # 检测顶背离：价格创新高但指标未创新高
     price_highs = _find_local_maxima(recent["close"].values, window=3)
@@ -78,24 +84,30 @@ def detect_divergence(df: pd.DataFrame, indicator: str = "rsi", lookback: int = 
         ih1, ih2 = ind_highs[-2], ind_highs[-1]
 
         # 价格新高但指标不新高
-        if recent["close"].iloc[ph2] > recent["close"].iloc[ph1] and \
-           recent["indicator"].iloc[ih2] < recent["indicator"].iloc[ih1]:
+        if (
+            recent["close"].iloc[ph2] > recent["close"].iloc[ph1]
+            and recent["indicator"].iloc[ih2] < recent["indicator"].iloc[ih1]
+        ):
             strength = _calc_divergence_strength(
-                recent["close"].iloc[ph1], recent["close"].iloc[ph2],
-                recent["indicator"].iloc[ih1], recent["indicator"].iloc[ih2]
+                recent["close"].iloc[ph1],
+                recent["close"].iloc[ph2],
+                recent["indicator"].iloc[ih1],
+                recent["indicator"].iloc[ih2],
             )
-            results.append({
-                "type": "bearish_divergence",
-                "type_cn": "顶背离",
-                "indicator": indicator,
-                "date": str(recent.index[ph2]) if hasattr(recent.index[ph2], "strftime") else str(ph2),
-                "price_prev": round(float(recent["close"].iloc[ph1]), 2),
-                "price_curr": round(float(recent["close"].iloc[ph2]), 2),
-                "ind_prev": round(float(recent["indicator"].iloc[ih1]), 2),
-                "ind_curr": round(float(recent["indicator"].iloc[ih2]), 2),
-                "strength": strength,
-                "description": f"价格创新高 {recent['close'].iloc[ph2]:.2f} 但{indicator.upper()}未创新高，顶背离信号"
-            })
+            results.append(
+                {
+                    "type": "bearish_divergence",
+                    "type_cn": "顶背离",
+                    "indicator": indicator,
+                    "date": str(recent.index[ph2]) if hasattr(recent.index[ph2], "strftime") else str(ph2),
+                    "price_prev": round(float(recent["close"].iloc[ph1]), 2),
+                    "price_curr": round(float(recent["close"].iloc[ph2]), 2),
+                    "ind_prev": round(float(recent["indicator"].iloc[ih1]), 2),
+                    "ind_curr": round(float(recent["indicator"].iloc[ih2]), 2),
+                    "strength": strength,
+                    "description": f"价格创新高 {recent['close'].iloc[ph2]:.2f} 但{indicator.upper()}未创新高，顶背离信号",
+                }
+            )
 
     return results
 
@@ -112,8 +124,9 @@ def _find_local_minima(series: np.ndarray, window: int = 3) -> list[int]:
     """查找局部极小值点"""
     minima = []
     for i in range(window, len(series) - window):
-        if all(series[i] <= series[i - j] for j in range(1, window + 1)) and \
-           all(series[i] <= series[i + j] for j in range(1, min(window + 1, len(series) - i))):
+        if all(series[i] <= series[i - j] for j in range(1, window + 1)) and all(
+            series[i] <= series[i + j] for j in range(1, min(window + 1, len(series) - i))
+        ):
             minima.append(i)
     return minima
 
@@ -122,8 +135,9 @@ def _find_local_maxima(series: np.ndarray, window: int = 3) -> list[int]:
     """查找局部极大值点"""
     maxima = []
     for i in range(window, len(series) - window):
-        if all(series[i] >= series[i - j] for j in range(1, window + 1)) and \
-           all(series[i] >= series[i + j] for j in range(1, min(window + 1, len(series) - i))):
+        if all(series[i] >= series[i - j] for j in range(1, window + 1)) and all(
+            series[i] >= series[i + j] for j in range(1, min(window + 1, len(series) - i))
+        ):
             maxima.append(i)
     return maxima
 

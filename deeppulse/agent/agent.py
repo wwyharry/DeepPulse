@@ -198,7 +198,7 @@ class StockAgent:
                 return
 
             for tc in response["tool_calls"]:
-                args_str = json.dumps(tc["arguments"], ensure_ascii=False)
+                json.dumps(tc["arguments"], ensure_ascii=False)
                 yield {"type": "tool_call", "name": tc["name"], "args": tc["arguments"]}
 
                 result = await asyncio.to_thread(self._run_tool, tc["name"], tc["arguments"])

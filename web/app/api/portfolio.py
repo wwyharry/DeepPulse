@@ -27,6 +27,7 @@ class TradeRecord(BaseModel):
 async def list_watchlist(group: str = Query(None)):
     """自选股列表"""
     import math
+
     from deeppulse.agent.watchlist import WatchlistManager
 
     wl = WatchlistManager()
@@ -36,7 +37,7 @@ async def list_watchlist(group: str = Query(None)):
         for key, value in item.items():
             if isinstance(value, float) and math.isnan(value):
                 item[key] = None
-            elif hasattr(value, 'isoformat'):
+            elif hasattr(value, "isoformat"):
                 item[key] = str(value)
     return {"watchlist": items}
 

@@ -50,10 +50,13 @@ async def add_session_message(session_id: str, body: MessageCreate):
     """向会话添加消息"""
     from web.app.services.session_store import session_store
 
-    session_store.save_message(session_id, {
-        "role": body.role,
-        "content": body.content,
-    })
+    session_store.save_message(
+        session_id,
+        {
+            "role": body.role,
+            "content": body.content,
+        },
+    )
     return {"status": "saved"}
 
 

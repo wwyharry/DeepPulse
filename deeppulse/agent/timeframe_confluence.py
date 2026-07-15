@@ -17,6 +17,7 @@ def analyze_confluence(code: str) -> str:
         JSON 格式的共振分析结果
     """
     from datetime import date, timedelta
+
     from deeppulse.src.query import StockQuery
 
     query = StockQuery()
@@ -35,6 +36,7 @@ def analyze_confluence(code: str) -> str:
     # 尝试获取分钟数据
     try:
         from deeppulse.agent.timeframes import query_timeframe
+
         hourly = query_timeframe(code, timeframe="60m", limit=120)
         if hourly is not None and not hourly.empty and len(hourly) > 30:
             hourly_analysis = _analyze_single_timeframe(hourly, "60分钟")
@@ -45,6 +47,7 @@ def analyze_confluence(code: str) -> str:
 
     try:
         from deeppulse.agent.timeframes import query_timeframe
+
         min15 = query_timeframe(code, timeframe="15m", limit=120)
         if min15 is not None and not min15.empty and len(min15) > 30:
             min15_analysis = _analyze_single_timeframe(min15, "15分钟")
@@ -81,8 +84,8 @@ def analyze_confluence(code: str) -> str:
 def _analyze_single_timeframe(df: pd.DataFrame, label: str) -> dict:
     """分析单个周期"""
     close = df["close"]
-    high = df["high"]
-    low = df["low"]
+    df["high"]
+    df["low"]
 
     # 计算指标
     ma5 = TechnicalIndicators.ma(close, 5).iloc[-1]

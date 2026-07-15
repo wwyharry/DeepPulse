@@ -35,41 +35,57 @@ class StockScreener:
                 return json.dumps({"count": 0, "results": [], "message": "未找到符合条件的股票"}, ensure_ascii=False)
 
             records = result.to_dict("records")
-            return json.dumps({
-                "count": len(records),
-                "conditions": [self._describe_condition(c) for c in conditions],
-                "results": records,
-            }, ensure_ascii=False, default=str)
+            return json.dumps(
+                {
+                    "count": len(records),
+                    "conditions": [self._describe_condition(c) for c in conditions],
+                    "results": records,
+                },
+                ensure_ascii=False,
+                default=str,
+            )
         finally:
             conn.close()
 
     def screen_ma_cross(self, fast: int = 5, slow: int = 10, limit: int = 20) -> str:
         """均线金叉选股"""
-        return self.screen([
-            {"indicator": "ma_cross", "params": {"fast": fast, "slow": slow}},
-        ], limit)
+        return self.screen(
+            [
+                {"indicator": "ma_cross", "params": {"fast": fast, "slow": slow}},
+            ],
+            limit,
+        )
 
     def screen_oversold(self, rsi_threshold: float = 30, limit: int = 20) -> str:
         """超卖选股"""
-        return self.screen([
-            {"indicator": "rsi", "op": "<", "value": rsi_threshold},
-        ], limit)
+        return self.screen(
+            [
+                {"indicator": "rsi", "op": "<", "value": rsi_threshold},
+            ],
+            limit,
+        )
 
     def screen_volume_breakout(self, vol_ratio: float = 2.0, min_change: float = 2.0, limit: int = 20) -> str:
         """放量突破选股"""
-        return self.screen([
-            {"indicator": "volume_ratio", "op": ">", "value": vol_ratio},
-            {"indicator": "pct_change", "op": ">", "value": min_change},
-        ], limit)
+        return self.screen(
+            [
+                {"indicator": "volume_ratio", "op": ">", "value": vol_ratio},
+                {"indicator": "pct_change", "op": ">", "value": min_change},
+            ],
+            limit,
+        )
 
     def screen_multi_confirm(self, limit: int = 20) -> str:
         """多指标共振选股"""
-        return self.screen([
-            {"indicator": "ma_alignment", "type": "bullish"},
-            {"indicator": "macd", "type": "golden_cross"},
-            {"indicator": "rsi", "op": "<", "value": 70},
-            {"indicator": "volume_ratio", "op": ">", "value": 1.2},
-        ], limit)
+        return self.screen(
+            [
+                {"indicator": "ma_alignment", "type": "bullish"},
+                {"indicator": "macd", "type": "golden_cross"},
+                {"indicator": "rsi", "op": "<", "value": 70},
+                {"indicator": "volume_ratio", "op": ">", "value": 1.2},
+            ],
+            limit,
+        )
 
     def _build_screening_sql(self, conditions: list[dict], limit: int) -> str:
         """构建选股 SQL"""

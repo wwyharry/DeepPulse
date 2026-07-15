@@ -44,8 +44,7 @@ class TechnicalIndicators:
         return dif, dea, macd
 
     @staticmethod
-    def kdj(high: pd.Series, low: pd.Series, close: pd.Series,
-            n: int = 9, m1: int = 3, m2: int = 3):
+    def kdj(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 9, m1: int = 3, m2: int = 3):
         """KDJ 指标"""
         lowest_low = low.rolling(window=n, min_periods=n).min()
         highest_high = high.rolling(window=n, min_periods=n).max()
@@ -68,11 +67,7 @@ class TechnicalIndicators:
     def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
         """平均真实波幅"""
         prev_close = close.shift(1)
-        tr = pd.concat([
-            high - low,
-            (high - prev_close).abs(),
-            (low - prev_close).abs()
-        ], axis=1).max(axis=1)
+        tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
         return tr.rolling(window=period, min_periods=period).mean()
 
     @staticmethod
@@ -116,8 +111,7 @@ class TechnicalIndicators:
         return (tp - tp_ma) / (0.015 * tp_std).replace(0, np.nan)
 
     @staticmethod
-    def mfi(high: pd.Series, low: pd.Series, close: pd.Series,
-            volume: pd.Series, period: int = 14) -> pd.Series:
+    def mfi(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series, period: int = 14) -> pd.Series:
         """资金流量指标（类似带成交量的 RSI）"""
         tp = (high + low + close) / 3
         mf = tp * volume
@@ -139,9 +133,9 @@ class TechnicalIndicators:
     def williams_alligator(high: pd.Series, low: pd.Series):
         """一目均衡表（简化版：转换线/基准线/先行带）"""
         mid = (high + low) / 2
-        tenkan = (mid.rolling(9).max() + mid.rolling(9).min()) / 2    # 转换线
-        kijun = (mid.rolling(26).max() + mid.rolling(26).min()) / 2   # 基准线
-        senkou_a = ((tenkan + kijun) / 2).shift(26)                    # 先行带A
+        tenkan = (mid.rolling(9).max() + mid.rolling(9).min()) / 2  # 转换线
+        kijun = (mid.rolling(26).max() + mid.rolling(26).min()) / 2  # 基准线
+        senkou_a = ((tenkan + kijun) / 2).shift(26)  # 先行带A
         senkou_b = ((mid.rolling(52).max() + mid.rolling(52).min()) / 2).shift(26)  # 先行带B
         return tenkan, kijun, senkou_a, senkou_b
 

@@ -3,7 +3,6 @@
 分析成交量与价格的关系，识别异常量能和量价背离。
 """
 
-import numpy as np
 import pandas as pd
 
 
@@ -104,7 +103,9 @@ def _check_volume_price_sync(close: pd.Series, volume: pd.Series) -> bool:
         return True
 
     # 同向比例
-    sync_count = sum(1 for p, v in zip(price_changes, vol_changes) if (p > 0 and v > 0) or (p < 0 and v < 0))
+    sync_count = sum(
+        1 for p, v in zip(price_changes, vol_changes, strict=False) if (p > 0 and v > 0) or (p < 0 and v < 0)
+    )
     return sync_count >= 2
 
 
@@ -145,7 +146,7 @@ def _detect_volume_anomalies(close: pd.Series, volume: pd.Series) -> list[dict]:
     """检测异常量能"""
     anomalies = []
     avg_vol = volume.tail(20).mean()
-    std_vol = volume.tail(20).std()
+    volume.tail(20).std()
 
     if avg_vol == 0:
         return anomalies
@@ -157,19 +158,23 @@ def _detect_volume_anomalies(close: pd.Series, volume: pd.Series) -> list[dict]:
         ratio = vol / avg_vol
 
         if ratio > 3:
-            anomalies.append({
-                "type": "天量",
-                "vol_ratio": round(ratio, 1),
-                "significance": "高度关注",
-                "description": f"成交量为20日均量的 {ratio:.1f} 倍",
-            })
+            anomalies.append(
+                {
+                    "type": "天量",
+                    "vol_ratio": round(ratio, 1),
+                    "significance": "高度关注",
+                    "description": f"成交量为20日均量的 {ratio:.1f} 倍",
+                }
+            )
         elif ratio > 2:
-            anomalies.append({
-                "type": "放量",
-                "vol_ratio": round(ratio, 1),
-                "significance": "注意",
-                "description": f"成交量为20日均量的 {ratio:.1f} 倍",
-            })
+            anomalies.append(
+                {
+                    "type": "放量",
+                    "vol_ratio": round(ratio, 1),
+                    "significance": "注意",
+                    "description": f"成交量为20日均量的 {ratio:.1f} 倍",
+                }
+            )
 
     return anomalies
 
@@ -187,17 +192,21 @@ def _detect_volume_divergence(close: pd.Series, volume: pd.Series) -> list[dict]
 
     # 量价背离
     if price_trend > 0 and vol_trend < 0:
-        divergences.append({
-            "type": "量价背离",
-            "direction": "顶背离",
-            "description": "价格上涨但成交量萎缩，上涨动能不足",
-        })
+        divergences.append(
+            {
+                "type": "量价背离",
+                "direction": "顶背离",
+                "description": "价格上涨但成交量萎缩，上涨动能不足",
+            }
+        )
     elif price_trend < 0 and vol_trend > 0:
-        divergences.append({
-            "type": "量价背离",
-            "direction": "底背离",
-            "description": "价格下跌但成交量放大，可能有资金介入",
-        })
+        divergences.append(
+            {
+                "type": "量价背离",
+                "direction": "底背离",
+                "description": "价格下跌但成交量放大，可能有资金介入",
+            }
+        )
 
     return divergences
 

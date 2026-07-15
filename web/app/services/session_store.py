@@ -74,13 +74,15 @@ class SessionStore:
             if not title:
                 first_msg = self.get_first_user_message(session_id)
 
-            sessions.append({
-                "id": session_id,
-                "title": title,
-                "first_message": first_msg,
-                "updated_at": path.stat().st_mtime,
-                "message_count": sum(1 for _ in open(path)),
-            })
+            sessions.append(
+                {
+                    "id": session_id,
+                    "title": title,
+                    "first_message": first_msg,
+                    "updated_at": path.stat().st_mtime,
+                    "message_count": sum(1 for _ in open(path)),
+                }
+            )
         return sessions
 
     def delete_session(self, session_id: str) -> bool:

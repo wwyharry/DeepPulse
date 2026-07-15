@@ -58,6 +58,7 @@ JUDGE_SYSTEM_PROMPT = """你是 DeepPulse 的评测Agent，根据用户问题类
 # 评测 Agent 类
 # ═══════════════════════════════════════════════════════════
 
+
 class JudgeAgent:
     """评判Agent - 自适应评测"""
 
@@ -119,9 +120,7 @@ class JudgeAgent:
                     if current_round:
                         for item in content:
                             if isinstance(item, dict) and item.get("type") == "tool_result":
-                                current_round["tool_results"].append({
-                                    "content": item.get("content", "")
-                                })
+                                current_round["tool_results"].append({"content": item.get("content", "")})
                     continue
                 if not user_query:
                     user_query = content
@@ -139,17 +138,19 @@ class JudgeAgent:
                 for tc in msg.get("tool_calls", []):
                     if isinstance(tc, dict):
                         func = tc.get("function", tc)
-                        current_round["tool_calls"].append({
-                            "name": func.get("name", tc.get("name", "unknown")),
-                        })
+                        current_round["tool_calls"].append(
+                            {
+                                "name": func.get("name", tc.get("name", "unknown")),
+                            }
+                        )
                 continue
 
             if role == "tool":
                 if current_round:
                     content = msg.get("content", "")
-                    current_round["tool_results"].append({
-                        "content": content[:300] + "..." if len(content) > 300 else content
-                    })
+                    current_round["tool_results"].append(
+                        {"content": content[:300] + "..." if len(content) > 300 else content}
+                    )
                 continue
 
         if not rounds:
@@ -174,7 +175,7 @@ class JudgeAgent:
             for tc in r["tool_calls"]:
                 tools_used.add(tc["name"])
 
-        parts.append(f"## 分析概况")
+        parts.append("## 分析概况")
         parts.append(f"- 推理轮次: {len(rounds)} 轮")
         parts.append(f"- 工具调用: {total_tools} 次")
         if tools_used:
@@ -222,11 +223,13 @@ class JudgeAgent:
 # 评测历史管理
 # ═══════════════════════════════════════════════════════════
 
+
 class JudgeHistory:
     """评测历史管理"""
 
     def __init__(self, store_dir=None):
         from pathlib import Path
+
         if store_dir is None:
             store_dir = Path(__file__).parent.parent / "data" / "judge_history"
         self.store_dir = Path(store_dir)

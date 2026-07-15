@@ -7,9 +7,6 @@ import json
 from itertools import product
 
 import numpy as np
-import pandas as pd
-
-from deeppulse.agent.backtest import BacktestEngine, BacktestResult
 
 
 def optimize_strategy(code: str, strategy_name: str, param_grid: dict, days: int = 250) -> str:
@@ -33,24 +30,26 @@ def optimize_strategy(code: str, strategy_name: str, param_grid: dict, days: int
 
     results = []
     for combo in combinations:
-        params = dict(zip(param_names, combo))
+        params = dict(zip(param_names, combo, strict=False))
         try:
             result = _backtest_stock(code, strategy=strategy_name, days=days, **params)
             # 处理 BacktestResult 对象或 dict
-            if hasattr(result, 'to_dict'):
+            if hasattr(result, "to_dict"):
                 d = result.to_dict()
             else:
                 d = result
-            results.append({
-                "params": params,
-                "total_return": round(d.get("total_return", 0), 4),
-                "annual_return": round(d.get("annual_return", 0), 4),
-                "max_drawdown": round(d.get("max_drawdown", 0), 4),
-                "win_rate": round(d.get("win_rate", 0), 3),
-                "sharpe_ratio": round(d.get("sharpe_ratio", 0), 2),
-                "total_trades": d.get("total_trades", 0),
-                "profit_factor": round(d.get("profit_factor", 0), 2),
-            })
+            results.append(
+                {
+                    "params": params,
+                    "total_return": round(d.get("total_return", 0), 4),
+                    "annual_return": round(d.get("annual_return", 0), 4),
+                    "max_drawdown": round(d.get("max_drawdown", 0), 4),
+                    "win_rate": round(d.get("win_rate", 0), 3),
+                    "sharpe_ratio": round(d.get("sharpe_ratio", 0), 2),
+                    "total_trades": d.get("total_trades", 0),
+                    "profit_factor": round(d.get("profit_factor", 0), 2),
+                }
+            )
         except Exception:
             continue
 
@@ -61,22 +60,22 @@ def optimize_strategy(code: str, strategy_name: str, param_grid: dict, days: int
     for r in results:
         # 综合评分 = 收益 * 0.4 + 夏普 * 0.3 + 胜率 * 0.2 - 回撤 * 0.1
         r["score"] = (
-            r["total_return"] * 0.4 +
-            r["sharpe_ratio"] * 0.03 +
-            r["win_rate"] * 0.2 -
-            abs(r["max_drawdown"]) * 0.1
+            r["total_return"] * 0.4 + r["sharpe_ratio"] * 0.03 + r["win_rate"] * 0.2 - abs(r["max_drawdown"]) * 0.1
         )
     results.sort(key=lambda x: x["score"], reverse=True)
 
-    return json.dumps({
-        "code": code,
-        "strategy": strategy_name,
-        "total_combinations": len(combinations),
-        "valid_results": len(results),
-        "best_params": results[0]["params"],
-        "best_result": results[0],
-        "top_5": results[:5],
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "code": code,
+            "strategy": strategy_name,
+            "total_combinations": len(combinations),
+            "valid_results": len(results),
+            "best_params": results[0]["params"],
+            "best_result": results[0],
+            "top_5": results[:5],
+        },
+        ensure_ascii=False,
+    )
 
 
 def backtest_with_benchmark(code: str, strategy_name: str, benchmark: str = "000300", days: int = 250, **kwargs) -> str:
@@ -139,17 +138,20 @@ def monte_carlo_simulation(total_return: float, trades: list, n_simulations: int
     # 统计结果
     percentiles = np.percentile(final_values, [5, 25, 50, 75, 95])
 
-    return json.dumps({
-        "n_simulations": n_simulations,
-        "n_trades": len(returns),
-        "actual_return": round(total_return, 4),
-        "median_final": round(float(percentiles[2]), 4),
-        "percentile_5": round(float(percentiles[0]), 4),
-        "percentile_25": round(float(percentiles[1]), 4),
-        "percentile_75": round(float(percentiles[3]), 4),
-        "percentile_95": round(float(percentiles[4]), 4),
-        "prob_profit": round(float(np.mean(final_values > 1)), 3),
-        "prob_loss_10pct": round(float(np.mean(final_values < 0.9)), 3),
-        "prob_double": round(float(np.mean(final_values > 2)), 3),
-        "var_95": round(float(1 - percentiles[0]), 4),
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "n_simulations": n_simulations,
+            "n_trades": len(returns),
+            "actual_return": round(total_return, 4),
+            "median_final": round(float(percentiles[2]), 4),
+            "percentile_5": round(float(percentiles[0]), 4),
+            "percentile_25": round(float(percentiles[1]), 4),
+            "percentile_75": round(float(percentiles[3]), 4),
+            "percentile_95": round(float(percentiles[4]), 4),
+            "prob_profit": round(float(np.mean(final_values > 1)), 3),
+            "prob_loss_10pct": round(float(np.mean(final_values < 0.9)), 3),
+            "prob_double": round(float(np.mean(final_values > 2)), 3),
+            "var_95": round(float(1 - percentiles[0]), 4),
+        },
+        ensure_ascii=False,
+    )

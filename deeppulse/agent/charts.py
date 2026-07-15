@@ -116,17 +116,27 @@ def generate_kline_chart(
 
     # 绘图风格 - 自动选择可用的中文字体
     import matplotlib
-    matplotlib.rcParams['axes.unicode_minus'] = False
+
+    matplotlib.rcParams["axes.unicode_minus"] = False
 
     # 尝试多种中文字体
     font_found = False
-    for font in ['Microsoft YaHei', 'SimHei', 'PingFang SC', 'Heiti SC', 'WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'sans-serif']:
+    for font in [
+        "Microsoft YaHei",
+        "SimHei",
+        "PingFang SC",
+        "Heiti SC",
+        "WenQuanYi Micro Hei",
+        "Noto Sans CJK SC",
+        "sans-serif",
+    ]:
         try:
             from matplotlib.font_manager import FontProperties
+
             fp = FontProperties(family=font)
-            if fp.get_name() != font and font != 'sans-serif':
+            if fp.get_name() != font and font != "sans-serif":
                 continue
-            matplotlib.rcParams['font.sans-serif'] = [font] + matplotlib.rcParams.get('font.sans-serif', [])
+            matplotlib.rcParams["font.sans-serif"] = [font] + matplotlib.rcParams.get("font.sans-serif", [])
             font_found = True
             break
         except Exception:
@@ -134,12 +144,10 @@ def generate_kline_chart(
 
     if not font_found:
         # 使用默认字体，中文可能显示为方块但不会报错
-        matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
+        matplotlib.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 
     mc = mpf.make_marketcolors(up="#FF3333", down="#00AA00", inherit=True)
-    style = mpf.make_mpf_style(
-        marketcolors=mc, gridstyle="--", gridcolor="#E0E0E0"
-    )
+    style = mpf.make_mpf_style(marketcolors=mc, gridstyle="--", gridcolor="#E0E0E0")
 
     # 面板比例
     panel_ratios = [4, 1]  # K线 + 成交量
