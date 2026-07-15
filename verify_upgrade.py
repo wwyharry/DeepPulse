@@ -129,7 +129,7 @@ def check_async_support():
     print("\n🔍 检查异步支持...")
 
     try:
-        from agent.client import LLMClient
+        from deeppulse.agent.client import LLMClient
 
         # 检查是否有chat_stream_async方法
         if hasattr(LLMClient, "chat_stream_async"):
@@ -138,7 +138,7 @@ def check_async_support():
             print("  ❌ LLMClient.chat_stream_async 不存在")
             return False
 
-        from agent.agent import StockAgent
+        from deeppulse.agent.agent import StockAgent
 
         # 检查是否有chat_stream_async方法
         if hasattr(StockAgent, "chat_stream_async"):

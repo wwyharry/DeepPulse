@@ -23,7 +23,7 @@ class TestValidateKlineDf:
 
     def test_valid_df_passes(self):
         """合法数据应全部保留"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = self._make_df()
         result = validate_kline_df(df, "600519")
@@ -31,7 +31,7 @@ class TestValidateKlineDf:
 
     def test_nan_price_removed(self):
         """NaN 价格行应被剔除"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = self._make_df(close=[10.3, np.nan, 10.3, 10.9, 11.1])
         result = validate_kline_df(df, "600519")
@@ -39,7 +39,7 @@ class TestValidateKlineDf:
 
     def test_high_less_than_low_removed(self):
         """high < low 的行应被剔除"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = self._make_df(high=[9.0, 10.8, 10.5, 11.0, 11.2])  # 第一行 high=9.0 < low=9.8
         result = validate_kline_df(df, "600519")
@@ -47,7 +47,7 @@ class TestValidateKlineDf:
 
     def test_negative_volume_corrected(self):
         """负成交量应被修正为0"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = self._make_df(volume=[1000, -1200, 800, 1500, 1100])
         result = validate_kline_df(df, "600519")
@@ -56,7 +56,7 @@ class TestValidateKlineDf:
 
     def test_empty_df_returns_empty(self):
         """空 DataFrame 应返回空"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = pd.DataFrame(columns=["trade_date", "open", "high", "low", "close", "volume"])
         result = validate_kline_df(df, "600519")
@@ -64,7 +64,7 @@ class TestValidateKlineDf:
 
     def test_missing_columns_raises(self):
         """缺少必要列应抛出 ValueError"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = pd.DataFrame({"trade_date": ["2024-01-01"], "open": [10.0]})
         with pytest.raises(ValueError):
@@ -72,7 +72,7 @@ class TestValidateKlineDf:
 
     def test_sorted_by_date(self):
         """结果应按日期排序"""
-        from src.validation import validate_kline_df
+        from deeppulse.src.validation import validate_kline_df
 
         df = self._make_df()
         # 打乱顺序

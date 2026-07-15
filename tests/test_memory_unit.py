@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.memory import BM25Index, EmbeddingIndex, KnowledgeGraph, MemoryManager, UserProfile
+from deeppulse.agent.memory import BM25Index, EmbeddingIndex, KnowledgeGraph, MemoryManager, UserProfile
 
 # ── EmbeddingIndex static methods ───────────────────────────────────
 

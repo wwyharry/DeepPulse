@@ -14,4 +14,8 @@ rank_bm25>=0.2.2
 numpy>=1.24.0
 mplfinance>=0.12.10b0
 textual>=0.47.0
-asyncio>=3.4.3
+
+# Web 后端依赖
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0

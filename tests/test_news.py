@@ -15,7 +15,7 @@ class TestSearchBaiduNews:
         )
         mock_resp.status_code = 200
         mock_get.return_value = mock_resp
-        from agent.news import search_baidu_news
+        from deeppulse.agent.news import search_baidu_news
 
         results = search_baidu_news("A股", num=5)
         assert isinstance(results, list)
@@ -27,7 +27,7 @@ class TestSearchBaiduNews:
         mock_resp.text = "<html><body></body></html>"
         mock_resp.status_code = 200
         mock_get.return_value = mock_resp
-        from agent.news import search_baidu_news
+        from deeppulse.agent.news import search_baidu_news
 
         results = search_baidu_news("", num=5)
         assert isinstance(results, list)
@@ -36,7 +36,7 @@ class TestSearchBaiduNews:
     def test_network_error_handled(self, mock_get):
         """网络异常应返回错误信息而非崩溃"""
         mock_get.side_effect = Exception("Connection timeout")
-        from agent.news import search_baidu_news
+        from deeppulse.agent.news import search_baidu_news
 
         results = search_baidu_news("A股", num=5)
         # 应返回包含 error 键的列表或空列表
@@ -52,7 +52,7 @@ class TestSearchStockNews:
         """应合并多源新闻"""
         mock_baidu.return_value = [{"title": "百度新闻", "url": "http://baidu.com", "source": "百度", "time": ""}]
         mock_em.return_value = [{"title": "东财快讯", "url": "http://eastmoney.com", "source": "东财", "time": ""}]
-        from agent.news import search_stock_news
+        from deeppulse.agent.news import search_stock_news
 
         result = search_stock_news("600519", num=5)
         assert isinstance(result, dict)

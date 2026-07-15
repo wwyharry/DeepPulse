@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.screener import _check_conditions, _ema, _extract_number
+from deeppulse.agent.screener import _check_conditions, _ema, _extract_number
 
 # ── _ema ────────────────────────────────────────────────────────────
 

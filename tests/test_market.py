@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from agent.market import get_market_sentiment
+from deeppulse.agent.market import get_market_sentiment
 
 
 def _make_zt_result(count, stocks=None):

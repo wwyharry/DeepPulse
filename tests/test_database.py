@@ -1,6 +1,6 @@
 """Unit tests for src/database.py — DuckDB CRUD operations with in-memory database."""
 
-from src.database import (
+from deeppulse.src.database import (
     get_last_fetch_date,
     get_latest_kline_date,
     get_stock_list,

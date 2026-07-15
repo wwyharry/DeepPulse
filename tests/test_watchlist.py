@@ -5,8 +5,8 @@ from pathlib import Path
 
 def _make_watchlist(tmp_db_path):
     """创建已初始化表结构的 WatchlistManager"""
-    from agent.watchlist import WatchlistManager
-    from src.database import get_connection, init_tables
+    from deeppulse.agent.watchlist import WatchlistManager
+    from deeppulse.src.database import get_connection, init_tables
 
     # 先初始化表结构
     conn = get_connection(Path(tmp_db_path))

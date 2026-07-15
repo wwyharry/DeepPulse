@@ -7,9 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import config
-from src.collector import fetch_and_store_stock_list, fetch_kline_with_timeout, get_sources
-from src.database import (
+from deeppulse import config
+from deeppulse.src.collector import fetch_and_store_stock_list, fetch_kline_with_timeout, get_sources
+from deeppulse.src.database import (
     get_connection,
     get_latest_kline_date,
     get_stock_list,

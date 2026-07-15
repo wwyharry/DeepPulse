@@ -1,6 +1,8 @@
 # Database files (1.5GB+)
 db/*.duckdb
 db/*.duckdb.wal
+*.duckdb
+*.duckdb.wal
 
 # Python
 __pycache__/
@@ -34,6 +36,7 @@ venv/
 .ruff_cache/
 .pytest_cache/
 .coverage
+.cache/
 
 # Claude Code
 .claude/
@@ -41,3 +44,9 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Web data (user sessions, judge history)
+web/data/
+deeppulse/data/
+frontend/node_modules/
+frontend/.next/

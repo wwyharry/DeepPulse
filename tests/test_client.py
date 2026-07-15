@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.client import LLMClient, StreamChunk, load_setting
+from deeppulse.agent.client import LLMClient, StreamChunk, load_setting
 
 # ── load_setting ────────────────────────────────────────────────────
 

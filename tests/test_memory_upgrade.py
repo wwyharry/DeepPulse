@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.integration
 def test_database_migration():
-    from src.database import get_connection, init_memory_tables, init_tables
+    from deeppulse.src.database import get_connection, init_memory_tables, init_tables
 
     conn = get_connection()
     init_tables(conn)
@@ -37,7 +37,7 @@ def test_database_migration():
 
 @pytest.mark.integration
 def test_embedding_index():
-    from agent.memory import EmbeddingIndex
+    from deeppulse.agent.memory import EmbeddingIndex
 
     ei = EmbeddingIndex()
     if ei.is_ready:
@@ -53,7 +53,7 @@ def test_embedding_index():
 
 @pytest.mark.integration
 def test_bm25_search():
-    from agent.memory import BM25Index
+    from deeppulse.agent.memory import BM25Index
 
     bm25 = BM25Index()
     docs = [
@@ -69,8 +69,8 @@ def test_bm25_search():
 
 @pytest.mark.integration
 def test_memory_crud_and_search():
-    from agent.memory import MemoryManager
-    from src.database import get_connection
+    from deeppulse.agent.memory import MemoryManager
+    from deeppulse.src.database import get_connection
 
     mm = MemoryManager()
     mm.init_tables()
@@ -110,8 +110,8 @@ def test_memory_crud_and_search():
 
 @pytest.mark.integration
 def test_prediction_tracker():
-    from agent.memory import PredictionTracker
-    from src.database import get_connection
+    from deeppulse.agent.memory import PredictionTracker
+    from deeppulse.src.database import get_connection
 
     pt = PredictionTracker()
 
@@ -136,8 +136,8 @@ def test_prediction_tracker():
 
 @pytest.mark.integration
 def test_user_profile():
-    from agent.memory import UserProfile
-    from src.database import get_connection
+    from deeppulse.agent.memory import UserProfile
+    from deeppulse.src.database import get_connection
 
     up = UserProfile()
 
@@ -162,8 +162,8 @@ def test_user_profile():
 
 @pytest.mark.integration
 def test_knowledge_graph():
-    from agent.memory import KnowledgeGraph
-    from src.database import get_connection
+    from deeppulse.agent.memory import KnowledgeGraph
+    from deeppulse.src.database import get_connection
 
     kg = KnowledgeGraph()
 
@@ -189,8 +189,8 @@ def test_knowledge_graph():
 
 @pytest.mark.integration
 def test_context_injection():
-    from agent.memory import MemoryManager
-    from src.database import get_connection
+    from deeppulse.agent.memory import MemoryManager
+    from deeppulse.src.database import get_connection
 
     mm = MemoryManager()
     mm.init_tables()

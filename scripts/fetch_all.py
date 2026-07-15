@@ -14,9 +14,9 @@ import time
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-import config
-from src.collector import fetch_all_kline, fetch_and_store_stock_list, open_connection
-from src.database import get_stock_list
+from deeppulse import config
+from deeppulse.src.collector import fetch_all_kline, fetch_and_store_stock_list, open_connection
+from deeppulse.src.database import get_stock_list
 
 # 配置日志输出到文件和控制台
 LOG_FILE = config.PROJECT_ROOT / "fetch_progress.log"

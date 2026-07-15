@@ -50,14 +50,15 @@ dev = [
 ]
 
 [project.scripts]
-deeppulse = "agent.cli:main"
-deeppulse-tui = "agent.tui_cli:main"
+deeppulse = "deeppulse.agent.cli:main"
+deeppulse-tui = "deeppulse.agent.tui_cli:main"
+deeppulse-web = "webapp.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["agent*", "src*"]
+include = ["deeppulse*"]
 
 [tool.setuptools]
-py-modules = ["config"]
+py-modules = []
 
 # ── Ruff ──────────────────────────────────────────────────────────────
 [tool.ruff]
@@ -72,7 +73,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"agent/tools.py" = ["E402", "F401", "F811"]
+"deeppulse/agent/tools.py" = ["E402", "F401", "F811"]
 "scripts/*.py" = ["E402"]
 
 # ── mypy ──────────────────────────────────────────────────────────────
@@ -97,7 +98,7 @@ addopts = "-v --tb=short"
 
 # ── coverage ──────────────────────────────────────────────────────────
 [tool.coverage.run]
-source = ["agent", "src"]
+source = ["deeppulse"]
 omit = ["tests/*", "scripts/*"]
 
 [tool.coverage.report]

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agent.backtest import (
+from deeppulse.agent.backtest import (
     BacktestEngine,
     BacktestResult,
     add_indicators,

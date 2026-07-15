@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground: #e5e7eb;
+  --background: #111827;
+  --card: #1f2937;
+  --card-hover: #374151;
+  --border: #374151;
+  --muted: #6b7280;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* 涨跌颜色 */
+.text-up {
+  color: #ef4444;
+}
+
+.text-down {
+  color: #22c55e;
+}
+
+.text-flat {
+  color: #6b7280;
+}
+
+.bg-up {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.bg-down {
+  background-color: rgba(34, 197, 94, 0.1);
+}

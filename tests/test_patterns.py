@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agent.patterns import (
+from deeppulse.agent.patterns import (
     _body,
     _body_ratio,
     _double_candle_patterns,

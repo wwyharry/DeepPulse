@@ -8,7 +8,7 @@ class TestTradeJournal:
 
     def test_record_trade(self, tmp_db_path):
         """记录交易应返回成功状态"""
-        from agent.journal import TradeJournal
+        from deeppulse.agent.journal import TradeJournal
 
         j = TradeJournal(db_path=Path(tmp_db_path))
         result = j.record_trade("600519", "买入", 1800.0, 100, name="贵州茅台", reason="突破支撑")
@@ -17,7 +17,7 @@ class TestTradeJournal:
 
     def test_view_portfolio_empty(self, tmp_db_path):
         """无交易时持仓应为空"""
-        from agent.journal import TradeJournal
+        from deeppulse.agent.journal import TradeJournal
 
         j = TradeJournal(db_path=Path(tmp_db_path))
         portfolio = j.get_portfolio()
@@ -26,7 +26,7 @@ class TestTradeJournal:
 
     def test_record_buy_updates_portfolio(self, tmp_db_path):
         """买入后持仓应更新"""
-        from agent.journal import TradeJournal
+        from deeppulse.agent.journal import TradeJournal
 
         j = TradeJournal(db_path=Path(tmp_db_path))
         j.record_trade("600519", "买入", 1800.0, 100, name="贵州茅台")
@@ -37,7 +37,7 @@ class TestTradeJournal:
 
     def test_record_sell_reduces_position(self, tmp_db_path):
         """卖出后持仓应减少"""
-        from agent.journal import TradeJournal
+        from deeppulse.agent.journal import TradeJournal
 
         j = TradeJournal(db_path=Path(tmp_db_path))
         j.record_trade("600519", "买入", 1800.0, 200, name="贵州茅台")
@@ -50,7 +50,7 @@ class TestTradeJournal:
 
     def test_trade_history(self, tmp_db_path):
         """交易历史应返回记录"""
-        from agent.journal import TradeJournal
+        from deeppulse.agent.journal import TradeJournal
 
         j = TradeJournal(db_path=Path(tmp_db_path))
         j.record_trade("600519", "买入", 1800.0, 100, name="贵州茅台")

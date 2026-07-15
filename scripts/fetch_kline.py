@@ -7,8 +7,8 @@ from datetime import date
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-import config
-from src.collector import fetch_all_kline
+from deeppulse import config
+from deeppulse.src.collector import fetch_all_kline
 
 # 配置日志：实时输出到控制台
 logging.basicConfig(

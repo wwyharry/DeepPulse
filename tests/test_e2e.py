@@ -10,7 +10,7 @@ class TestE2ESmoke:
 
     def test_tool_definitions_loadable(self):
         """工具定义应能正常加载"""
-        from agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
+        from deeppulse.agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
 
         assert len(TOOL_DEFINITIONS) > 0
         assert len(TOOL_DISPATCH) > 0
@@ -20,14 +20,14 @@ class TestE2ESmoke:
 
     def test_tool_dispatch_callable(self):
         """所有工具函数应可调用"""
-        from agent.tools import TOOL_DISPATCH
+        from deeppulse.agent.tools import TOOL_DISPATCH
 
         for name, func in TOOL_DISPATCH.items():
             assert callable(func), f"工具 {name} 不可调用"
 
     def test_memory_system_roundtrip(self, tmp_db_path):
         """记忆系统应能完成保存->搜索->更新的完整流程"""
-        from agent.memory import MemoryManager
+        from deeppulse.agent.memory import MemoryManager
 
         mem = MemoryManager(db_path=Path(tmp_db_path))
         mem.init_tables()
@@ -65,7 +65,7 @@ class TestE2ESmoke:
             }
             with patch("openai.OpenAI") as mock_openai:
                 mock_openai.return_value = MagicMock()
-                from agent.agent import StockAgent
+                from deeppulse.agent.agent import StockAgent
 
                 agent = StockAgent(setting=mock_setting.return_value)
                 assert agent is not None

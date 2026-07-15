@@ -10,7 +10,7 @@ def in_memory_db():
     """Provide an in-memory DuckDB connection with all tables initialized."""
     import duckdb
 
-    from src.database import init_memory_tables, init_tables
+    from deeppulse.src.database import init_memory_tables, init_tables
 
     conn = duckdb.connect(":memory:")
     init_tables(conn)

@@ -3,8 +3,8 @@
 import duckdb
 import pytest
 
-from src.database import init_memory_tables, init_tables, insert_daily_kline, log_fetch, upsert_stock_info
-from src.query import StockQuery
+from deeppulse.src.database import init_memory_tables, init_tables, insert_daily_kline, log_fetch, upsert_stock_info
+from deeppulse.src.query import StockQuery
 
 
 @pytest.fixture

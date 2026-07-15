@@ -4,30 +4,29 @@
 
 **演示视频** — [DeepPulse：一个专注于短线交易的 Agent](https://www.bilibili.com/video/BV1kbVQ6HELU)
 
-
-
 ## 功能一览
 
 | 能力 | 说明 |
 |------|------|
-| 自然语言交互 | 中文提问，Agent 自动调度 59 个工具完成分析 |
-| **🎨 TUI 全屏界面** | **暗色金融主题，三栏布局（自选股/持仓/市场 + 对话流 + 工具/数据），状态栏实时显示模型/轮次/耗时，全部面板可滚动，支持命令系统和快捷键** |
-| **⚖️ 评判Agent** | **全流程评测：数据核实、推理链完整性、工具使用合理性、风险覆盖、操作建议合理性，综合评分 X/10** |
-| 技术指标 | MA / MACD / RSI / KDJ / 布林带 / ATR / OBV，自动判断金叉死叉 |
+| **🌐 Web 平台** | **浏览器可视化界面，AI 对话 + 实时行情 + 分析工具 + 战法库** |
+| **🖥️ TUI 全屏界面** | **暗色金融主题，三栏布局，命令系统和快捷键** |
+| **⌨️ CLI 命令行** | **快速单次分析或交互式对话** |
+| 自然语言交互 | 中文提问，Agent 自动调度 65 个工具完成分析 |
+| **⚖️ 评判Agent** | **自适应评测：根据问题类型评分 1-10，快速给出改进建议** |
+| 技术指标 | MA / MACD / RSI / KDJ / 布林带 / ATR / OBV / ADX / CCI / MFI / VWAP |
 | K 线形态 | 十字星、锤子线、吞没、早晨之星等经典形态自动识别 |
-| 多周期共振 | 1/5/15/30/60 分钟 + 周线，日线定方向、60 分钟找买点、15 分钟精确入场 |
+| **深度分析** | **趋势强度评估、背离检测、支撑压力位、量价分析、多周期共振** |
 | 市场情绪 | 涨停/跌停/炸板统计、连板高度、情绪五档评级 |
-| 板块与资金 | 行业板块排行、主力资金流向、龙虎榜、北向资金 |
-| 股票筛选 | 按 MA/RSI/MACD/成交量等条件从全市场筛选 |
+| 板块与资金 | 行业板块排行（同花顺+东方财富）、资金流向、龙虎榜 |
+| **条件选股** | **DuckDB 高性能选股，支持组合条件** |
 | 财经新闻 | 百度/东方财富/新浪多源聚合 |
 | 实时行情 | 新浪 + 东方财富双源冗余，三态熔断器自动故障切换 |
-| 策略回测 | 胜率、盈亏比、最大回撤、夏普比率 |
-| K 线图 | 带均线/MACD 叠加的专业 K 线图，浏览器自动打开 |
-| 短线战法库 | 40 个内置战法，Agent 根据技术面自动匹配 |
+| **策略回测** | **7 种策略、参数优化、Monte Carlo 模拟** |
+| K 线图 | 专业 K 线图，Web 端交互式，CLI/TUI 自动生成 |
+| 短线战法库 | 40 个内置战法，**Web 端可视化编辑** |
 | 自选股 & 告警 | 分组管理、目标价止损价、价格/放量/RSI 告警 |
 | 交易日志 | 记录买卖、自动更新持仓、生成周/月复盘报告 |
-| 长期记忆 | 跨会话记住分析结论、用户偏好、教学纠错，向量语义搜索 + BM25 双模式 |
-| 学习能力 | 自动检测用户纠错/教学，保存为结构化知识并在后续分析中应用 |
+| 长期记忆 | 跨会话记住分析结论、用户偏好、教学纠错 |
 | 预测跟踪 | 保存预测并自动验证结果，从对错中持续学习 |
 
 ## 系统架构
@@ -37,22 +36,24 @@ graph TB
     subgraph 入口层
         CLI[CLI 命令行]
         TUI[TUI 终端界面]
+        WEB[Web 平台<br/>FastAPI + 浏览器]
     end
 
     subgraph Agent 核心
         REACT[ReAct 推理引擎]
         CLIENT[LLM 客户端<br/>OpenAI / Anthropic]
-        TOOLS[59 个工具]
+        TOOLS[65 个工具]
         MEMORY[长期记忆系统]
         JUDGE[评判 Agent]
     end
 
-    subgraph 记忆系统
-        EMB[向量语义搜索]
-        BM25S[BM25 关键词搜索]
-        PRED[预测跟踪]
-        PROF[用户画像]
-        KG[知识图谱]
+    subgraph 深度分析
+        TREND[趋势强度]
+        DIV[背离检测]
+        SR[支撑压力]
+        VP[量价分析]
+        CONF[多周期共振]
+        SCREEN[高性能选股]
     end
 
     subgraph 数据层
@@ -64,20 +65,21 @@ graph TB
     subgraph 数据源
         BS[BaoStock]
         AK[AkShare]
+        THS[同花顺]
         SINA[新浪财经]
-        EM[东方财富]
     end
 
     CLI --> REACT
     TUI --> REACT
+    WEB -->|WebSocket| REACT
     REACT --> CLIENT
     REACT --> TOOLS
     REACT --> MEMORY
     REACT --> JUDGE
-    MEMORY --> EMB & BM25S & PRED & PROF & KG
+    TOOLS --> TREND & DIV & SR & VP & CONF & SCREEN
     TOOLS --> DB & REALTIME & COLLECT
     COLLECT --> BS & AK
-    REALTIME --> SINA & EM
+    REALTIME --> SINA & THS
     DB --> COLLECT
 ```
 
@@ -100,7 +102,7 @@ DeepPulse 基于 ReAct（Reasoning + Acting）范式构建。LLM 在每一轮对
 → 输出: 综合分析结论 + 操作建议
 ```
 
-内置 **59 个工具**，覆盖数据采集、技术分析、市场情绪、新闻搜索、选股筛选、回测验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
+内置 **65 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、回测验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
 
 ### 动态推理链
 
@@ -244,32 +246,24 @@ pip install -r requirements.txt
 cp setting.example.json setting.json
 ```
 
-编辑 `setting.json`：
+编辑 `setting.json`，填入你的 API Key。
 
-```json
-{
-  "llm": {
-    "provider": "deepseek",
-    "base_url": "https://api.deepseek.com",
-    "api_key": "sk-your-api-key-here",
-    "model": "deepseek-v4-pro",
-    "protocol": "openai",
-    "max_tokens": 16384,
-    "temperature": 0.3
-  },
-  "embedding": {
-    "provider": "local",
-    "model": "shibing624/text2vec-base-chinese"
-  },
-  "agent": {
-    "max_rounds": 10,
-    "verbose": true
-  }
-}
+支持 OpenAI 和 Anthropic 两种主流 API 调用协议。
+
+### 第三步：启动
+
+```bash
+# 方式一：Web 平台（推荐）
+python -m webapp
+
+# 方式二：CLI 命令行
+python -m cli "分析一下贵州茅台"
+
+# 方式三：TUI 终端界面
+python -m tui
 ```
 
-支持的 LLM：
-支持openai和anthropic两种主流api调用协议
+Web 平台启动后访问 http://localhost:8000
 
 | LLM | protocol | base_url |
 |-----|----------|----------|
@@ -319,41 +313,45 @@ python scripts/fetch_kline.py --source baostock --start 2024-01-01 --end 2026-06
 
 ### 第四步：启动 DeepPulse
 
-DeepPulse 提供两种界面模式：
+DeepPulse 提供三种界面模式：
 
-#### 🎨 TUI 模式（推荐）— 全屏终端界面
+#### 🌐 Web 平台（推荐）— 浏览器可视化界面
 
 ```bash
-python -m agent.tui_cli
+python -m webapp
 ```
 
-**TUI 界面预览**
-<img width="2559" height="1527" alt="image" src="https://github.com/user-attachments/assets/a46b9236-a167-4aa9-97c5-3f3e2e6f4f7e" />
+启动后访问 http://localhost:8000
 
+**Web 平台特点**：
+- 🤖 **AI 对话** — 流式输出，推理过程展示，工具调用可视化
+- 📊 **行情中心** — 实时行情、K 线图、技术指标、板块动态
+- 🔬 **深度分析** — 趋势强度、背离检测、支撑压力、量价分析、多周期共振
+- 🔍 **条件选股** — DuckDB 高性能选股，支持组合条件
+- 📰 **新闻资讯** — 多源聚合，涨停快讯，板块动态
+- 📚 **战法库** — 40 个内置战法，可视化编辑
+- ⚖️ **智能评测** — 自适应评分，根据问题类型给出改进建议
+
+#### 🎨 TUI 模式 — 全屏终端界面
+
+```bash
+python -m tui
+```
 
 **TUI 模式特点**：
-- 🎨 **暗色金融主题** — GitHub Dark 风格，涨红跌绿专业配色
-- 📐 **三栏布局** — 左栏（自选股/持仓/市场）、中栏（对话流）、右栏（工具/数据）
-- 📊 **状态栏** — 实时显示模型名、会话ID、推理轮次、耗时、工具调用数
-- 📈 **三大指数** — 上证指数、深证成指、创业板指实时行情（新浪数据源）
-- 📊 **自选股/持仓** — 每 60 秒自动刷新，显示股票名称+实时价格+涨跌幅
-- 🔄 **全部面板可滚动** — 鼠标滚轮/键盘均可滚动，自适应终端大小
-- ⚖️ **全流程评测** — 评判Agent对照工具返回数据核实引用准确性，综合评分
-- 🎯 **命令系统** — `/help` `/memory` `/strategy` `/watchlist` `/portfolio` `/judge` `/stats`
-- ⌨️ **快捷键** — Ctrl+Q 退出、Ctrl+R 重置、Ctrl+L 清屏、Ctrl+H 帮助、Ctrl+J 评判、Ctrl+↑/↓ 历史命令
-- 📋 **文本复制** — 按住 **Shift 键** + 鼠标选择文本，然后 `Ctrl+Shift+C` 复制
+- 🎨 **暗色金融主题** — 涨红跌绿专业配色
+- 📐 **三栏布局** — 自选股/持仓 + 对话流 + 工具/数据
+- ⚖️ **全流程评测** — 评判Agent 综合评分
+- 🎯 **命令系统** — `/help` `/memory` `/strategy` `/watchlist` `/portfolio` `/judge`
 
 #### 📟 CLI 模式 — 传统命令行
 
 ```bash
 # 交互模式
-python -m agent.cli
+python -m cli
 
 # 单次提问
-python -m agent.cli "分析一下贵州茅台的短线走势"
-
-# 禁用评判Agent（CLI模式默认禁用）
-python -m agent.cli --no-judge
+python -m cli "分析一下贵州茅台的短线走势"
 ```
 
 > **为什么启动需要约 2 分钟？**
@@ -491,7 +489,7 @@ class TushareSource(BaseDataSource):
 ## 工具一览
 
 <details>
-<summary>点击展开全部 59 个工具</summary>
+<summary>点击展开全部 65 个工具</summary>
 
 ### 数据更新
 | 工具 | 说明 |
@@ -531,9 +529,8 @@ class TushareSource(BaseDataSource):
 | `market_sentiment` | 情绪综合分析 |
 | `limit_up_pool` | 涨停股池 |
 | `sector_ranking` | 板块排行 |
-| `stock_fund_flow` | 个股资金流向 |
+| `stock_fund_flow` | 个股资金流向（多数据源） |
 | `dragon_tiger_list` | 龙虎榜 |
-| `northbound_flow` | 北向资金 |
 | `sector_fund_flow` | 板块资金流 |
 | `stock_dragon_tiger` | 个股龙虎榜明细 |
 
@@ -542,6 +539,12 @@ class TushareSource(BaseDataSource):
 |------|------|
 | `recognize_kline_patterns` | K 线形态识别 |
 | `screen_stocks` | 技术条件选股 |
+| `screen_stocks_v2` | 高性能选股（DuckDB 批量） |
+| `detect_divergence` | 背离检测（RSI/MACD/KDJ） |
+| `detect_support_resistance` | 支撑压力位检测 |
+| `assess_trend` | 趋势强度评估（0-100） |
+| `analyze_volume_price` | 深度量价分析 |
+| `analyze_confluence` | 多周期共振分析 |
 
 ### 回测
 | 工具 | 说明 |
@@ -634,67 +637,58 @@ class TushareSource(BaseDataSource):
 
 ```
 DeepPulse/
-├── config.py                  # 项目配置
+├── deeppulse/                 # Python 核心包（三端共享）
+│   ├── __init__.py
+│   ├── config.py              # 项目配置
+│   ├── agent/                 # Agent 核心
+│   │   ├── agent.py           # ReAct 循环引擎
+│   │   ├── client.py          # LLM 客户端（OpenAI/Anthropic）
+│   │   ├── tools/             # 65 个工具定义
+│   │   ├── memory/            # 长期记忆系统
+│   │   ├── prompts.py         # System Prompt
+│   │   ├── judge_agent.py     # 评判Agent（自适应评分）
+│   │   ├── indicators.py      # 统一技术指标引擎
+│   │   ├── divergence.py      # 背离检测
+│   │   ├── support_resistance.py # 支撑压力位
+│   │   ├── trend.py           # 趋势强度评估
+│   │   ├── volume_analysis.py # 量价分析
+│   │   ├── screener_v2.py     # 高性能选股器
+│   │   ├── backtest_optimizer.py # 回测参数优化
+│   │   ├── timeframe_confluence.py # 多周期共振
+│   │   ├── fund_flow.py       # 多数据源资金流向
+│   │   ├── strategies/        # 40 个短线战法（Markdown）
+│   │   └── ...
+│   └── src/                   # 数据层
+│       ├── database.py        # DuckDB 表操作
+│       ├── query.py           # 数据查询接口
+│       ├── collector.py       # 多源采集协调器
+│       ├── sources/           # 历史数据源
+│       └── realtime/          # 实时行情
+│
+├── cli/                       # CLI 入口
+│   └── __main__.py
+│
+├── tui/                       # TUI 入口
+│   └── __main__.py
+│
+├── web/                       # Web 后端
+│   ├── app/
+│   │   ├── main.py            # FastAPI 入口
+│   │   ├── api/               # REST API
+│   │   ├── ws/                # WebSocket
+│   │   └── services/          # 业务逻辑
+│   └── static/
+│       └── index.html         # 前端页面
+│
+├── webapp/                    # 一键启动脚本
+│   └── __main__.py
+│
+├── scripts/                   # 数据采集脚本
+├── tests/                     # 测试
 ├── setting.json               # LLM 配置（已 gitignore）
 ├── setting.example.json       # 配置模板
 ├── pyproject.toml             # 打包与工具配置
-├── requirements.txt           # 依赖
-│
-├── agent/                     # Agent 核心
-│   ├── cli.py                 # CLI 入口
-│   ├── tui_cli.py             # TUI 入口
-│   ├── agent.py               # ReAct 循环引擎
-│   ├── client.py              # LLM 客户端（OpenAI/Anthropic）
-│   ├── tools.py               # 59 个工具定义
-│   ├── prompts.py             # System Prompt
-│   ├── judge_agent.py         # 评判Agent（全流程质量评测）
-│   ├── memory.py              # 长期记忆系统
-│   ├── patterns.py            # K 线形态识别
-│   ├── screener.py            # 股票筛选器
-│   ├── backtest.py            # 策略回测
-│   ├── market.py              # 市场情绪分析
-│   ├── news.py                # 财经新闻爬虫
-│   ├── charts.py              # K 线图生成
-│   ├── timeframes.py          # 多周期 K 线
-│   ├── watchlist.py           # 自选股 & 告警
-│   ├── journal.py             # 交易日志 & 复盘
-│   ├── datalink.py            # 龙虎榜/北向资金
-│   ├── reasoning.py           # 动态推理链
-│   ├── strategy_loader.py     # 战法加载器
-│   ├── strategies/            # 40 个短线战法（Markdown）
-│   └── tui/                   # TUI 界面
-│       ├── app.py             # TUI 主应用（三栏布局）
-│       ├── widgets.py         # UI 组件（StatusBar/ChatLog/面板等）
-│       └── styles.tcss        # 暗色金融主题样式
-│
-├── src/                       # 数据层
-│   ├── database.py            # DuckDB 表操作（事务保护 + 索引）
-│   ├── query.py               # 数据查询接口
-│   ├── collector.py           # 多源采集协调器（韧性保护）
-│   ├── resilience.py          # 韧性基础设施（重试策略 + 三态熔断器）
-│   ├── validation.py          # 数据验证层（NaN/价格/成交量检查）
-│   ├── sources/               # 历史数据源
-│   │   ├── base.py            # 数据源基类（含健康检查）
-│   │   ├── akshare_source.py  # AkShare 实现
-│   │   └── baostock_source.py # BaoStock 实现（自动重连）
-│   └── realtime/              # 实时行情
-│       ├── base.py            # 行情基类
-│       ├── sina_source.py     # 新浪财经（连接复用）
-│       ├── eastmoney_source.py# 东方财富（缓存修复）
-│       └── manager.py         # 多源管理 & 三态熔断
-│
-├── scripts/                   # 数据采集脚本
-│   ├── init_db.py             # 初始化数据库
-│   ├── fetch_stocks.py        # 采集股票列表
-│   ├── fetch_kline.py         # 采集日 K 数据
-│   ├── fetch_all.py           # 一键全量采集
-│   ├── update_data.py         # 增量更新
-│   └── verify_data.py         # 数据质量校验
-│
-├── tests/                     # 测试（200+ 单元测试）
-│   ├── conftest.py            # 共享 fixtures
-│   ├── test_patterns.py       # K 线形态测试
-│   ├── test_backtest.py       # 回测引擎测试
+└── requirements.txt           # 依赖
 │   ├── test_screener.py       # 选股器测试
 │   ├── test_realtime.py       # 实时行情测试
 │   ├── test_resilience.py     # 韧性基础设施测试

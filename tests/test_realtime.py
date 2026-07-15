@@ -3,11 +3,11 @@
 import pandas as pd
 import pytest
 
-from src.realtime.base import RealtimeQuote, RealtimeQuoteSource
-from src.realtime.eastmoney_source import EastMoneyRealtimeSource
-from src.realtime.manager import RealtimeQuoteManager
-from src.realtime.sina_source import SinaRealtimeSource
-from src.resilience import CircuitState
+from deeppulse.src.realtime.base import RealtimeQuote, RealtimeQuoteSource
+from deeppulse.src.realtime.eastmoney_source import EastMoneyRealtimeSource
+from deeppulse.src.realtime.manager import RealtimeQuoteManager
+from deeppulse.src.realtime.sina_source import SinaRealtimeSource
+from deeppulse.src.resilience import CircuitState
 
 # ── RealtimeQuote ───────────────────────────────────────────────────
 

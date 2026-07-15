@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent.agent import StockAgent
+from deeppulse.agent.agent import StockAgent
 
 
 @pytest.fixture

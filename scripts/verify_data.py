@@ -4,8 +4,8 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from src.database import get_connection
-from src.query import StockQuery
+from deeppulse.src.database import get_connection
+from deeppulse.src.query import StockQuery
 
 
 def main():

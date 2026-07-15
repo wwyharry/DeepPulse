@@ -4,8 +4,8 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-import config
-from src.database import get_connection, init_tables
+from deeppulse import config
+from deeppulse.src.database import get_connection, init_tables
 
 
 def main():

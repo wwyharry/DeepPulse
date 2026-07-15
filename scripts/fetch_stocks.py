@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from src.collector import fetch_and_store_stock_list
+from deeppulse.src.collector import fetch_and_store_stock_list
 
 
 def main():

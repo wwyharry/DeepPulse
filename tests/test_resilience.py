@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.resilience import CircuitBreaker, CircuitState, RetryPolicy
+from deeppulse.src.resilience import CircuitBreaker, CircuitState, RetryPolicy
 
 # ────────────────────── RetryPolicy 测试 ──────────────────────
 

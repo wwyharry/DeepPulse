@@ -107,7 +107,7 @@ def main():
         # 验证配置
         print("\n🔍 验证配置...")
         try:
-            from agent.client import load_setting
+            from deeppulse.agent.client import load_setting
 
             load_setting()
             print("✅ 配置验证通过")

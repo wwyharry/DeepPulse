@@ -1,6 +1,6 @@
 """Unit tests for agent/tools.py — tool definitions integrity and dispatch mapping."""
 
-from agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
+from deeppulse.agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
 
 
 class TestToolDefinitionsIntegrity:

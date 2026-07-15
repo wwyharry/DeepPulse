@@ -1,0 +1,2447 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepPulse — A 股短线分析 AI Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root { --bg: #111827; --card: #1f2937; --border: #374151; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .thinking-block { border-left: 2px solid #3b82f6; padding-left: 12px; color: #9ca3af; font-size: 0.875rem; white-space: pre-wrap; }
+    .tool-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #1f2937; border-radius: 6px; font-size: 0.75rem; font-family: monospace; margin: 2px; }
+    .tool-badge.done { color: #22c55e; }
+    .tool-badge.calling { color: #eab308; }
+    .cursor-blink { display: inline-block; width: 2px; height: 16px; background: #3b82f6; animation: blink 1s infinite; margin-left: 2px; vertical-align: text-bottom; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+    /* Markdown */
+    .markdown-body { line-height: 1.7; }
+    .markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #fff; }
+    .markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin: 0.8rem 0 0.4rem; color: #fff; }
+    .markdown-body h3 { font-size: 1.1rem; font-weight: 600; margin: 0.6rem 0 0.3rem; color: #e5e7eb; }
+    .markdown-body p { margin: 0.4rem 0; }
+    .markdown-body ul, .markdown-body ol { padding-left: 1.5rem; margin: 0.4rem 0; }
+    .markdown-body li { margin: 0.2rem 0; }
+    .markdown-body code { background: #374151; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; color: #fbbf24; }
+    .markdown-body pre { background: #0d1117; border-radius: 8px; padding: 12px; margin: 0.5rem 0; overflow-x: auto; }
+    .markdown-body pre code { background: none; padding: 0; color: #e5e7eb; }
+    .markdown-body blockquote { border-left: 3px solid #6b7280; padding-left: 12px; color: #9ca3af; margin: 0.5rem 0; }
+    .markdown-body table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.875rem; }
+    .markdown-body th, .markdown-body td { border: 1px solid #374151; padding: 6px 10px; text-align: left; }
+    .markdown-body th { background: #1f2937; font-weight: 600; }
+    .markdown-body strong { color: #fff; }
+    .markdown-body em { color: #9ca3af; }
+    .markdown-body a { color: #60a5fa; text-decoration: underline; }
+    .markdown-body hr { border: none; border-top: 1px solid #374151; margin: 1rem 0; }
+
+    /* 表格 */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .data-table th { background: #1f2937; padding: 8px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #374151; position: sticky; top: 0; z-index: 1; }
+    .data-table td { padding: 6px 12px; border-bottom: 1px solid #1a1f2e; }
+    .data-table tr:hover td { background: #1f2937; }
+    .text-up { color: #ef4444; }
+    .text-down { color: #22c55e; }
+    .text-flat { color: #6b7280; }
+
+    /* 卡片 */
+    .metric-card { background: #1f2937; border-radius: 10px; padding: 16px 20px; border: 1px solid #374151; }
+    .metric-label { font-size: 0.75rem; color: #9ca3af; margin-bottom: 4px; }
+    .metric-value { font-size: 1.5rem; font-weight: 700; }
+
+    /* K 线图 */
+    .kline-canvas { background: #0d1117; border-radius: 8px; }
+  </style>
+</head>
+<body class="h-screen flex flex-col">
+  <!-- 顶部导航 -->
+  <nav class="border-b border-gray-800 bg-[#1f2937] shrink-0">
+    <div class="max-w-full mx-auto flex items-center justify-between px-4 h-12">
+      <div class="flex items-center gap-6">
+        <span class="text-blue-400 font-bold text-lg">DeepPulse</span>
+        <div class="flex gap-1 text-sm">
+          <button onclick="showPage('chat')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-white" data-page="chat">AI 对话</button>
+          <button onclick="showPage('market')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="market">行情</button>
+          <button onclick="showPage('analysis')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="analysis">分析</button>
+          <button onclick="showPage('screener')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="screener">选股</button>
+          <button onclick="showPage('news')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="news">新闻</button>
+          <button onclick="showPage('portfolio')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="portfolio">组合</button>
+          <button onclick="showPage('strategies')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="strategies">战法</button>
+        </div>
+      </div>
+      <span class="text-xs text-gray-500">v0.2.2</span>
+    </div>
+  </nav>
+
+  <main class="flex-1 flex overflow-hidden">
+
+    <!-- ═══ AI 对话页 ═══ -->
+    <div id="page-chat" class="flex-1 flex">
+      <aside class="w-56 border-r border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800">
+          <button onclick="newSession()" class="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition">+ 新会话</button>
+        </div>
+        <div id="session-list" class="flex-1 overflow-y-auto p-2 space-y-1"></div>
+      </aside>
+      <div class="flex-1 flex flex-col">
+        <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+        <div class="border-t border-gray-800 p-3">
+          <div class="flex gap-2 max-w-4xl mx-auto">
+            <textarea id="input" rows="1" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+              class="flex-1 px-4 py-2.5 bg-[#1f2937] border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500 transition"
+              onkeydown="handleKeyDown(event)"></textarea>
+            <button id="btn-send" onclick="sendMessage()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">发送</button>
+            <button id="btn-stop" onclick="stopStream()" class="hidden px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition">停止</button>
+            <button id="btn-judge" onclick="runJudge()" class="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition" title="AI 评测">📊 评测</button>
+          </div>
+        </div>
+      </div>
+      <aside class="w-64 border-l border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800 text-sm font-medium text-gray-400">工具调用</div>
+        <div id="tool-panel" class="flex-1 overflow-y-auto p-3 space-y-1 text-sm"></div>
+      </aside>
+    </div>
+
+    <!-- ═══ 行情页 ═══ -->
+    <div id="page-market" class="hidden flex-1 flex overflow-hidden">
+      <!-- 左侧：自选股 -->
+      <aside class="w-72 border-r border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-gray-300">自选股</span>
+            <button onclick="loadWatchlistQuick()" class="text-xs text-blue-400 hover:text-blue-300">刷新</button>
+          </div>
+          <div class="flex gap-1">
+            <input id="watchlist-add-input" type="text" placeholder="输入代码添加..." class="flex-1 px-2 py-1 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200"
+              onkeydown="if(event.key==='Enter')addToWatchlistQuick()">
+            <button onclick="addToWatchlistQuick()" class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded">+</button>
+          </div>
+        </div>
+        <div id="watchlist-quick" class="flex-1 overflow-y-auto"></div>
+      </aside>
+
+      <!-- 右侧：行情内容 -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="p-3 border-b border-gray-800 flex items-center gap-3">
+          <div class="flex gap-2">
+            <button onclick="showMarketTab('sentiment')" class="market-tab px-3 py-1.5 bg-blue-600 text-white text-sm rounded" data-tab="sentiment">市场情绪</button>
+            <button onclick="showMarketTab('limitup')" class="market-tab px-3 py-1.5 bg-gray-700 text-white text-sm rounded" data-tab="limitup">涨停池</button>
+            <button onclick="showMarketTab('overview')" class="market-tab px-3 py-1.5 bg-gray-700 text-white text-sm rounded" data-tab="overview">大盘概览</button>
+            <button onclick="showMarketTab('stock')" class="market-tab px-3 py-1.5 bg-gray-700 text-white text-sm rounded" data-tab="stock">个股查询</button>
+          </div>
+          <div class="flex-1"></div>
+          <div class="flex gap-2">
+            <input id="stock-search-input" type="text" placeholder="输入股票代码或名称..." class="px-3 py-1.5 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200 w-52"
+              onkeydown="if(event.key==='Enter')searchStock()">
+            <button onclick="searchStock()" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">搜索</button>
+          </div>
+        </div>
+        <div id="market-content" class="flex-1 overflow-y-auto p-4"></div>
+      </div>
+    </div>
+
+    <!-- ═══ 分析页 ═══ -->
+    <div id="page-analysis" class="hidden flex-1 flex overflow-hidden">
+      <!-- 左侧：分析工具分类 -->
+      <aside class="w-56 border-r border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800">
+          <div class="text-sm font-medium text-gray-300 mb-2">分析工具</div>
+          <div class="flex gap-1">
+            <input id="ana-code" type="text" value="600519" placeholder="股票代码"
+              class="flex-1 px-2 py-1 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200">
+            <input id="ana-days" type="number" value="60" placeholder="天数"
+              class="w-14 px-2 py-1 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200">
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2 space-y-1">
+          <!-- 行情数据 -->
+          <div class="text-xs text-gray-500 px-2 pt-2">📊 行情数据</div>
+          <button onclick="runAnalysis('kline')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">K 线数据</button>
+          <button onclick="runAnalysis('technical')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">技术指标</button>
+          <button onclick="runAnalysis('patterns')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">形态识别</button>
+
+          <!-- 深度分析 -->
+          <div class="text-xs text-gray-500 px-2 pt-3">🔬 深度分析</div>
+          <button onclick="runAnalysis('trend')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">趋势强度</button>
+          <button onclick="runAnalysis('divergence')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">背离检测</button>
+          <button onclick="runAnalysis('support_resistance')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">支撑压力位</button>
+          <button onclick="runAnalysis('volume_price')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">量价分析</button>
+          <button onclick="runAnalysis('confluence')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">多周期共振</button>
+
+          <!-- 资金流向 -->
+          <div class="text-xs text-gray-500 px-2 pt-3">💰 资金流向</div>
+          <button onclick="runAnalysis('fund_flow')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">个股资金流</button>
+          <button onclick="runAnalysis('dragon_tiger')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">龙虎榜</button>
+
+          <!-- 回测 -->
+          <div class="text-xs text-gray-500 px-2 pt-3">📈 回测</div>
+          <button onclick="runAnalysis('backtest')" class="ana-btn w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">策略回测</button>
+        </div>
+      </aside>
+
+      <!-- 右侧：分析结果 -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div id="analysis-content" class="flex-1 overflow-y-auto p-4">
+          <div class="flex items-center justify-center h-full text-gray-500">
+            <div class="text-center">
+              <div class="text-4xl mb-4">🔬</div>
+              <p class="text-lg">选择左侧分析工具</p>
+              <p class="text-sm mt-2">输入股票代码，点击任意分析功能</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 选股页 ═══ -->
+    <div id="page-screener" class="hidden flex-1 flex overflow-hidden">
+      <aside class="w-72 border-r border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800">
+          <div class="text-sm font-medium text-gray-300 mb-2">条件选股</div>
+          <div class="space-y-2">
+            <div>
+              <label class="text-xs text-gray-500">筛选条件（逗号分隔）</label>
+              <textarea id="screener-conditions" rows="3"
+                class="w-full mt-1 px-2 py-1.5 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200"
+                placeholder="多头排列,放量,涨幅>3%">多头排列,放量</textarea>
+            </div>
+            <div class="flex gap-2">
+              <div class="flex-1">
+                <label class="text-xs text-gray-500">返回数量</label>
+                <input id="screener-limit" type="number" value="20" class="w-full mt-1 px-2 py-1 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200">
+              </div>
+              <div class="flex items-end">
+                <button onclick="runScreenerPage()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded">筛选</button>
+              </div>
+            </div>
+            <div class="text-xs text-gray-500">
+              <div class="font-medium mb-1">支持条件：</div>
+              <div>多头排列、空头排列、放量、缩量、MACD金叉、涨幅>N%、量比>N</div>
+            </div>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2">
+          <div class="text-xs text-gray-500 px-2 mb-2">预设策略</div>
+          <button onclick="setScreener('多头排列,放量')" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">📈 强势放量</button>
+          <button onclick="setScreener('MACD金叉,放量')" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">🔄 MACD金叉</button>
+          <button onclick="setScreener('缩量,涨幅<1%')" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">📉 缩量整理</button>
+          <button onclick="setScreener('涨幅>5%')" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">🚀 涨幅居前</button>
+        </div>
+      </aside>
+      <div id="screener-content" class="flex-1 overflow-y-auto p-4">
+        <div class="flex items-center justify-center h-full text-gray-500">
+          <div class="text-center">
+            <div class="text-4xl mb-4">🔍</div>
+            <p class="text-lg">条件选股</p>
+            <p class="text-sm mt-2">设置筛选条件，点击「筛选」开始</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 新闻页 ═══ -->
+    <div id="page-news" class="hidden flex-1 flex overflow-hidden">
+      <aside class="w-56 border-r border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800">
+          <div class="text-sm font-medium text-gray-300 mb-2">新闻资讯</div>
+          <div class="flex gap-1">
+            <input id="news-search-input" type="text" placeholder="搜索股票/关键词..."
+              class="flex-1 px-2 py-1 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200"
+              onkeydown="if(event.key==='Enter')searchNews()">
+            <button onclick="searchNews()" class="px-2 py-1 bg-blue-600 text-white text-sm rounded">🔍</button>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2 space-y-1">
+          <button onclick="loadMarketHotNews()" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">🔥 市场热点</button>
+          <button onclick="loadLimitUpNews()" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">🚀 涨停快讯</button>
+          <button onclick="loadSectorNews()" class="w-full text-left px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800">📊 板块动态</button>
+          <div class="text-xs text-gray-500 px-2 pt-3">个股新闻</div>
+          <div id="news-stock-list" class="space-y-1"></div>
+        </div>
+      </aside>
+      <div id="news-content" class="flex-1 overflow-y-auto p-4">
+        <div class="flex items-center justify-center h-full text-gray-500">
+          <div class="text-center">
+            <div class="text-4xl mb-4">📰</div>
+            <p class="text-lg">新闻资讯</p>
+            <p class="text-sm mt-2">点击左侧分类或搜索股票查看新闻</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 组合页 ═══ -->
+    <div id="page-portfolio" class="hidden flex-1 flex flex-col overflow-hidden">
+      <div class="p-4 border-b border-gray-800 flex items-center gap-4">
+        <h1 class="text-xl font-bold">我的组合</h1>
+        <button onclick="loadWatchlist()" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">自选股</button>
+        <button onclick="loadPortfolio()" class="px-3 py-1.5 bg-gray-700 text-white text-sm rounded">持仓</button>
+        <button onclick="loadTrades()" class="px-3 py-1.5 bg-gray-700 text-white text-sm rounded">交易记录</button>
+      </div>
+      <div id="portfolio-content" class="flex-1 overflow-y-auto p-4">
+        <div class="text-center text-gray-500 py-20">点击上方按钮查看组合数据</div>
+      </div>
+    </div>
+
+    <!-- ═══ 战法页 ═══ -->
+    <div id="page-strategies" class="hidden flex-1 flex overflow-hidden">
+      <aside class="w-72 border-r border-gray-800 bg-[#111827] flex flex-col shrink-0">
+        <div class="p-3 border-b border-gray-800 flex items-center gap-2">
+          <input id="strategy-search" type="text" placeholder="搜索战法..." onkeyup="filterStrategies()"
+            class="flex-1 px-3 py-1.5 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200">
+          <button onclick="createNewStrategy()" class="px-2 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded" title="新建战法">+</button>
+        </div>
+        <div id="strategy-list" class="flex-1 overflow-y-auto p-2 space-y-1"></div>
+      </aside>
+      <div id="strategy-detail" class="flex-1 flex flex-col overflow-hidden">
+        <div class="text-center text-gray-500 py-20">选择左侧战法查看详情</div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="border-t border-gray-800 bg-[#1f2937] px-4 py-1.5 flex items-center justify-between text-xs text-gray-500 shrink-0">
+    <div id="status-text">就绪</div>
+    <div id="status-info"></div>
+  </footer>
+
+<script>
+marked.setOptions({ breaks: true, gfm: true });
+
+let ws = null, currentSessionId = null, sessions = [], isStreaming = false;
+let fullThinking = '', fullContent = '', allStrategies = [];
+let currentMarketTab = 'sentiment';
+
+// ═══ 页面切换 ═══
+function showPage(name) {
+  ['chat','market','analysis','screener','news','portfolio','strategies'].forEach(p => {
+    document.getElementById('page-' + p).classList.toggle('hidden', p !== name);
+  });
+  document.querySelectorAll('.nav-btn').forEach(el => {
+    el.classList.toggle('text-white', el.dataset.page === name);
+    el.classList.toggle('text-gray-400', el.dataset.page !== name);
+  });
+  if (name === 'strategies' && allStrategies.length === 0) loadStrategies();
+  if (name === 'market') { loadWatchlistQuick(); showMarketTab(currentMarketTab); }
+  if (name === 'news') { loadMarketHotNews(); loadNewsStockList(); }
+}
+
+function showMarketTab(tab) {
+  currentMarketTab = tab;
+  document.querySelectorAll('.market-tab').forEach(el => {
+    el.classList.toggle('bg-blue-600', el.dataset.tab === tab);
+    el.classList.toggle('bg-gray-700', el.dataset.tab !== tab);
+  });
+  const content = document.getElementById('market-content');
+  switch(tab) {
+    case 'sentiment': loadSentiment(); break;
+    case 'limitup': loadLimitUp(); break;
+    case 'overview': loadOverview(); break;
+    case 'stock': content.innerHTML = '<div class="text-center text-gray-500 py-20">在右上角搜索框输入股票代码或名称</div>'; break;
+  }
+}
+
+// ═══ 会话管理 ═══
+async function loadSessionList() {
+  try {
+    const data = await fetchJSON('/api/system/sessions');
+    sessions = (data.sessions || []).map(s => {
+      // 生成会话标题
+      let title = s.title;
+      if (!title) {
+        // 从消息中提取第一条用户消息作为标题
+        if (s.first_message) {
+          title = s.first_message.substring(0, 25) + (s.first_message.length > 25 ? '...' : '');
+        } else if (s.message_count > 0) {
+          title = `会话 (${s.message_count}条消息)`;
+        } else {
+          title = '新会话';
+        }
+      }
+      return {
+        id: s.id,
+        title: title,
+        updated_at: s.updated_at,
+        message_count: s.message_count || 0
+      };
+    });
+    updateSessionList();
+  } catch (e) { /* 静默失败 */ }
+}
+
+function newSession() {
+  currentSessionId = null;
+  fullThinking = ''; fullContent = '';
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('tool-panel').innerHTML = '';
+  updateSessionList();
+
+  // 显示欢迎消息
+  document.getElementById('messages').innerHTML = `
+    <div class="flex items-center justify-center h-full text-gray-500">
+      <div class="text-center">
+        <div class="text-4xl mb-4">🤖</div>
+        <p class="text-lg">开始分析 A 股行情</p>
+        <p class="text-sm mt-2">输入股票名称或代码，例如：分析一下贵州茅台</p>
+      </div>
+    </div>`;
+}
+
+async function loadSession(sessionId) {
+  currentSessionId = sessionId;
+  fullThinking = ''; fullContent = '';
+  document.getElementById('tool-panel').innerHTML = '';
+  updateSessionList();
+
+  // 加载历史消息
+  try {
+    const data = await fetchJSON(`/api/system/sessions/${sessionId}`);
+    const messages = data.messages || [];
+    const div = document.getElementById('messages');
+    div.innerHTML = '';
+
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        appendMessage('user', msg.content);
+      } else if (msg.role === 'assistant') {
+        // 简单显示，不重新渲染完整流式
+        const el = document.createElement('div');
+        el.className = 'fade-in';
+        el.innerHTML = `<div class="px-4 py-3 bg-[#1f2937] rounded-lg markdown-body">${marked.parse(msg.content || '')}</div>`;
+        div.appendChild(el);
+      }
+    }
+
+    div.scrollTop = div.scrollHeight;
+  } catch (e) { /* 静默失败 */ }
+}
+
+function updateSessionList() {
+  document.getElementById('session-list').innerHTML = sessions.map((s, i) => `
+    <div class="px-3 py-2 rounded cursor-pointer text-sm group ${s.id === currentSessionId ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800'}"
+         onclick="loadSession('${s.id}')">
+      <div class="flex items-center justify-between">
+        <span class="truncate">${escapeHtml(s.title || '新会话')}</span>
+        <button onclick="event.stopPropagation();deleteSession('${s.id}')" class="text-xs text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition" title="删除">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm('确认删除此会话？')) return;
+  try {
+    await fetch(`/api/system/sessions/${sessionId}`, { method: 'DELETE' });
+    sessions = sessions.filter(s => s.id !== sessionId);
+    if (currentSessionId === sessionId) {
+      currentSessionId = null;
+      document.getElementById('messages').innerHTML = '';
+    }
+    updateSessionList();
+  } catch (e) { /* 静默失败 */ }
+}
+
+// ═══ WebSocket ═══
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/chat`);
+  ws.onopen = () => setStatus('已连接', '🟢');
+  ws.onclose = () => { setStatus('已断开', '🔴'); setTimeout(connect, 3000); };
+  ws.onerror = () => setStatus('连接错误', '🔴');
+  ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
+}
+
+let judgeContent = '';
+
+function handleEvent(data) {
+  switch (data.type) {
+    case 'session':
+      currentSessionId = data.session_id;
+      if (!sessions.find(s => s.id === currentSessionId)) {
+        sessions.unshift({ id: currentSessionId, title: '' });
+        loadSessionList();
+      }
+      updateSessionList();
+      break;
+    case 'thinking': fullThinking += data.delta; updateAssistantMessage(); break;
+    case 'content': fullContent += data.delta; updateAssistantMessage(); break;
+    case 'tool_call': addToolBadge(data.name, 'calling'); break;
+    case 'tool_result': updateToolBadge(data.name, 'done'); break;
+    case 'done':
+      isStreaming = false;
+      document.getElementById('btn-send').classList.remove('hidden');
+      document.getElementById('btn-stop').classList.add('hidden');
+      document.getElementById('btn-judge').classList.remove('hidden');
+      setStatus('就绪');
+      updateStatusInfo(data.rounds, data.tools);
+      // 更新会话标题（基于用户消息）
+      updateSessionTitle(lastUserMessage, fullContent);
+      break;
+    case 'error':
+      isStreaming = false;
+      document.getElementById('btn-send').classList.remove('hidden');
+      document.getElementById('btn-stop').classList.add('hidden');
+      document.getElementById('btn-judge').classList.remove('hidden');
+      appendMessage('error', data.message);
+      break;
+    // 评测事件
+    case 'judge_start':
+      judgeContent = '';
+      judgeSummary = {};
+      appendJudgeMessage();
+      break;
+    case 'judge_content':
+      judgeContent += data.delta;
+      updateJudgeMessage();
+      break;
+    case 'judge_score':
+      updateJudgeScore(data.score);
+      break;
+    case 'judge_dimension':
+      updateJudgeDimension(data.data);
+      break;
+    case 'judge_tool_call':
+      addJudgeToolCall(data.data);
+      break;
+    case 'judge_summary':
+      judgeSummary = data.data;
+      break;
+    case 'judge_done':
+      isStreaming = false;
+      document.getElementById('btn-judge').classList.remove('hidden');
+      setStatus('评测完成');
+      showJudgeSaveButton();
+      break;
+  }
+}
+
+// ═══ 消息渲染 ═══
+function appendMessage(role, content) {
+  const div = document.getElementById('messages');
+  const msg = document.createElement('div');
+  msg.className = 'fade-in';
+  if (role === 'user') { msg.className += ' flex justify-end'; msg.innerHTML = `<div class="max-w-[70%] px-4 py-2.5 bg-blue-600 text-white rounded-lg">${escapeHtml(content)}</div>`; }
+  else if (role === 'error') { msg.innerHTML = `<div class="px-4 py-2.5 bg-red-900/50 border border-red-700 text-red-200 rounded-lg">${escapeHtml(content)}</div>`; }
+  div.appendChild(msg); div.scrollTop = div.scrollHeight;
+}
+
+function updateAssistantMessage() {
+  const div = document.getElementById('messages');
+  let msg = document.getElementById('current-assistant');
+  if (!msg) { msg = document.createElement('div'); msg.id = 'current-assistant'; msg.className = 'fade-in'; div.appendChild(msg); }
+  let html = '';
+  if (fullThinking) {
+    html += `<details open class="mb-3"><summary class="text-sm text-gray-400 cursor-pointer hover:text-gray-200 flex items-center gap-2 select-none">🧠 推理过程 ${isStreaming ? '<span class="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>' : ''}</summary><div class="thinking-block mt-2">${escapeHtml(fullThinking)}${isStreaming ? '<span class="cursor-blink"></span>' : ''}</div></details>`;
+  }
+  if (fullContent) {
+    html += `<div class="px-4 py-3 bg-[#1f2937] rounded-lg markdown-body">${marked.parse(fullContent)}${isStreaming ? '<span class="cursor-blink"></span>' : ''}</div>`;
+  }
+  if (isStreaming && !fullThinking && !fullContent) { html += `<div class="px-4 py-3 bg-[#1f2937] rounded-lg"><span class="cursor-blink"></span></div>`; }
+  msg.innerHTML = html; div.scrollTop = div.scrollHeight;
+}
+
+function addToolBadge(name, status) {
+  const panel = document.getElementById('tool-panel');
+  const badge = document.createElement('div'); badge.id = 'tool-' + name; badge.className = 'tool-badge ' + status;
+  badge.innerHTML = `<span>${status === 'calling' ? '⏳' : '✅'}</span><span>${escapeHtml(name)}</span>`;
+  panel.appendChild(badge); panel.scrollTop = panel.scrollHeight;
+}
+
+function updateToolBadge(name, status) {
+  const badge = document.getElementById('tool-' + name);
+  if (badge) { badge.className = 'tool-badge ' + status; badge.querySelector('span').textContent = '✅'; }
+}
+
+// ═══ 发送消息 ═══
+let lastUserMessage = '';
+
+function sendMessage() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+  lastUserMessage = text;  // 保存用户消息用于生成标题
+  fullThinking = ''; fullContent = '';
+  document.getElementById('current-assistant')?.remove();
+  document.getElementById('tool-panel').innerHTML = '';
+  appendMessage('user', text); input.value = '';
+  isStreaming = true; document.getElementById('btn-send').classList.add('hidden'); document.getElementById('btn-stop').classList.remove('hidden'); setStatus('分析中...', '⏳');
+  ws.send(JSON.stringify({ type: 'message', content: text, session_id: currentSessionId || undefined }));
+}
+
+function stopStream() {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' }));
+  isStreaming = false; document.getElementById('btn-send').classList.remove('hidden'); document.getElementById('btn-stop').classList.add('hidden'); setStatus('已停止');
+}
+
+function runJudge() {
+  if (isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!currentSessionId) { alert('请先进行一次对话再评测'); return; }
+
+  isStreaming = true;
+  document.getElementById('btn-judge').classList.add('hidden');
+  setStatus('评测中...', '📊');
+
+  ws.send(JSON.stringify({ type: 'judge', session_id: currentSessionId }));
+}
+
+let judgeSummary = {};
+let judgeDimensions = {};
+
+function appendJudgeMessage() {
+  const div = document.getElementById('messages');
+  const msg = document.createElement('div');
+  msg.id = 'judge-message';
+  msg.className = 'fade-in';
+  msg.innerHTML = `
+    <div class="mt-4 p-4 bg-purple-900/20 border border-purple-700/50 rounded-lg">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-purple-400 font-medium">📊 AI 评测报告 V2</span>
+        <span id="judge-status-dot" class="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></span>
+      </div>
+      <div id="judge-score-bar" class="hidden mb-3"></div>
+      <div id="judge-dimensions" class="hidden mb-3"></div>
+      <div id="judge-tools" class="hidden mb-3"></div>
+      <div id="judge-content" class="text-sm text-gray-300"></div>
+      <div id="judge-actions" class="mt-3 pt-3 border-t border-purple-700/30 hidden"></div>
+    </div>`;
+  div.appendChild(msg);
+  div.scrollTop = div.scrollHeight;
+}
+
+function updateJudgeMessage() {
+  const el = document.getElementById('judge-content');
+  if (el) {
+    el.innerHTML = marked.parse(judgeContent);
+    const div = document.getElementById('messages');
+    div.scrollTop = div.scrollHeight;
+  }
+}
+
+function updateJudgeScore(score) {
+  const el = document.getElementById('judge-score-bar');
+  if (!el) return;
+  el.classList.remove('hidden');
+
+  const numScore = parseFloat(score);
+  // 1-10 分制
+  const color = numScore >= 8 ? 'text-green-400' : numScore >= 6 ? 'text-yellow-400' : 'text-red-400';
+  const bgColor = numScore >= 8 ? 'bg-green-500' : numScore >= 6 ? 'bg-yellow-500' : 'bg-red-500';
+  const percent = (numScore / 10) * 100;
+
+  el.innerHTML = `
+    <div class="flex items-center gap-3">
+      <span class="text-3xl font-bold ${color}">${score}/10</span>
+      <div class="flex-1">
+        <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+          <div class="${bgColor} h-full rounded-full transition-all duration-500" style="width: ${percent}%"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function updateJudgeDimension(data) {
+  judgeDimensions[data.dimension] = data.score;
+  const el = document.getElementById('judge-dimensions');
+  if (!el) return;
+  el.classList.remove('hidden');
+
+  const dims = Object.entries(judgeDimensions);
+  el.innerHTML = `
+    <div class="grid grid-cols-3 gap-2">
+      ${dims.map(([name, score]) => {
+        const color = score >= 80 ? 'text-green-400' : score >= 60 ? 'text-yellow-400' : 'text-red-400';
+        return `<div class="text-center"><div class="text-xs text-gray-500">${name}</div><div class="font-mono ${color}">${score}</div></div>`;
+      }).join('')}
+    </div>`;
+}
+
+function addJudgeToolCall(data) {
+  const el = document.getElementById('judge-tools');
+  if (!el) return;
+  el.classList.remove('hidden');
+
+  const existing = el.innerHTML || '<div class="text-xs text-gray-500 mb-1">🔍 数据验证中...</div><div class="space-y-1"></div>';
+  if (!el.innerHTML) {
+    el.innerHTML = existing;
+  }
+
+  const container = el.querySelector('.space-y-1') || el;
+  const badge = document.createElement('div');
+  badge.className = 'tool-badge calling inline-block mr-1 mb-1';
+  badge.innerHTML = `<span>⏳</span><span>${escapeHtml(data.name)}</span>`;
+  container.appendChild(badge);
+}
+
+function showJudgeSaveButton() {
+  // 更新状态点
+  const dot = document.getElementById('judge-status-dot');
+  if (dot) dot.classList.remove('animate-pulse');
+
+  // 显示操作按钮
+  const actions = document.getElementById('judge-actions');
+  if (actions) {
+    actions.classList.remove('hidden');
+    actions.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span id="judge-save-status" class="text-xs text-gray-500"></span>
+        <div class="flex gap-2">
+          <button onclick="copyJudgeReport()" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition">📋 复制报告</button>
+          <button onclick="saveJudgeReport()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded transition">💾 保存记录</button>
+        </div>
+      </div>`;
+  }
+}
+
+function copyJudgeReport() {
+  navigator.clipboard.writeText(judgeContent).then(() => {
+    const status = document.getElementById('judge-save-status');
+    if (status) {
+      status.textContent = '✅ 已复制到剪贴板';
+      status.className = 'text-xs text-green-400';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    }
+  }).catch(() => {
+    alert('复制失败，请手动选择文本复制');
+  });
+}
+
+async function saveJudgeReport() {
+  if (!currentSessionId) return;
+  const status = document.getElementById('judge-save-status');
+  if (status) {
+    status.textContent = '保存中...';
+    status.className = 'text-xs text-yellow-400';
+  }
+
+  try {
+    // 保存评测记录到会话
+    const res = await fetch('/api/memory/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `## 评测报告\n\n${judgeContent}`,
+        memory_type: 'insight'
+      })
+    });
+
+    // 也保存到会话消息中
+    await fetch(`/api/system/sessions/${currentSessionId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'judge',
+        content: judgeContent
+      })
+    });
+
+    if (status) {
+      status.textContent = '✅ 已保存到记忆';
+      status.className = 'text-xs text-green-400';
+    }
+  } catch (e) {
+    if (status) {
+      status.textContent = '保存失败: ' + e.message;
+      status.className = 'text-xs text-red-400';
+    }
+  }
+}
+
+function updateSessionTitle(userMessage, assistantContent) {
+  // 从用户消息生成会话标题
+  if (!currentSessionId) return;
+  const session = sessions.find(s => s.id === currentSessionId);
+  if (!session || session.title) return; // 已有标题则不更新
+
+  // 优先使用用户消息作为标题
+  let title = '';
+  if (userMessage) {
+    // 清理用户消息，提取关键信息
+    title = userMessage
+      .replace(/[，。！？、；：""''（）【】\[\]]/g, ' ')  // 替换标点
+      .replace(/\s+/g, ' ')  // 合并空格
+      .trim();
+    // 截取前25个字符
+    if (title.length > 25) {
+      title = title.substring(0, 25) + '...';
+    }
+  }
+
+  if (title) {
+    session.title = title;
+    updateSessionList();
+    // 持久化到后端
+    saveSessionTitle(currentSessionId, title);
+  }
+}
+
+async function saveSessionTitle(sessionId, title) {
+  try {
+    await fetch(`/api/system/sessions/${sessionId}/title`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title })
+    });
+  } catch (e) { /* 静默失败 */ }
+}
+
+function handleKeyDown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+
+// ═══ 工具函数 ═══
+function escapeHtml(str) { if (str == null) return ''; const d = document.createElement('div'); d.textContent = String(str); return d.innerHTML; }
+function setStatus(text, icon = '') { document.getElementById('status-text').textContent = (icon ? icon + ' ' : '') + text; }
+function updateStatusInfo(r, t) { if (r || t) document.getElementById('status-info').textContent = `Round ${r} | 工具 ${t} 次`; }
+function formatChange(val) { if (val == null || isNaN(val)) return '-'; const n = parseFloat(val); const cls = n > 0 ? 'text-up' : n < 0 ? 'text-down' : 'text-flat'; return `<span class="${cls}">${n > 0 ? '+' : ''}${n.toFixed(2)}%</span>`; }
+function formatPrice(val) { return val == null || isNaN(val) ? '-' : parseFloat(val).toFixed(2); }
+function formatVolume(val) { if (val == null) return '-'; const n = parseFloat(val); if (n >= 1e8) return (n/1e8).toFixed(2) + '亿'; if (n >= 1e4) return (n/1e4).toFixed(1) + '万'; return n.toFixed(0); }
+async function fetchJSON(url, method) { const opts = method === 'POST' ? { method: 'POST' } : {}; return (await fetch(url, opts)).json(); }
+
+// ═══ 自选股快速列表 ═══
+async function loadWatchlistQuick() {
+  const el = document.getElementById('watchlist-quick');
+  try {
+    const data = await fetchJSON('/api/portfolio/watchlist');
+    let items = data.watchlist; if (typeof items === 'string') items = JSON.parse(items);
+    if (!Array.isArray(items) || items.length === 0) { el.innerHTML = '<div class="text-center text-gray-500 py-8 text-sm">暂无自选股<br><span class="text-xs">在上方输入代码添加</span></div>'; return; }
+    el.innerHTML = items.map(s => `
+      <div class="px-3 py-2 border-b border-gray-800/50 hover:bg-gray-800/50 group">
+        <div class="flex items-center justify-between cursor-pointer" onclick="viewStockDetail('${s.code}')">
+          <div>
+            <span class="font-mono text-sm text-gray-300">${escapeHtml(s.code)}</span>
+            <span class="text-sm text-gray-200 ml-2">${escapeHtml(s.name || '')}</span>
+          </div>
+          <button onclick="event.stopPropagation();removeFromWatchlist('${s.code}')" class="text-xs text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition" title="移除">✕</button>
+        </div>
+        ${s.notes ? `<div class="text-xs text-gray-500 mt-0.5 truncate">${escapeHtml(s.notes)}</div>` : ''}
+      </div>`).join('');
+  } catch (e) { el.innerHTML = '<div class="text-red-400 text-sm p-3">加载失败</div>'; }
+}
+
+async function addToWatchlistQuick() {
+  const input = document.getElementById('watchlist-add-input');
+  const code = input.value.trim();
+  if (!code) return;
+
+  try {
+    const res = await fetch('/api/portfolio/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      alert('添加失败: ' + data.error);
+      return;
+    }
+
+    input.value = '';
+    loadWatchlistQuick();
+  } catch (e) {
+    alert('添加失败: ' + e.message);
+  }
+}
+
+async function removeFromWatchlist(code) {
+  if (!confirm(`确认从自选股中移除 ${code}？`)) return;
+
+  try {
+    const res = await fetch(`/api/portfolio/watchlist/${code}`, { method: 'DELETE' });
+    const data = await res.json();
+
+    if (data.error) {
+      alert('移除失败: ' + data.error);
+      return;
+    }
+
+    loadWatchlistQuick();
+  } catch (e) {
+    alert('移除失败: ' + e.message);
+  }
+}
+
+async function addStockToWatchlist(code, name) {
+  try {
+    const res = await fetch('/api/portfolio/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      alert('添加失败: ' + data.error);
+      return;
+    }
+
+    // 刷新自选股列表
+    loadWatchlistQuick();
+
+    // 更新按钮状态
+    const btn = event.target;
+    btn.textContent = '✓ 已加入';
+    btn.disabled = true;
+    btn.className = 'px-3 py-1.5 bg-gray-600 text-gray-400 text-sm rounded cursor-not-allowed';
+  } catch (e) {
+    alert('添加失败: ' + e.message);
+  }
+}
+
+// ═══ 市场情绪 ═══
+async function loadSentiment() {
+  const el = document.getElementById('market-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/market/sentiment');
+    let s = data.sentiment; if (typeof s === 'string') s = JSON.parse(s);
+
+    // 情绪评级颜色
+    const ratingText = s['情绪评级'] || '';
+    const ratingColor = ratingText.includes('📈') ? 'text-up' : ratingText.includes('📉') ? 'text-down' : 'text-flat';
+
+    // 连板分布
+    const dist = s['连板分布'] || {};
+    const distHtml = Object.entries(dist).map(([k, v]) => `<div class="flex justify-between"><span class="text-gray-400">${k}</span><span class="font-mono">${v}</span></div>`).join('');
+
+    // 行业 TOP5
+    const industries = s['涨停行业TOP5'] || {};
+    const indHtml = Object.entries(industries).map(([k, v]) => `<div class="flex justify-between"><span class="text-gray-400">${k}</span><span class="font-mono">${v} 只</span></div>`).join('');
+
+    el.innerHTML = `
+      <div class="max-w-4xl mx-auto space-y-4">
+        <!-- 日期和评级 -->
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-gray-400">日期: ${s.date || '-'}</span>
+          <span class="text-lg font-bold ${ratingColor}">${escapeHtml(ratingText)}</span>
+        </div>
+
+        <!-- 核心指标卡片 -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="metric-card">
+            <div class="metric-label">涨停数</div>
+            <div class="metric-value text-up">${s['涨停数'] || 0}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">跌停数</div>
+            <div class="metric-value text-down">${s['跌停数'] || 0}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">炸板数</div>
+            <div class="metric-value text-yellow-400">${s['炸板数'] || 0}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">炸板率</div>
+            <div class="metric-value text-yellow-400">${s['炸板率'] || '-'}</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div class="metric-card">
+            <div class="metric-label">涨跌停比</div>
+            <div class="metric-value">${s['涨跌停比'] || '-'}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">最大连板</div>
+            <div class="metric-value text-purple-400">${s['最大连板'] || '-'} 板</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">最高连板股</div>
+            <div class="metric-value text-sm text-blue-400">${escapeHtml(s['最高连板股'] || '-')}</div>
+          </div>
+        </div>
+
+        <!-- 操作建议 -->
+        ${s['操作建议'] ? `<div class="metric-card border-blue-500/30"><div class="metric-label">💡 操作建议</div><div class="text-sm text-gray-200 mt-1">${escapeHtml(s['操作建议'])}</div></div>` : ''}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- 连板分布 -->
+          <div class="metric-card">
+            <div class="metric-label mb-2">连板分布</div>
+            ${distHtml || '<div class="text-gray-500 text-sm">暂无数据</div>'}
+          </div>
+          <!-- 涨停行业 -->
+          <div class="metric-card">
+            <div class="metric-label mb-2">涨停行业 TOP5</div>
+            ${indHtml || '<div class="text-gray-500 text-sm">暂无数据</div>'}
+          </div>
+        </div>
+      </div>`;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+// ═══ 涨停池 ═══
+async function loadLimitUp() {
+  const el = document.getElementById('market-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/market/limit-up');
+    let pool = data.limit_up; if (typeof pool === 'string') pool = JSON.parse(pool);
+    const stocks = pool.stocks || [];
+    if (!stocks.length) { el.innerHTML = '<div class="text-center text-gray-500 py-10">今日暂无涨停</div>'; return; }
+
+    el.innerHTML = `
+      <div class="mb-3 flex items-center justify-between">
+        <span class="text-sm text-gray-400">日期: ${pool.date || '-'} | 共 <span class="text-up font-bold">${pool.count || stocks.length}</span> 只涨停</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="data-table">
+          <thead><tr>
+            <th>代码</th><th>名称</th><th>价格</th><th>涨幅</th><th>换手率</th><th>成交额(亿)</th>
+            <th>首次封板</th><th>最后封板</th><th>开板次数</th><th>连板</th><th>行业</th>
+          </tr></thead>
+          <tbody>${stocks.map(s => `
+            <tr class="cursor-pointer hover:bg-gray-800" onclick="viewStockDetail('${s.code}')">
+              <td class="font-mono">${escapeHtml(s.code)}</td>
+              <td class="font-medium">${escapeHtml(s.name)}</td>
+              <td>${formatPrice(s.price)}</td>
+              <td>${formatChange(s.change_pct)}</td>
+              <td>${s.turnover ? s.turnover.toFixed(2) + '%' : '-'}</td>
+              <td>${s.amount ? s.amount.toFixed(2) : '-'}</td>
+              <td class="font-mono text-xs">${formatTime(s.first_time)}</td>
+              <td class="font-mono text-xs">${formatTime(s.last_time)}</td>
+              <td class="text-center">${s.open_count ?? '-'}</td>
+              <td class="text-center"><span class="${(s.streak || 0) >= 2 ? 'text-purple-400 font-bold' : ''}">${s.streak || 1}</span></td>
+              <td class="text-xs text-gray-400">${escapeHtml(s.industry || '-')}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+function formatTime(t) {
+  if (!t || t.length < 4) return t || '-';
+  return t.substring(0,2) + ':' + t.substring(2,4) + (t.length >= 6 ? ':' + t.substring(4,6) : '');
+}
+
+// ═══ 大盘概览 ═══
+async function loadOverview() {
+  const el = document.getElementById('market-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/market/overview');
+    let overview = data.overview; if (typeof overview === 'string') overview = JSON.parse(overview);
+
+    // 格式化显示
+    let html = '<div class="max-w-4xl space-y-4">';
+
+    // 数据库统计
+    const stats = overview['数据库统计'];
+    if (stats) {
+      html += `<div class="metric-card">
+        <div class="metric-label mb-3">📊 数据库统计</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          ${Object.entries(stats).map(([k, v]) => `
+            <div class="bg-[#111827] rounded-lg p-3">
+              <div class="text-xs text-gray-400">${escapeHtml(k)}</div>
+              <div class="text-lg font-mono">${typeof v === 'number' ? formatVolume(v) : escapeHtml(String(v))}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    // 最近交易日涨跌
+    const daily = overview['最近交易日涨跌'];
+    if (daily) {
+      html += `<div class="metric-card">
+        <div class="metric-label mb-3">📈 最近交易日涨跌</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          ${Object.entries(daily).map(([k, v]) => `
+            <div class="bg-[#111827] rounded-lg p-3">
+              <div class="text-xs text-gray-400">${escapeHtml(k)}</div>
+              <div class="text-lg font-mono ${typeof v === 'number' ? (v > 0 ? 'text-up' : v < 0 ? 'text-down' : '') : ''}">${typeof v === 'number' ? v.toLocaleString() : escapeHtml(String(v))}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+    }
+
+    // 其他字段
+    const otherKeys = Object.keys(overview).filter(k => k !== '数据库统计' && k !== '最近交易日涨跌');
+    if (otherKeys.length > 0) {
+      html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">';
+      for (const k of otherKeys) {
+        html += `<div class="metric-card">
+          <div class="metric-label">${escapeHtml(k)}</div>
+          <div class="text-lg">${escapeHtml(String(overview[k]))}</div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+// ═══ 搜索股票 ═══
+async function searchStock() {
+  const q = document.getElementById('stock-search-input').value.trim();
+  if (!q) return;
+  showMarketTab('stock');
+  const el = document.getElementById('market-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">搜索中...</div>';
+  try {
+    const data = await fetchJSON(`/api/market/stocks/search?q=${encodeURIComponent(q)}`);
+    let results = data.results; if (typeof results === 'string') results = JSON.parse(results);
+    const items = results.results || results;
+    if (!Array.isArray(items) || items.length === 0) { el.innerHTML = '<div class="text-center text-gray-500 py-10">未找到匹配的股票</div>'; return; }
+    el.innerHTML = `<table class="data-table"><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>操作</th></tr></thead>
+      <tbody>${items.map(s => `<tr>
+        <td class="font-mono">${escapeHtml(s.code)}</td><td>${escapeHtml(s.name || '-')}</td><td>${escapeHtml(s.market || s.board || '-')}</td>
+        <td><button onclick="viewStockDetail('${s.code}')" class="text-blue-400 hover:text-blue-300 text-sm">查看详情</button></td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">搜索失败: ${e.message}</div>`; }
+}
+
+// ═══ 个股详情（在行情页展示）═══
+async function viewStockDetail(code) {
+  showMarketTab('stock');
+  const el = document.getElementById('market-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    // 并行获取信息和 K 线
+    const [infoRes, klineRes] = await Promise.all([
+      fetchJSON(`/api/market/stocks/${code}`),
+      fetchJSON(`/api/market/stocks/${code}/kline?days=60`)
+    ]);
+
+    let info = infoRes.info; if (typeof info === 'string') info = JSON.parse(info);
+    let kline = klineRes.kline; if (typeof kline === 'string') kline = JSON.parse(kline);
+    const items = kline.kline || kline;
+
+    // 基本信息
+    const infoHtml = Array.isArray(info) ? info.map(i => `
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div class="metric-card"><div class="metric-label">代码</div><div class="text-lg font-mono">${escapeHtml(i.code || code)}</div></div>
+        <div class="metric-card"><div class="metric-label">名称</div><div class="text-lg">${escapeHtml(i.name || '-')}</div></div>
+        <div class="metric-card"><div class="metric-label">市场</div><div class="text-lg">${escapeHtml(i.market || '-')}</div></div>
+        <div class="metric-card"><div class="metric-label">上市日期</div><div class="text-lg">${escapeHtml(i.list_date || '-')}</div></div>
+      </div>`).join('') : '';
+
+    // K 线图表
+    let chartHtml = '';
+    if (Array.isArray(items) && items.length > 0) {
+      chartHtml = `<div class="mb-4"><div class="text-sm text-gray-400 mb-2">K 线图 (最近 ${items.length} 天)</div><canvas id="kline-chart" class="kline-canvas w-full" height="300"></canvas></div>`;
+    }
+
+    // K 线表格
+    const tableHtml = Array.isArray(items) ? `
+      <table class="data-table"><thead><tr><th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>涨跌幅</th><th>成交量</th></tr></thead>
+        <tbody>${items.slice(-20).reverse().map(k => `<tr>
+          <td>${k.date || k.trade_date || '-'}</td><td>${formatPrice(k.open)}</td><td>${formatPrice(k.high)}</td><td>${formatPrice(k.low)}</td><td>${formatPrice(k.close)}</td>
+          <td>${formatChange(k.change_pct || k.pct_change)}</td><td>${formatVolume(k.volume)}</td>
+        </tr>`).join('')}</tbody></table>` : '';
+
+    // 获取股票名称
+    let stockName = '-';
+    if (Array.isArray(info) && info.length > 0) stockName = info[0].name || '-';
+
+    el.innerHTML = `
+      <div class="mb-3 flex items-center justify-between">
+        <button onclick="showMarketTab('stock')" class="text-sm text-gray-400 hover:text-white">← 返回搜索</button>
+        <button onclick="addStockToWatchlist('${code}', '${escapeHtml(stockName)}')" class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded">+ 加入自选</button>
+      </div>
+      ${infoHtml}
+      ${chartHtml}
+      ${tableHtml}`;
+
+    // 绘制 K 线图
+    if (Array.isArray(items) && items.length > 0) {
+      setTimeout(() => drawKlineChart(items.slice(-60)), 50);
+    }
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+// ═══ K 线图绘制 ═══
+function drawKlineChart(data, canvasId) {
+  const canvas = document.getElementById(canvasId || 'kline-chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  const prices = data.flatMap(d => [parseFloat(d.high), parseFloat(d.low)]).filter(v => !isNaN(v));
+  if (!prices.length) return;
+
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  const range = maxP - minP || 1;
+  const pad = 40;
+  const barW = (W - pad * 2) / data.length;
+  const scaleY = (v) => H - pad - ((v - minP) / range) * (H - pad * 2);
+
+  ctx.clearRect(0, 0, W, H);
+
+  // 网格
+  ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + (i / 4) * (H - pad * 2);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+    ctx.fillStyle = '#6b7280'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText((maxP - (i / 4) * range).toFixed(2), pad - 4, y + 4);
+  }
+
+  // K 线
+  data.forEach((d, i) => {
+    const o = parseFloat(d.open), c = parseFloat(d.close), h = parseFloat(d.high), l = parseFloat(d.low);
+    if (isNaN(o)) return;
+    const x = pad + i * barW + barW / 2;
+    const isUp = c >= o;
+    const color = isUp ? '#ef4444' : '#22c55e';
+
+    // 影线
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, scaleY(h)); ctx.lineTo(x, scaleY(l)); ctx.stroke();
+
+    // 实体
+    const bodyTop = scaleY(Math.max(o, c));
+    const bodyBot = scaleY(Math.min(o, c));
+    const bodyH = Math.max(bodyBot - bodyTop, 1);
+    ctx.fillStyle = color;
+    if (isUp) { ctx.fillRect(x - barW * 0.35, bodyTop, barW * 0.7, bodyH); }
+    else { ctx.fillRect(x - barW * 0.35, bodyTop, barW * 0.7, bodyH); }
+  });
+}
+
+// ═══ 分析结果格式化 ═══
+function formatTechnicalResult(code, content) {
+  if (typeof content === 'string') {
+    try { content = JSON.parse(content); } catch(e) {}
+  }
+
+  let html = `<div class="mb-3 text-sm text-gray-400">${code} 技术指标</div>`;
+
+  if (typeof content === 'object' && content !== null) {
+    // 均线指标
+    if (content.ma) {
+      const ma = content.ma;
+      html += `<div class="metric-card mb-3">
+        <div class="metric-label mb-2">📈 均线</div>
+        <div class="grid grid-cols-5 gap-2">
+          <div><span class="text-xs text-gray-500">收盘</span><div class="font-mono">${formatPrice(ma.close)}</div></div>
+          <div><span class="text-xs text-gray-500">MA5</span><div class="font-mono ${ma.close > ma.ma5 ? 'text-up' : 'text-down'}">${formatPrice(ma.ma5)}</div></div>
+          <div><span class="text-xs text-gray-500">MA10</span><div class="font-mono ${ma.close > ma.ma10 ? 'text-up' : 'text-down'}">${formatPrice(ma.ma10)}</div></div>
+          <div><span class="text-xs text-gray-500">MA20</span><div class="font-mono ${ma.close > ma.ma20 ? 'text-up' : 'text-down'}">${formatPrice(ma.ma20)}</div></div>
+          <div><span class="text-xs text-gray-500">MA60</span><div class="font-mono">${formatPrice(ma.ma60)}</div></div>
+        </div>
+      </div>`;
+    }
+
+    // MACD
+    if (content.macd) {
+      const macd = content.macd;
+      const isBullish = macd.dif > macd.dea;
+      html += `<div class="metric-card mb-3">
+        <div class="metric-label mb-2">📊 MACD</div>
+        <div class="grid grid-cols-4 gap-2">
+          <div><span class="text-xs text-gray-500">DIF</span><div class="font-mono ${macd.dif > 0 ? 'text-up' : 'text-down'}">${macd.dif?.toFixed(2)}</div></div>
+          <div><span class="text-xs text-gray-500">DEA</span><div class="font-mono ${macd.dea > 0 ? 'text-up' : 'text-down'}">${macd.dea?.toFixed(2)}</div></div>
+          <div><span class="text-xs text-gray-500">MACD柱</span><div class="font-mono ${macd.macd > 0 ? 'text-up' : 'text-down'}">${macd.macd?.toFixed(2)}</div></div>
+          <div><span class="text-xs text-gray-500">状态</span><div class="${isBullish ? 'text-up' : 'text-down'}">${macd['状态'] || '-'}</div></div>
+        </div>
+      </div>`;
+    }
+
+    // RSI
+    if (content.rsi) {
+      const rsi = content.rsi;
+      html += `<div class="metric-card mb-3">
+        <div class="metric-label mb-2">📉 RSI</div>
+        <div class="grid grid-cols-4 gap-2">
+          <div><span class="text-xs text-gray-500">RSI6</span><div class="font-mono ${rsi.rsi6 > 70 ? 'text-up' : rsi.rsi6 < 30 ? 'text-down' : ''}">${rsi.rsi6?.toFixed(1)}</div></div>
+          <div><span class="text-xs text-gray-500">RSI12</span><div class="font-mono ${rsi.rsi12 > 70 ? 'text-up' : rsi.rsi12 < 30 ? 'text-down' : ''}">${rsi.rsi12?.toFixed(1)}</div></div>
+          <div><span class="text-xs text-gray-500">RSI24</span><div class="font-mono ${rsi.rsi24 > 70 ? 'text-up' : rsi.rsi24 < 30 ? 'text-down' : ''}">${rsi.rsi24?.toFixed(1)}</div></div>
+          <div><span class="text-xs text-gray-500">信号</span><div>${rsi['信号'] || '-'}</div></div>
+        </div>
+      </div>`;
+    }
+
+    // 量价分析
+    if (content['量价分析']) {
+      const vp = content['量价分析'];
+      html += `<div class="metric-card mb-3">
+        <div class="metric-label mb-2">📊 量价分析</div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div><span class="text-gray-500">近5日均量:</span> ${vp['近5日均量']?.toLocaleString() || '-'} ${vp.volume_unit || ''}</div>
+          <div><span class="text-gray-500">量变化:</span> ${vp['量变化'] || '-'}</div>
+          <div><span class="text-gray-500">今日涨跌:</span> ${vp['今日涨跌'] || '-'}</div>
+          <div><span class="text-gray-500">判断:</span> <span class="font-medium">${vp['判断'] || '-'}</span></div>
+        </div>
+      </div>`;
+    }
+  } else {
+    html += `<div class="metric-card"><pre class="text-sm text-gray-300 whitespace-pre-wrap">${escapeHtml(JSON.stringify(content, null, 2))}</pre></div>`;
+  }
+
+  return html;
+}
+
+function formatPatternsResult(code, content) {
+  if (typeof content === 'string') {
+    try { content = JSON.parse(content); } catch(e) {}
+  }
+
+  let html = `<div class="mb-3 text-sm text-gray-400">${code} K 线形态</div>`;
+
+  // 如果是数组，显示为表格
+  const patterns = Array.isArray(content) ? content : (content.patterns || content.results || []);
+  if (Array.isArray(patterns) && patterns.length > 0) {
+    html += `
+      <div class="space-y-2 mb-4">
+        ${patterns.map(p => {
+          const type = p.type || p.direction || '';
+          const isBullish = type === 'bullish' || type === '看涨';
+          const isBearish = type === 'bearish' || type === '看跌';
+          const borderColor = isBullish ? 'border-green-500/30' : isBearish ? 'border-red-500/30' : 'border-gray-700';
+          const typeColor = isBullish ? 'text-up' : isBearish ? 'text-down' : 'text-flat';
+          const typeLabel = isBullish ? '看涨' : isBearish ? '看跌' : '中性';
+          const confBar = p.confidence ? '●'.repeat(Math.round(p.confidence * 5)) + '○'.repeat(5 - Math.round(p.confidence * 5)) : '';
+          return `
+            <div class="metric-card ${borderColor}">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-medium">${escapeHtml(p.name || '-')}</span>
+                <span class="text-xs ${typeColor}">${typeLabel} ${confBar}</span>
+              </div>
+              <div class="text-sm text-gray-400">${escapeHtml(p.description || '-')}</div>
+            </div>`;
+        }).join('')}
+      </div>
+      ${content.summary ? `<div class="metric-card border-blue-500/30"><div class="metric-label">📊 综合判断</div><div class="text-sm mt-1 whitespace-pre-wrap">${escapeHtml(content.summary)}</div></div>` : ''}`;
+  } else if (typeof content === 'object') {
+    // 尝试提取有意义的字段
+    const keys = Object.keys(content);
+    html += '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">';
+    for (const k of keys) {
+      const v = content[k];
+      if (v === null || v === undefined) continue;
+      html += `<div class="metric-card">
+        <div class="metric-label">${escapeHtml(k)}</div>
+        <div class="text-sm mt-1">${typeof v === 'object' ? escapeHtml(JSON.stringify(v)) : escapeHtml(String(v))}</div>
+      </div>`;
+    }
+    html += '</div>';
+  } else {
+    html += `<div class="metric-card"><pre class="text-sm text-gray-300 whitespace-pre-wrap">${escapeHtml(JSON.stringify(content, null, 2))}</pre></div>`;
+  }
+
+  return html;
+}
+
+function formatBacktestResult(code, content) {
+  if (typeof content === 'string') {
+    try { content = JSON.parse(content); } catch(e) {}
+  }
+
+  let html = `<div class="mb-3 text-sm text-gray-400">${code} 回测结果</div>`;
+
+  if (typeof content === 'object' && content !== null) {
+    // 核心指标卡片
+    const metrics = {};
+    const metricKeys = ['total_return', 'annual_return', 'max_drawdown', 'sharpe_ratio', 'win_rate', 'trade_count',
+                        '总收益率', '年化收益', '最大回撤', '夏普比率', '胜率', '交易次数', '收益率', '回撤'];
+    for (const k of Object.keys(content)) {
+      if (metricKeys.some(mk => k.toLowerCase().includes(mk.toLowerCase()) || mk.includes(k))) {
+        metrics[k] = content[k];
+      }
+    }
+
+    if (Object.keys(metrics).length > 0) {
+      html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">';
+      for (const [k, v] of Object.entries(metrics)) {
+        const val = typeof v === 'number' ?
+          (k.includes('率') || k.includes('return') || k.includes('drawdown') ? (v * 100).toFixed(2) + '%' : v.toFixed(2)) :
+          String(v);
+        const color = k.includes('收益') || k.includes('return') ? (v > 0 ? 'text-up' : 'text-down') :
+                      k.includes('回撤') || k.includes('drawdown') ? 'text-down' : '';
+        html += `<div class="metric-card"><div class="metric-label">${escapeHtml(k)}</div><div class="text-lg font-mono ${color}">${escapeHtml(val)}</div></div>`;
+      }
+      html += '</div>';
+    }
+
+    // 其他字段
+    const otherKeys = Object.keys(content).filter(k => !metricKeys.some(mk => k.toLowerCase().includes(mk.toLowerCase()) || mk.includes(k)));
+    if (otherKeys.length > 0) {
+      html += '<div class="metric-card"><div class="metric-label mb-2">详细数据</div>';
+      for (const k of otherKeys) {
+        const v = content[k];
+        if (typeof v === 'object' && v !== null) {
+          html += `<div class="mb-2"><span class="text-sm text-gray-400">${escapeHtml(k)}:</span><pre class="text-xs text-gray-300 mt-1 bg-[#111827] p-2 rounded">${escapeHtml(JSON.stringify(v, null, 2))}</pre></div>`;
+        } else {
+          html += `<div class="flex justify-between py-1 border-b border-gray-800"><span class="text-sm text-gray-400">${escapeHtml(k)}</span><span class="text-sm font-mono">${escapeHtml(String(v ?? '-'))}</span></div>`;
+        }
+      }
+      html += '</div>';
+    }
+  } else {
+    html += `<div class="metric-card"><pre class="text-sm text-gray-300 whitespace-pre-wrap">${escapeHtml(JSON.stringify(content, null, 2))}</pre></div>`;
+  }
+
+  return html;
+}
+
+// ═══ 分析工具 ═══
+async function runAnalysis(type) {
+  const code = document.getElementById('ana-code').value.trim();
+  const days = parseInt(document.getElementById('ana-days').value) || 60;
+  if (!code) { alert('请输入股票代码'); return; }
+  const el = document.getElementById('analysis-content');
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>分析中...</div></div></div>';
+
+  // 高亮当前按钮
+  document.querySelectorAll('.ana-btn').forEach(btn => btn.classList.remove('bg-blue-600', 'text-white'));
+  event.target.classList.add('bg-blue-600', 'text-white');
+
+  try {
+    let data, content;
+    switch (type) {
+      case 'kline':
+        data = await fetchJSON(`/api/market/stocks/${code}/kline?days=${days}`);
+        let kline = data.kline; if (typeof kline === 'string') kline = JSON.parse(kline);
+        const items = kline.kline || kline;
+        if (!Array.isArray(items)) { el.innerHTML = `<div class="metric-card"><pre class="text-sm">${escapeHtml(JSON.stringify(kline, null, 2))}</pre></div>`; return; }
+        el.innerHTML = `
+          <div class="mb-3 text-sm text-gray-400">${code} K 线数据 (最近 ${days} 天)</div>
+          <div class="mb-4"><canvas id="ana-kline" class="kline-canvas w-full" height="300"></canvas></div>
+          <table class="data-table"><thead><tr><th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>涨跌幅</th><th>成交量</th></tr></thead>
+            <tbody>${items.slice(-20).reverse().map(k => `<tr><td>${k.date||k.trade_date||'-'}</td><td>${formatPrice(k.open)}</td><td>${formatPrice(k.high)}</td><td>${formatPrice(k.low)}</td><td>${formatPrice(k.close)}</td><td>${formatChange(k.change_pct||k.pct_change)}</td><td>${formatVolume(k.volume)}</td></tr>`).join('')}</tbody></table>`;
+        setTimeout(() => drawKlineChart(items.slice(-60), 'ana-kline'), 100);
+        break;
+
+      case 'technical':
+        data = await fetchJSON(`/api/market/stocks/${code}/technical?days=${days}`);
+        content = data.technical; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatTechnicalResult(code, content);
+        break;
+
+      case 'patterns':
+        data = await fetchJSON(`/api/analysis/patterns?code=${code}&days=${days}`, 'POST');
+        content = data.patterns; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatPatternsResult(code, content);
+        break;
+
+      case 'trend':
+        data = await fetchJSON(`/api/analysis/trend?code=${code}&days=${days}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatTrendResult(code, content);
+        break;
+
+      case 'divergence':
+        data = await fetchJSON(`/api/analysis/divergence?code=${code}&indicator=all&days=${days}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatDivergenceResult(code, content);
+        break;
+
+      case 'support_resistance':
+        data = await fetchJSON(`/api/analysis/support_resistance?code=${code}&days=${days}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatSupportResistanceResult(code, content);
+        break;
+
+      case 'volume_price':
+        data = await fetchJSON(`/api/analysis/volume_price?code=${code}&days=${days}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatVolumePriceResult(code, content);
+        break;
+
+      case 'confluence':
+        data = await fetchJSON(`/api/analysis/confluence?code=${code}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatConfluenceResult(code, content);
+        break;
+
+      case 'backtest':
+        data = await fetchJSON(`/api/analysis/backtest?code=${code}&strategy=ma_cross&days=${days}`, 'POST');
+        content = data.backtest; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatBacktestResult(code, content);
+        break;
+
+      case 'fund_flow':
+        data = await fetchJSON(`/api/analysis/fund_flow?code=${code}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatFundFlowResult(code, content);
+        break;
+
+      case 'dragon_tiger':
+        data = await fetchJSON(`/api/analysis/dragon_tiger?code=${code}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatDragonTigerResult(code, content);
+        break;
+
+      case 'screener':
+        el.innerHTML = `
+          <div class="max-w-2xl">
+            <h3 class="text-lg font-bold mb-4">条件选股</h3>
+            <div class="metric-card mb-4">
+              <div class="text-sm text-gray-400 mb-2">输入筛选条件（逗号分隔）</div>
+              <div class="flex gap-2">
+                <input id="screener-input" type="text" value="多头排列,放量" placeholder="如: 多头排列,放量,涨幅>3%"
+                  class="flex-1 px-3 py-2 bg-[#111827] border border-gray-700 rounded text-sm text-gray-200">
+                <button onclick="runScreener()" class="px-4 py-2 bg-blue-600 text-white text-sm rounded">筛选</button>
+              </div>
+              <div class="text-xs text-gray-500 mt-2">支持: 多头排列, 放量, 缩量, MACD金叉, 涨幅>N%, 量比>N</div>
+            </div>
+            <div id="screener-result"></div>
+          </div>`;
+        break;
+
+      case 'stock_news':
+        data = await fetchJSON(`/api/analysis/stock_news?code=${code}`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatNewsResult(code, content);
+        break;
+
+      case 'market_news':
+        data = await fetchJSON(`/api/analysis/market_news`, 'POST');
+        content = data; if (typeof content === 'string') content = JSON.parse(content);
+        el.innerHTML = formatMarketNewsResult(content);
+        break;
+
+      default:
+        el.innerHTML = '<div class="text-gray-500">未知分析类型</div>';
+    }
+  } catch (e) { el.innerHTML = `<div class="text-red-400">分析失败: ${e.message}</div>`; }
+}
+
+// ═══ 分析结果格式化 ═══
+
+function formatTrendResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${data.error}</div>`;
+  const scoreColor = data.strength >= 65 ? 'text-up' : data.strength <= 35 ? 'text-down' : 'text-flat';
+  return `
+    <div class="max-w-3xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">${code} 趋势分析</h3>
+        <span class="text-2xl font-bold ${scoreColor}">${data.strength}/100</span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="metric-card"><div class="metric-label">方向</div><div class="text-lg font-bold ${scoreColor}">${data.direction_cn}</div></div>
+        <div class="metric-card"><div class="metric-label">阶段</div><div class="text-lg">${data.phase_cn}</div></div>
+        <div class="metric-card"><div class="metric-label">均线</div><div class="text-sm">${data.signals?.ma_alignment || '-'}</div></div>
+        <div class="metric-card"><div class="metric-label">ADX</div><div class="text-sm">${data.signals?.adx || '-'}</div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label mb-2">详细信号</div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          ${Object.entries(data.signals || {}).map(([k, v]) => `<div><span class="text-gray-400">${k}:</span> ${v}</div>`).join('')}
+        </div>
+      </div>
+      <div class="metric-card border-blue-500/30"><div class="metric-label">💡 结论</div><div class="text-sm mt-1">${data.conclusion}</div></div>
+    </div>`;
+}
+
+function formatDivergenceResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${data.error}</div>`;
+  const divs = data.divergences || [];
+  return `
+    <div class="max-w-3xl space-y-4">
+      <h3 class="text-lg font-bold">${code} 背离检测</h3>
+      ${divs.length === 0 ? '<div class="metric-card text-gray-400">未检测到背离信号</div>' : `
+        <div class="space-y-2">
+          ${divs.map(d => `
+            <div class="metric-card ${d.type === 'bullish_divergence' ? 'border-green-500/30' : 'border-red-500/30'}">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-medium ${d.type === 'bullish_divergence' ? 'text-up' : 'text-down'}">${d.type_cn}</span>
+                <span class="text-xs text-gray-400">${d.indicator.toUpperCase()} | 强度: ${d.strength}</span>
+              </div>
+              <div class="text-sm text-gray-300">${d.description}</div>
+              <div class="text-xs text-gray-500 mt-1">价格: ${d.price_prev} → ${d.price_curr} | 指标: ${d.ind_prev} → ${d.ind_curr}</div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+    </div>`;
+}
+
+function formatSupportResistanceResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${data.error}</div>`;
+  return `
+    <div class="max-w-3xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">${code} 支撑压力位</h3>
+        <span class="text-lg font-mono">当前价: ${data.current_price}</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="metric-card">
+          <div class="metric-label mb-2 text-up">压力位</div>
+          ${(data.resistance || []).map(r => `
+            <div class="flex justify-between py-1 border-b border-gray-800">
+              <span class="font-mono">${r.price}</span>
+              <span class="text-xs text-gray-400">${r.type} (${r.strength}★)</span>
+            </div>
+          `).join('') || '<div class="text-gray-500 text-sm">无</div>'}
+        </div>
+        <div class="metric-card">
+          <div class="metric-label mb-2 text-down">支撑位</div>
+          ${(data.support || []).map(s => `
+            <div class="flex justify-between py-1 border-b border-gray-800">
+              <span class="font-mono">${s.price}</span>
+              <span class="text-xs text-gray-400">${s.type} (${s.strength}★)</span>
+            </div>
+          `).join('') || '<div class="text-gray-500 text-sm">无</div>'}
+        </div>
+      </div>
+      <div class="metric-card border-blue-500/30"><div class="metric-label">📍 位置</div><div class="text-sm mt-1">${data.position}</div></div>
+    </div>`;
+}
+
+function formatVolumePriceResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${data.error}</div>`;
+  return `
+    <div class="max-w-3xl space-y-4">
+      <h3 class="text-lg font-bold">${code} 量价分析</h3>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div class="metric-card"><div class="metric-label">量能趋势</div><div class="text-lg">${data.vol_trend_cn}</div></div>
+        <div class="metric-card"><div class="metric-label">量价同步</div><div class="text-lg">${data.vol_price_sync ? '✅ 同步' : '⚠️ 背离'}</div></div>
+        <div class="metric-card"><div class="metric-label">近期模式</div><div class="text-lg">${data.recent_pattern}</div></div>
+      </div>
+      ${(data.anomalies || []).length > 0 ? `
+        <div class="metric-card"><div class="metric-label mb-2">⚠️ 异常信号</div>
+          ${data.anomalies.map(a => `<div class="text-sm py-1">${a.type}: ${a.description}</div>`).join('')}
+        </div>` : ''}
+      ${(data.divergences || []).length > 0 ? `
+        <div class="metric-card border-yellow-500/30"><div class="metric-label mb-2">📊 量价背离</div>
+          ${data.divergences.map(d => `<div class="text-sm py-1">${d.description}</div>`).join('')}
+        </div>` : ''}
+      <div class="metric-card border-blue-500/30"><div class="metric-label">💡 结论</div><div class="text-sm mt-1">${data.conclusion}</div></div>
+    </div>`;
+}
+
+function formatConfluenceResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${data.error}</div>`;
+  const score = data.confluence_score || 0;
+  const scoreColor = score >= 75 ? 'text-up' : score >= 50 ? 'text-flat' : 'text-down';
+  return `
+    <div class="max-w-3xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">${code} 多周期共振</h3>
+        <span class="text-3xl font-bold ${scoreColor}">${score}/100</span>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        ${Object.entries(data.timeframes || {}).filter(([_, v]) => v).map(([k, tf]) => `
+          <div class="metric-card">
+            <div class="metric-label">${tf.label}</div>
+            <div class="text-lg font-bold ${tf.score >= 60 ? 'text-up' : tf.score <= 40 ? 'text-down' : ''}">${tf.trend_cn}</div>
+            <div class="text-sm text-gray-400">${tf.score}/100</div>
+            <div class="text-xs text-gray-500 mt-1">${tf.ma_alignment} | ${tf.macd}</div>
+          </div>
+        `).join('')}
+      </div>
+      ${(data.conflicts || []).length > 0 ? `
+        <div class="metric-card border-yellow-500/30"><div class="metric-label mb-2">⚠️ 周期冲突</div>
+          ${data.conflicts.map(c => `<div class="text-sm py-1">• ${c}</div>`).join('')}
+        </div>` : ''}
+      <div class="metric-card border-blue-500/30"><div class="metric-label">💡 结论</div><div class="text-sm mt-1">${data.conclusion}</div></div>
+    </div>`;
+}
+
+function formatFundFlowResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${escapeHtml(data.error)}</div>`;
+  // 解析资金流向数据
+  const flow = data.fund_flow || data;
+  const mainFlow = flow['主力净流入'] || flow.main_flow;
+  return `
+    <div class="max-w-3xl space-y-4">
+      <h3 class="text-lg font-bold">${code} 资金流向</h3>
+      ${mainFlow ? `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="metric-card"><div class="metric-label">主力净流入</div><div class="text-lg font-mono ${mainFlow > 0 ? 'text-up' : 'text-down'}">${formatVolume(mainFlow)}</div></div>
+          ${flow['超大单净流入'] ? `<div class="metric-card"><div class="metric-label">超大单</div><div class="text-lg font-mono ${flow['超大单净流入'] > 0 ? 'text-up' : 'text-down'}">${formatVolume(flow['超大单净流入'])}</div></div>` : ''}
+          ${flow['大单净流入'] ? `<div class="metric-card"><div class="metric-label">大单</div><div class="text-lg font-mono ${flow['大单净流入'] > 0 ? 'text-up' : 'text-down'}">${formatVolume(flow['大单净流入'])}</div></div>` : ''}
+          ${flow['中单净流入'] ? `<div class="metric-card"><div class="metric-label">中单</div><div class="text-lg font-mono ${flow['中单净流入'] > 0 ? 'text-up' : 'text-down'}">${formatVolume(flow['中单净流入'])}</div></div>` : ''}
+        </div>` : ''}
+      ${flow['趋势'] ? `<div class="metric-card"><div class="metric-label">趋势判断</div><div class="text-lg">${escapeHtml(flow['趋势'])}</div></div>` : ''}
+      ${flow['conclusion'] ? `<div class="metric-card border-blue-500/30"><div class="metric-label">💡 结论</div><div class="text-sm mt-1">${escapeHtml(flow['conclusion'])}</div></div>` : ''}
+    </div>`;
+}
+
+function formatDragonTigerResult(code, data) {
+  if (data.error) return `<div class="text-yellow-400">⚠️ ${escapeHtml(data.error)}</div>`;
+  if (data.message) return `<div class="text-gray-400">${escapeHtml(data.message)}</div>`;
+  const records = data.records || data.details || [];
+  return `
+    <div class="max-w-3xl space-y-4">
+      <h3 class="text-lg font-bold">${code} 龙虎榜</h3>
+      ${records.length > 0 ? `
+        <table class="data-table">
+          <thead><tr><th>日期</th><th>上榜原因</th><th>买入(万)</th><th>卖出(万)</th><th>净额(万)</th></tr></thead>
+          <tbody>${records.map(r => `
+            <tr>
+              <td>${escapeHtml(r.date || '-')}</td>
+              <td class="text-sm">${escapeHtml(r.reason || '-')}</td>
+              <td class="font-mono text-up">${r.buy ? (r.buy / 10000).toFixed(0) : '-'}</td>
+              <td class="font-mono text-down">${r.sell ? (r.sell / 10000).toFixed(0) : '-'}</td>
+              <td class="font-mono ${(r.net || 0) > 0 ? 'text-up' : 'text-down'}">${r.net ? (r.net / 10000).toFixed(0) : '-'}</td>
+            </tr>`).join('')}
+          </tbody></table>` : '<div class="text-gray-400">暂无数据</div>'}
+    </div>`;
+}
+
+function formatNewsResult(code, data) {
+  if (data.error) return `<div class="text-red-400">${escapeHtml(data.error)}</div>`;
+  const news = data.results || [];
+  const sources = data.sources || [];
+  return `
+    <div class="max-w-3xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">${code} 相关新闻</h3>
+        <span class="text-sm text-gray-400">共 ${data.total || news.length} 条 | 来源: ${sources.join(', ')}</span>
+      </div>
+      ${news.length > 0 ? news.map(n => `
+        <div class="metric-card hover:border-gray-600 transition">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1">
+              <div class="font-medium text-gray-200">${escapeHtml(n.title || '-')}</div>
+              ${n.summary ? `<div class="text-sm text-gray-400 mt-1 line-clamp-2">${escapeHtml(n.summary)}</div>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+            ${n.source ? `<span>📰 ${escapeHtml(n.source)}</span>` : ''}
+            ${n.time ? `<span>🕐 ${escapeHtml(n.time)}</span>` : ''}
+          </div>
+          ${n.url ? `<a href="${escapeHtml(n.url)}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block">查看原文 →</a>` : ''}
+        </div>`).join('') : '<div class="text-gray-400">暂无相关新闻</div>'}
+    </div>`;
+}
+
+function formatMarketNewsResult(data) {
+  if (data.error) return `<div class="text-red-400">${escapeHtml(data.error)}</div>`;
+  const news = data.results || [];
+  const sources = data.sources || [];
+  return `
+    <div class="max-w-3xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">📰 市场热点新闻</h3>
+        <span class="text-sm text-gray-400">共 ${data.total || news.length} 条 | 来源: ${sources.join(', ')}</span>
+      </div>
+      ${news.length > 0 ? news.map(n => `
+        <div class="metric-card hover:border-gray-600 transition">
+          <div class="font-medium text-gray-200">${escapeHtml(n.title || '-')}</div>
+          ${n.summary ? `<div class="text-sm text-gray-400 mt-1">${escapeHtml(n.summary)}</div>` : ''}
+          <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+            ${n.source ? `<span>📰 ${escapeHtml(n.source)}</span>` : ''}
+            ${n.time ? `<span>🕐 ${escapeHtml(n.time)}</span>` : ''}
+          </div>
+          ${n.url ? `<a href="${escapeHtml(n.url)}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block">查看原文 →</a>` : ''}
+        </div>`).join('') : '<div class="text-gray-400">暂无热点新闻</div>'}
+    </div>`;
+}
+
+async function runScreener() {
+  const input = document.getElementById('screener-input');
+  const result = document.getElementById('screener-result');
+  if (!input || !result) return;
+  result.innerHTML = '<div class="text-gray-500">筛选中...</div>';
+
+  try {
+    const data = await fetchJSON(`/api/analysis/screener?conditions=${encodeURIComponent(input.value)}&limit=20`, 'POST');
+    if (data.error) { result.innerHTML = `<div class="text-red-400">${data.error}</div>`; return; }
+    const stocks = data.results || [];
+    result.innerHTML = `
+      <div class="text-sm text-gray-400 mb-2">找到 ${stocks.length} 只股票</div>
+      <table class="data-table">
+        <thead><tr><th>代码</th><th>名称</th><th>价格</th><th>涨跌幅</th><th>量比</th><th>操作</th></tr></thead>
+        <tbody>${stocks.map(s => `
+          <tr>
+            <td class="font-mono">${escapeHtml(s.code)}</td>
+            <td>${escapeHtml(s.name || '-')}</td>
+            <td>${formatPrice(s.close)}</td>
+            <td>${formatChange(s.pct_change)}</td>
+            <td>${s.vol_ratio ? parseFloat(s.vol_ratio).toFixed(1) : '-'}</td>
+            <td><button onclick="document.getElementById('ana-code').value='${s.code}';runAnalysis('trend')" class="text-blue-400 text-sm">分析</button></td>
+          </tr>
+        `).join('')}</tbody>
+      </table>`;
+  } catch (e) { result.innerHTML = `<div class="text-red-400">筛选失败: ${e.message}</div>`; }
+}
+
+// ═══ 选股页功能 ═══
+function setScreener(conditions) {
+  const input = document.getElementById('screener-conditions');
+  if (input) input.value = conditions;
+}
+
+async function runScreenerPage() {
+  const conditions = document.getElementById('screener-conditions')?.value || '';
+  const limit = parseInt(document.getElementById('screener-limit')?.value) || 20;
+  const el = document.getElementById('screener-content');
+  if (!conditions || !el) return;
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>筛选中...</div></div></div>';
+
+  try {
+    const data = await fetchJSON(`/api/analysis/screener_v2?conditions=${encodeURIComponent(conditions)}&limit=${limit}`, 'POST');
+    if (data.error) { el.innerHTML = `<div class="text-red-400">${data.error}</div>`; return; }
+    const stocks = data.results || [];
+    const condDesc = data.conditions || [];
+
+    el.innerHTML = `
+      <div class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-gray-400">筛选条件: ${condDesc.map(c => `<span class="inline-block px-2 py-0.5 bg-gray-700 rounded text-xs mr-1">${escapeHtml(c)}</span>`).join('')}</span>
+          <span class="text-sm text-gray-400">找到 <span class="text-white font-bold">${stocks.length}</span> 只</span>
+        </div>
+      </div>
+      ${stocks.length > 0 ? `
+        <table class="data-table">
+          <thead><tr><th>代码</th><th>名称</th><th>价格</th><th>涨跌幅</th><th>量比</th><th>成交量</th><th>操作</th></tr></thead>
+          <tbody>${stocks.map(s => `
+            <tr>
+              <td class="font-mono">${escapeHtml(s.code)}</td>
+              <td class="font-medium">${escapeHtml(s.name || '-')}</td>
+              <td>${formatPrice(s.close)}</td>
+              <td>${formatChange(s.pct_change)}</td>
+              <td>${s.vol_ratio ? parseFloat(s.vol_ratio).toFixed(1) : '-'}</td>
+              <td>${formatVolume(s.volume)}</td>
+              <td>
+                <button onclick="showPage('analysis');document.getElementById('ana-code').value='${s.code}'" class="text-blue-400 text-sm hover:text-blue-300 mr-2">分析</button>
+                <button onclick="addStockToWatchlist('${s.code}', '${escapeHtml(s.name || '')}')" class="text-green-400 text-sm hover:text-green-300">自选</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>` : '<div class="text-center text-gray-500 py-10">未找到符合条件的股票</div>'}`;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">筛选失败: ${e.message}</div>`; }
+}
+
+// ═══ 新闻页功能 ═══
+async function loadNewsStockList() {
+  try {
+    const data = await fetchJSON('/api/portfolio/watchlist');
+    let items = data.watchlist; if (typeof items === 'string') items = JSON.parse(items);
+    const el = document.getElementById('news-stock-list');
+    if (!el || !Array.isArray(items)) return;
+    el.innerHTML = items.map(s => `
+      <button onclick="loadStockNews('${s.code}', '${escapeHtml(s.name || '')}')"
+        class="w-full text-left px-3 py-1.5 rounded text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200 truncate">
+        ${escapeHtml(s.code)} ${escapeHtml(s.name || '')}
+      </button>`).join('');
+  } catch (e) { /* 静默失败 */ }
+}
+
+async function loadMarketHotNews() {
+  const el = document.getElementById('news-content');
+  if (!el) return;
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>加载中...</div></div></div>';
+
+  try {
+    const data = await fetchJSON('/api/analysis/market_news', 'POST');
+    if (data.error) { el.innerHTML = `<div class="text-red-400">${data.error}</div>`; return; }
+    el.innerHTML = formatMarketNewsResult(data);
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+async function loadStockNews(code, name) {
+  const el = document.getElementById('news-content');
+  if (!el) return;
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>加载中...</div></div></div>';
+
+  try {
+    const data = await fetchJSON(`/api/analysis/stock_news?code=${code}`, 'POST');
+    if (data.error) { el.innerHTML = `<div class="text-red-400">${data.error}</div>`; return; }
+    el.innerHTML = formatNewsResult(code, data);
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+async function searchNews() {
+  const input = document.getElementById('news-search-input');
+  if (!input || !input.value.trim()) return;
+  const el = document.getElementById('news-content');
+  if (!el) return;
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>搜索中...</div></div></div>';
+
+  try {
+    const data = await fetchJSON(`/api/analysis/stock_news?code=${encodeURIComponent(input.value.trim())}`, 'POST');
+    if (data.error) { el.innerHTML = `<div class="text-red-400">${data.error}</div>`; return; }
+    el.innerHTML = formatNewsResult(input.value.trim(), data);
+  } catch (e) { el.innerHTML = `<div class="text-red-400">搜索失败: ${e.message}</div>`; }
+}
+
+async function loadLimitUpNews() {
+  const el = document.getElementById('news-content');
+  if (!el) return;
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>加载中...</div></div></div>';
+
+  try {
+    const data = await fetchJSON('/api/market/limit-up');
+    let pool = data.limit_up; if (typeof pool === 'string') pool = JSON.parse(pool);
+    const stocks = pool.stocks || [];
+    el.innerHTML = `
+      <div class="mb-4">
+        <h3 class="text-lg font-bold mb-2">🚀 涨停快讯</h3>
+        <span class="text-sm text-gray-400">日期: ${pool.date || '-'} | 共 <span class="text-up font-bold">${pool.count || stocks.length}</span> 只</span>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>代码</th><th>名称</th><th>价格</th><th>涨幅</th><th>连板</th><th>行业</th></tr></thead>
+        <tbody>${stocks.slice(0, 30).map(s => `
+          <tr>
+            <td class="font-mono">${escapeHtml(s.code)}</td>
+            <td class="font-medium">${escapeHtml(s.name)}</td>
+            <td>${formatPrice(s.price)}</td>
+            <td class="text-up">${formatChange(s.change_pct)}</td>
+            <td class="text-center ${s.streak >= 2 ? 'text-purple-400 font-bold' : ''}">${s.streak || 1}</td>
+            <td class="text-xs text-gray-400">${escapeHtml(s.industry || '-')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+async function loadSectorNews() {
+  const el = document.getElementById('news-content');
+  if (!el) return;
+  el.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500"><div class="text-center"><div class="animate-spin text-2xl mb-2">⏳</div><div>加载板块数据...</div></div></div>';
+
+  try {
+    // 并行获取行业板块、概念板块、热门行业
+    const [industryRes, conceptRes, hotRes] = await Promise.all([
+      fetchJSON('/api/market/sectors?board_type=industry&top_n=30'),
+      fetchJSON('/api/market/sectors?board_type=concept&top_n=20'),
+      fetchJSON('/api/market/sectors/hot')
+    ]);
+
+    let html = '<div class="max-w-4xl space-y-6">';
+
+    // 热门行业（从涨停股推断）
+    if (hotRes && hotRes.hot_industries && hotRes.hot_industries.length > 0) {
+      html += `
+        <div>
+          <h3 class="text-lg font-bold mb-3">🔥 今日热门行业（涨停股分布）</h3>
+          <span class="text-xs text-gray-500">基于涨停数据分析</span>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+            ${hotRes.hot_industries.map(ind => `
+              <div class="metric-card hover:border-gray-600 transition">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-medium">${escapeHtml(ind.name)}</span>
+                  <span class="text-up font-bold">${ind.zt_count} 只涨停</span>
+                </div>
+                <div class="text-xs text-gray-400">
+                  ${ind.stocks.map(s => `<span class="mr-2">${escapeHtml(s.name)}</span>`).join('')}
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }
+
+    // 行业板块
+    let industrySectors = industryRes.sectors || [];
+    if (typeof industrySectors === 'string') {
+      try { industrySectors = JSON.parse(industrySectors); } catch(e) { industrySectors = []; }
+    }
+    if (Array.isArray(industrySectors) && industrySectors.length > 0) {
+      html += `
+        <div>
+          <h3 class="text-lg font-bold mb-3">📊 行业板块涨跌</h3>
+          <span class="text-xs text-gray-500">数据源: ${industryRes.source || '-'} | 共 ${industrySectors.length} 个</span>
+          <table class="data-table mt-2">
+            <thead><tr><th>排名</th><th>板块</th><th>涨跌幅</th><th>上涨/下跌</th><th>净流入(亿)</th><th>领涨股</th><th>领涨涨幅</th></tr></thead>
+            <tbody>${industrySectors.map((s, i) => `
+              <tr>
+                <td>${i + 1}</td>
+                <td class="font-medium">${escapeHtml(s.name || '-')}</td>
+                <td>${formatChange(s.change_pct)}</td>
+                <td><span class="text-up">${s.up_count || '-'}</span> / <span class="text-down">${s.down_count || '-'}</span></td>
+                <td class="${(s.inflow || 0) > 0 ? 'text-up' : 'text-down'}">${s.inflow ? s.inflow.toFixed(2) : '-'}</td>
+                <td>${escapeHtml(s.leader || '-')}</td>
+                <td>${s.leader_change ? formatChange(s.leader_change) : '-'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    // 概念板块
+    let conceptSectors = conceptRes.sectors || [];
+    if (typeof conceptSectors === 'string') {
+      try { conceptSectors = JSON.parse(conceptSectors); } catch(e) { conceptSectors = []; }
+    }
+    if (Array.isArray(conceptSectors) && conceptSectors.length > 0) {
+      html += `
+        <div>
+          <h3 class="text-lg font-bold mb-3">💡 热门概念板块</h3>
+          <span class="text-xs text-gray-500">数据源: ${conceptRes.source || '-'} | 共 ${conceptSectors.length} 个</span>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+            ${conceptSectors.map(s => `
+              <div class="metric-card hover:border-gray-600 transition">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-medium">${escapeHtml(s.name || '-')}</span>
+                  <span class="text-xs text-gray-500">${s.count || '-'} 只成分股</span>
+                </div>
+                ${s.driver && s.driver !== '--' ? `<div class="text-xs text-gray-400">${escapeHtml(s.driver.substring(0, 80))}</div>` : ''}
+                ${s.leader && s.leader !== '--' ? `<div class="text-xs text-blue-400 mt-1">龙头: ${escapeHtml(s.leader)}</div>` : ''}
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }
+
+    // 如果所有数据都为空
+    if ((!hotRes.hot_industries || hotRes.hot_industries.length === 0) &&
+        (!Array.isArray(industrySectors) || industrySectors.length === 0) &&
+        (!Array.isArray(conceptSectors) || conceptSectors.length === 0)) {
+      html += '<div class="text-center text-gray-500 py-8">暂无板块数据，可能是非交易时间或网络问题</div>';
+    }
+
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+// ═══ 组合管理 ═══
+async function loadWatchlist() {
+  const el = document.getElementById('portfolio-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/portfolio/watchlist');
+    let items = data.watchlist; if (typeof items === 'string') items = JSON.parse(items);
+    if (!Array.isArray(items) || !items.length) { el.innerHTML = '<div class="text-center text-gray-500 py-10">暂无自选股</div>'; return; }
+    el.innerHTML = `<table class="data-table"><thead><tr><th>代码</th><th>名称</th><th>分组</th><th>备注</th><th>操作</th></tr></thead>
+      <tbody>${items.map(s => `<tr><td class="font-mono">${escapeHtml(s.code)}</td><td>${escapeHtml(s.name||'-')}</td><td>${escapeHtml(s.group_name||s.group||'-')}</td><td class="text-sm text-gray-400">${escapeHtml(s.notes||'-')}</td><td><button onclick="showPage('market');viewStockDetail('${s.code}')" class="text-blue-400 hover:text-blue-300 text-sm">分析</button></td></tr>`).join('')}</tbody></table>`;
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败</div>`; }
+}
+
+async function loadPortfolio() {
+  const el = document.getElementById('portfolio-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/portfolio/portfolio');
+    let p = data.portfolio;
+    if (typeof p === 'string') {
+      try { p = JSON.parse(p); } catch(e) { p = { display: p }; }
+    }
+
+    // 如果有 display 字段（纯文本格式），直接展示
+    if (p && p.display) {
+      el.innerHTML = `
+        <div class="max-w-3xl">
+          <h3 class="text-lg font-bold mb-4">📊 当前持仓</h3>
+          <div class="metric-card">
+            <pre class="text-sm text-gray-200 whitespace-pre-wrap font-mono leading-relaxed">${escapeHtml(p.display)}</pre>
+          </div>
+        </div>`;
+      return;
+    }
+
+    // 格式化持仓数据
+    if (typeof p === 'object' && p !== null) {
+      let html = '<div class="max-w-4xl">';
+      const positions = p.positions || p.holdings || p.持仓 || [];
+      if (Array.isArray(positions) && positions.length > 0) {
+        html += `<div class="metric-card">
+          <div class="metric-label mb-3">持仓明细</div>
+          <table class="data-table"><thead><tr><th>代码</th><th>名称</th><th>数量</th><th>成本</th><th>现价</th><th>盈亏</th><th>盈亏率</th></tr></thead>
+            <tbody>${positions.map(pos => {
+              const pnl = pos.pnl || pos.profit || pos.盈亏 || 0;
+              const pnlPct = pos.pnl_pct || pos.profit_pct || pos.盈亏率 || 0;
+              return `<tr>
+                <td class="font-mono">${escapeHtml(pos.code || '-')}</td>
+                <td>${escapeHtml(pos.name || '-')}</td>
+                <td>${pos.shares || pos.quantity || pos.数量 || '-'}</td>
+                <td>${formatPrice(pos.cost || pos.avg_cost || pos.成本)}</td>
+                <td>${formatPrice(pos.price || pos.current_price || pos.现价)}</td>
+                <td class="${pnl > 0 ? 'text-up' : pnl < 0 ? 'text-down' : ''}">${typeof pnl === 'number' ? pnl.toFixed(2) : pnl}</td>
+                <td class="${pnlPct > 0 ? 'text-up' : pnlPct < 0 ? 'text-down' : ''}">${typeof pnlPct === 'number' ? (pnlPct * 100).toFixed(2) + '%' : pnlPct}</td>
+              </tr>`;
+            }).join('')}</tbody></table>
+        </div>`;
+      } else {
+        html += '<div class="text-center text-gray-500 py-8">暂无持仓</div>';
+      }
+      html += '</div>';
+      el.innerHTML = html;
+    } else {
+      el.innerHTML = `<div class="text-center text-gray-500 py-8">暂无持仓数据</div>`;
+    }
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+async function loadTrades() {
+  const el = document.getElementById('portfolio-content');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/portfolio/trades');
+    let t = data.trades;
+    if (typeof t === 'string') {
+      try { t = JSON.parse(t); } catch(e) { t = { display: t }; }
+    }
+
+    // 如果有 display 字段（纯文本格式），直接展示
+    if (t && t.display) {
+      el.innerHTML = `
+        <div class="max-w-3xl">
+          <h3 class="text-lg font-bold mb-4">📋 交易记录</h3>
+          <div class="metric-card">
+            <pre class="text-sm text-gray-200 whitespace-pre-wrap font-mono leading-relaxed">${escapeHtml(t.display)}</pre>
+          </div>
+        </div>`;
+      return;
+    }
+
+    // 格式化交易记录
+    const trades = Array.isArray(t) ? t : (t.trades || t.records || []);
+    if (Array.isArray(trades) && trades.length > 0) {
+      el.innerHTML = `
+        <div class="mb-3 text-sm text-gray-400">最近交易记录</div>
+        <table class="data-table"><thead><tr><th>日期</th><th>代码</th><th>名称</th><th>方向</th><th>价格</th><th>数量</th><th>金额</th><th>原因</th></tr></thead>
+          <tbody>${trades.map(tr => {
+            const action = tr.action || tr.方向 || '-';
+            const isBuy = action === 'buy' || action === '买入';
+            return `<tr>
+              <td class="text-sm">${escapeHtml(tr.date || tr.trade_date || tr.日期 || '-')}</td>
+              <td class="font-mono">${escapeHtml(tr.code || tr.代码 || '-')}</td>
+              <td>${escapeHtml(tr.name || tr.名称 || '-')}</td>
+              <td><span class="${isBuy ? 'text-up' : 'text-down'}">${escapeHtml(action)}</span></td>
+              <td class="font-mono">${formatPrice(tr.price || tr.价格)}</td>
+              <td>${tr.shares || tr.quantity || tr.数量 || '-'}</td>
+              <td class="font-mono">${typeof tr.amount === 'number' ? tr.amount.toFixed(2) : (tr.amount || tr.金额 || '-')}</td>
+              <td class="text-sm text-gray-400 max-w-[200px] truncate">${escapeHtml(tr.reason || tr.strategy || tr.原因 || '-')}</td>
+            </tr>`;
+          }).join('')}</tbody></table>`;
+    } else {
+      el.innerHTML = `
+        <div class="max-w-3xl">
+          <h3 class="text-lg font-bold mb-4">📋 交易记录</h3>
+          <div class="text-center text-gray-500 py-8">暂无交易记录</div>
+        </div>`;
+    }
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`; }
+}
+
+// ═══ 战法库 ═══
+async function loadStrategies() {
+  const list = document.getElementById('strategy-list');
+  list.innerHTML = '<div class="text-center text-gray-500 py-4 text-sm">加载中...</div>';
+  try {
+    const data = await fetchJSON('/api/analysis/strategies');
+    let s = data.strategies;
+    if (typeof s === 'string') s = JSON.parse(s);
+    // 兼容 {total, strategies: [...]} 或直接 [...]
+    const arr = Array.isArray(s) ? s : (s.strategies || []);
+    if (!arr.length) { list.innerHTML = '<div class="text-gray-500 text-sm p-2">暂无战法</div>'; return; }
+    allStrategies = arr;
+    renderStrategyList(arr);
+  } catch (e) { list.innerHTML = `<div class="text-red-400 text-sm p-2">加载失败: ${e.message}</div>`; }
+}
+
+function renderStrategyList(strategies) {
+  document.getElementById('strategy-list').innerHTML = strategies.map((s, i) => `
+    <div class="px-3 py-2 rounded cursor-pointer text-sm hover:bg-gray-800 text-gray-300" onclick="showStrategy(${i})">
+      <div class="font-medium">${escapeHtml(s.name || s.file || '未命名')}</div>
+      <div class="text-xs text-gray-500 mt-0.5">${escapeHtml((s.tags || []).join(', ') || '无标签')}</div>
+    </div>`).join('');
+}
+
+function filterStrategies() {
+  const q = document.getElementById('strategy-search').value.trim().toLowerCase();
+  if (!q) { renderStrategyList(allStrategies); return; }
+  renderStrategyList(allStrategies.filter(s => (s.name||'').toLowerCase().includes(q) || (s.file||'').toLowerCase().includes(q) || (s.tags||[]).some(t => t.toLowerCase().includes(q))));
+}
+
+let currentStrategyIndex = -1;
+let isEditingStrategy = false;
+
+async function showStrategy(index) {
+  currentStrategyIndex = index;
+  isEditingStrategy = false;
+  const s = allStrategies[index];
+  const el = document.getElementById('strategy-detail');
+  el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+  try {
+    const data = await fetchJSON(`/api/analysis/strategies/${encodeURIComponent(s.file || s.name)}`);
+    let content = data.strategy; if (typeof content === 'string') content = JSON.parse(content);
+    const text = content.content || content || '暂无内容';
+    renderStrategyView(s, text);
+  } catch (e) { el.innerHTML = `<div class="text-red-400">加载失败</div>`; }
+}
+
+function renderStrategyView(s, text) {
+  const el = document.getElementById('strategy-detail');
+  el.innerHTML = `
+    <!-- 工具栏 -->
+    <div class="px-4 py-2 border-b border-gray-800 flex items-center justify-between bg-[#111827] shrink-0">
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-medium text-gray-200">${escapeHtml(s.name || s.file)}</span>
+        <span class="text-xs text-gray-500">${escapeHtml(s.file)}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="toggleStrategyEdit()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded">编辑</button>
+        <button onclick="deleteStrategy(${currentStrategyIndex})" class="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded">删除</button>
+      </div>
+    </div>
+    <!-- 内容区 -->
+    <div id="strategy-view" class="flex-1 overflow-y-auto p-6">
+      <div class="max-w-3xl mx-auto">
+        <div class="bg-[#1f2937] rounded-lg p-6 markdown-body">${marked.parse(text)}</div>
+      </div>
+    </div>
+    <!-- 编辑器（隐藏） -->
+    <div id="strategy-editor-wrap" class="hidden flex-1 flex flex-col overflow-hidden">
+      <div class="flex-1 flex overflow-hidden">
+        <div class="flex-1 flex flex-col border-r border-gray-800">
+          <div class="px-4 py-1.5 bg-[#1f2937] border-b border-gray-800 text-xs text-gray-400">Markdown 编辑</div>
+          <textarea id="strategy-editor" class="flex-1 p-4 bg-[#0d1117] text-gray-200 font-mono text-sm resize-none focus:outline-none" oninput="updateStrategyPreview()"></textarea>
+        </div>
+        <div class="flex-1 flex flex-col">
+          <div class="px-4 py-1.5 bg-[#1f2937] border-b border-gray-800 text-xs text-gray-400">实时预览</div>
+          <div id="strategy-preview" class="flex-1 overflow-y-auto p-4 markdown-body"></div>
+        </div>
+      </div>
+      <div class="px-4 py-2 border-t border-gray-800 flex items-center justify-between bg-[#111827]">
+        <span id="strategy-save-status" class="text-sm text-gray-400"></span>
+        <div class="flex gap-2">
+          <button onclick="cancelStrategyEdit()" class="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded">取消</button>
+          <button onclick="saveStrategy()" class="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded">保存</button>
+        </div>
+      </div>
+    </div>`;
+
+  // 存储当前内容
+  el.dataset.content = text;
+  el.dataset.filename = s.file;
+}
+
+function toggleStrategyEdit() {
+  const el = document.getElementById('strategy-detail');
+  const text = el.dataset.content || '';
+  const view = document.getElementById('strategy-view');
+  const editorWrap = document.getElementById('strategy-editor-wrap');
+  const editor = document.getElementById('strategy-editor');
+
+  if (isEditingStrategy) {
+    // 切换到预览
+    view.classList.remove('hidden');
+    editorWrap.classList.add('hidden');
+    isEditingStrategy = false;
+  } else {
+    // 切换到编辑
+    editor.value = text;
+    updateStrategyPreview();
+    view.classList.add('hidden');
+    editorWrap.classList.remove('hidden');
+    editor.focus();
+    isEditingStrategy = true;
+  }
+}
+
+function updateStrategyPreview() {
+  const editor = document.getElementById('strategy-editor');
+  const preview = document.getElementById('strategy-preview');
+  preview.innerHTML = marked.parse(editor.value);
+}
+
+function cancelStrategyEdit() {
+  isEditingStrategy = false;
+  const view = document.getElementById('strategy-view');
+  const editorWrap = document.getElementById('strategy-editor-wrap');
+  view.classList.remove('hidden');
+  editorWrap.classList.add('hidden');
+}
+
+async function saveStrategy() {
+  const el = document.getElementById('strategy-detail');
+  const filename = el.dataset.filename;
+  const editor = document.getElementById('strategy-editor');
+  const content = editor.value;
+  const status = document.getElementById('strategy-save-status');
+
+  status.textContent = '保存中...';
+  status.className = 'text-sm text-yellow-400';
+
+  try {
+    const res = await fetch(`/api/analysis/strategies/${encodeURIComponent(filename)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      status.textContent = '错误: ' + data.error;
+      status.className = 'text-sm text-red-400';
+      return;
+    }
+
+    // 更新本地数据
+    el.dataset.content = content;
+    status.textContent = '✅ 已保存';
+    status.className = 'text-sm text-green-400';
+
+    // 刷新列表
+    await loadStrategies();
+
+    // 2秒后切回预览
+    setTimeout(() => {
+      isEditingStrategy = false;
+      document.getElementById('strategy-view').classList.remove('hidden');
+      document.getElementById('strategy-editor-wrap').classList.add('hidden');
+      // 更新预览内容
+      document.getElementById('strategy-view').innerHTML = `
+        <div class="max-w-3xl mx-auto">
+          <div class="bg-[#1f2937] rounded-lg p-6 markdown-body">${marked.parse(content)}</div>
+        </div>`;
+    }, 1000);
+  } catch (e) {
+    status.textContent = '保存失败: ' + e.message;
+    status.className = 'text-sm text-red-400';
+  }
+}
+
+async function deleteStrategy(index) {
+  const s = allStrategies[index];
+  if (!confirm(`确认删除战法「${s.name}」？此操作不可撤销。`)) return;
+
+  try {
+    const res = await fetch(`/api/analysis/strategies/${encodeURIComponent(s.file)}`, { method: 'DELETE' });
+    const data = await res.json();
+
+    if (data.error) {
+      alert('删除失败: ' + data.error);
+      return;
+    }
+
+    // 刷新列表
+    await loadStrategies();
+
+    // 清空详情
+    document.getElementById('strategy-detail').innerHTML = `
+      <div class="text-center text-gray-500 py-20">战法已删除</div>`;
+    currentStrategyIndex = -1;
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+function createNewStrategy() {
+  const el = document.getElementById('strategy-detail');
+  currentStrategyIndex = -1;
+  isEditingStrategy = true;
+
+  el.innerHTML = `
+    <div class="px-4 py-2 border-b border-gray-800 flex items-center justify-between bg-[#111827] shrink-0">
+      <span class="text-sm font-medium text-gray-200">新建战法</span>
+      <div class="flex items-center gap-2">
+        <input id="new-strategy-filename" type="text" placeholder="文件名 (如: 41-新战法.md)"
+          class="px-3 py-1.5 bg-[#1f2937] border border-gray-700 rounded text-sm text-gray-200 w-48">
+      </div>
+    </div>
+    <div class="flex-1 flex overflow-hidden">
+      <div class="flex-1 flex flex-col border-r border-gray-800">
+        <div class="px-4 py-1.5 bg-[#1f2937] border-b border-gray-800 text-xs text-gray-400">Markdown 编辑</div>
+        <textarea id="new-strategy-editor" class="flex-1 p-4 bg-[#0d1117] text-gray-200 font-mono text-sm resize-none focus:outline-none"
+          oninput="updateNewStrategyPreview()"
+          placeholder="# 战法名称
+
+## 适用场景
+描述适用的市场环境...
+
+## 核心条件
+- 条件1
+- 条件2
+
+## 买入信号
+- 信号1
+
+## 卖出信号
+- 止盈条件
+- 止损条件
+
+## 关键指标
+- 指标1
+
+## 风险提示
+- 风险1"></textarea>
+      </div>
+      <div class="flex-1 flex flex-col">
+        <div class="px-4 py-1.5 bg-[#1f2937] border-b border-gray-800 text-xs text-gray-400">实时预览</div>
+        <div id="new-strategy-preview" class="flex-1 overflow-y-auto p-4 markdown-body"></div>
+      </div>
+    </div>
+    <div class="px-4 py-2 border-t border-gray-800 flex items-center justify-between bg-[#111827]">
+      <span id="new-strategy-status" class="text-sm text-gray-400"></span>
+      <div class="flex gap-2">
+        <button onclick="cancelNewStrategy()" class="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded">取消</button>
+        <button onclick="saveNewStrategy()" class="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded">创建</button>
+      </div>
+    </div>`;
+}
+
+function updateNewStrategyPreview() {
+  const editor = document.getElementById('new-strategy-editor');
+  const preview = document.getElementById('new-strategy-preview');
+  preview.innerHTML = marked.parse(editor.value);
+}
+
+function cancelNewStrategy() {
+  document.getElementById('strategy-detail').innerHTML = `
+    <div class="text-center text-gray-500 py-20">选择左侧战法查看详情</div>`;
+}
+
+async function saveNewStrategy() {
+  const filename = document.getElementById('new-strategy-filename').value.trim();
+  const content = document.getElementById('new-strategy-editor').value;
+  const status = document.getElementById('new-strategy-status');
+
+  if (!filename) {
+    status.textContent = '请输入文件名';
+    status.className = 'text-sm text-red-400';
+    return;
+  }
+
+  if (!filename.endsWith('.md')) {
+    status.textContent = '文件名必须以 .md 结尾';
+    status.className = 'text-sm text-red-400';
+    return;
+  }
+
+  if (!content.trim()) {
+    status.textContent = '请输入战法内容';
+    status.className = 'text-sm text-red-400';
+    return;
+  }
+
+  status.textContent = '创建中...';
+  status.className = 'text-sm text-yellow-400';
+
+  try {
+    const res = await fetch('/api/analysis/strategies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, content })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      status.textContent = '错误: ' + data.error;
+      status.className = 'text-sm text-red-400';
+      return;
+    }
+
+    status.textContent = '✅ 创建成功';
+    status.className = 'text-sm text-green-400';
+
+    // 刷新列表
+    await loadStrategies();
+
+    // 1秒后显示新战法
+    setTimeout(() => {
+      const newIndex = allStrategies.findIndex(s => s.file === filename);
+      if (newIndex >= 0) showStrategy(newIndex);
+    }, 500);
+  } catch (e) {
+    status.textContent = '创建失败: ' + e.message;
+    status.className = 'text-sm text-red-400';
+  }
+}
+
+// ═══ 初始化 ═══
+connect();
+loadSessionList();
+</script>
+</body>
+</html>
