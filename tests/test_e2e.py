@@ -50,7 +50,7 @@ class TestE2ESmoke:
 
     def test_agent_initialization(self):
         """Agent 应能正常初始化（mock LLM）"""
-        with patch("agent.client.load_setting") as mock_setting:
+        with patch("deeppulse.agent.client.load_setting") as mock_setting:
             mock_setting.return_value = {
                 "llm": {
                     "protocol": "openai",

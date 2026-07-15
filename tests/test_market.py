@@ -19,9 +19,9 @@ def _make_zb_result(count):
 
 
 class TestGetMarketSentiment:
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(5))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(10))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(5))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(10))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_high_tide_sentiment(self, mock_zt, mock_dt, mock_zb):
         """80+ limit-ups, 5+ streak, <25% fail rate → 高潮期"""
         stocks = [
@@ -37,9 +37,9 @@ class TestGetMarketSentiment:
         assert "高潮期" in result["情绪评级"]
         assert result["涨停数"] == 80
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(5))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(10))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(5))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(10))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_fermentation_sentiment(self, mock_zt, mock_dt, mock_zb):
         """40+ limit-ups, 4+ streak, <35% fail rate → 发酵期"""
         stocks = [
@@ -51,9 +51,9 @@ class TestGetMarketSentiment:
         result = get_market_sentiment("20240115")
         assert "发酵期" in result["情绪评级"]
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(2))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(15))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(2))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(15))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_startup_sentiment(self, mock_zt, mock_dt, mock_zb):
         """20+ limit-ups, 3+ streak → 启动期"""
         stocks = [
@@ -65,9 +65,9 @@ class TestGetMarketSentiment:
         result = get_market_sentiment("20240115")
         assert "启动期" in result["情绪评级"]
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(1))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(30))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(1))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(30))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_sluggish_sentiment(self, mock_zt, mock_dt, mock_zb):
         """10-19 limit-ups → 低迷期"""
         stocks = [{"code": f"000{i:03d}", "name": f"S{i}", "streak": 1, "industry": "银行"} for i in range(15)]
@@ -76,9 +76,9 @@ class TestGetMarketSentiment:
         result = get_market_sentiment("20240115")
         assert "低迷期" in result["情绪评级"]
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(0))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(50))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(0))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(50))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_freezing_sentiment(self, mock_zt, mock_dt, mock_zb):
         """<10 limit-ups → 冰点期"""
         stocks = [{"code": f"000{i:03d}", "name": f"S{i}", "streak": 1, "industry": "消费"} for i in range(5)]
@@ -87,9 +87,9 @@ class TestGetMarketSentiment:
         result = get_market_sentiment("20240115")
         assert "冰点期" in result["情绪评级"]
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(0))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(0))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(0))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(0))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_zero_counts(self, mock_zt, mock_dt, mock_zb):
         """All zeros should not crash, should be 冰点期."""
         mock_zt.return_value = _make_zt_result(0, [])
@@ -99,9 +99,9 @@ class TestGetMarketSentiment:
         assert result["跌停数"] == 0
         assert "冰点期" in result["情绪评级"]
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(10))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(5))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(10))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(5))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_industry_distribution(self, mock_zt, mock_dt, mock_zb):
         """Should aggregate industries correctly."""
         stocks = [
@@ -116,9 +116,9 @@ class TestGetMarketSentiment:
         assert top.get("科技") == 2
         assert top.get("医药") == 1
 
-    @patch("agent.market.get_failed_limit_up", return_value=_make_zb_result(0))
-    @patch("agent.market.get_limit_down_pool", return_value=_make_dt_result(0))
-    @patch("agent.market.get_limit_up_pool")
+    @patch("deeppulse.agent.market.get_failed_limit_up", return_value=_make_zb_result(0))
+    @patch("deeppulse.agent.market.get_limit_down_pool", return_value=_make_dt_result(0))
+    @patch("deeppulse.agent.market.get_limit_up_pool")
     def test_streak_distribution(self, mock_zt, mock_dt, mock_zb):
         """Should compute streak distribution correctly."""
         stocks = [

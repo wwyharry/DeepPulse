@@ -28,8 +28,10 @@ class TestLoadSetting:
         setting_file = tmp_path / "setting.json"
         setting_file.write_text(json.dumps(setting), encoding="utf-8")
 
-        with patch("agent.client.Path") as mock_path:
-            mock_path.return_value.parent.parent = tmp_path
+        # Mock the Path to return tmp_path as the project root
+        with patch("deeppulse.agent.client.Path") as mock_path:
+            # Path(__file__).parent.parent.parent should be tmp_path
+            mock_path.return_value.parent.parent.parent = tmp_path
             result = load_setting()
         assert result["llm"]["api_key"] == "sk-test-key"
 
@@ -51,8 +53,8 @@ class TestLoadSetting:
         setting_file = tmp_path / "setting.json"
         setting_file.write_text(json.dumps(setting), encoding="utf-8")
 
-        with patch("agent.client.Path") as mock_path:
-            mock_path.return_value.parent.parent = tmp_path
+        with patch("deeppulse.agent.client.Path") as mock_path:
+            mock_path.return_value.parent.parent.parent = tmp_path
             result = load_setting()
         assert result["llm"]["api_key"] == "sk-from-env"
 

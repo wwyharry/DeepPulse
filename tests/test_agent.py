@@ -12,9 +12,9 @@ from deeppulse.agent.agent import StockAgent
 def mock_agent():
     """Create a StockAgent with mocked LLM client and memory."""
     with (
-        patch("agent.agent.LLMClient"),
-        patch("agent.agent.MemoryManager") as MockMem,
-        patch("agent.agent.get_strategy_loader") as MockStrat,
+        patch("deeppulse.agent.agent.LLMClient"),
+        patch("deeppulse.agent.agent.MemoryManager") as MockMem,
+        patch("deeppulse.agent.agent.get_strategy_loader") as MockStrat,
     ):
         mock_mem = MockMem.return_value
         mock_mem.get_context_block.return_value = ""
@@ -23,7 +23,7 @@ def mock_agent():
         mock_strat = MockStrat.return_value
         mock_strat.get_all_content_summary.return_value = ""
 
-        with patch("agent.agent.SYSTEM_PROMPT", "test prompt"):
+        with patch("deeppulse.agent.agent.SYSTEM_PROMPT", "test prompt"):
             agent = StockAgent.__new__(StockAgent)
             agent.memory = mock_mem
             agent.session_id = "test-session"

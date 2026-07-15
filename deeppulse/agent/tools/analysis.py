@@ -247,9 +247,9 @@ def screen_stocks_v2(conditions: str, limit: int = 20) -> str:
     return screener.screen(cond_list, limit=int(limit))
 
 
-def _parse_conditions(conditions: str) -> list:
+def _parse_conditions(conditions: str) -> list[dict]:
     """解析条件字符串"""
-    cond_list = []
+    cond_list: list[dict] = []
     parts = [p.strip() for p in conditions.replace("，", ",").replace("且", ",").split(",") if p.strip()]
 
     for part in parts:
