@@ -26,13 +26,28 @@ python scripts/fetch_all.py
 
 ## 启动
 
-```bash
-# TUI 模式（推荐）
-python -m agent.tui_cli
+DeepPulse 提供三种模式：
 
-# CLI 模式
-python -m agent.cli
+```bash
+# Web 平台（推荐）
+python -m webapp
+
+# TUI 终端界面
+python -m tui
+
+# CLI 命令行
+python -m cli
 ```
+
+## Web 平台
+
+启动后访问 http://localhost:8000
+
+- **AI 对话**：流式输出，推理过程展示，工具调用可视化
+- **行情中心**：K 线图、板块动态、涨停池、市场情绪
+- **分析工具**：趋势强度、背离检测、支撑压力、量价分析
+- **条件选股**：DuckDB 高性能选股
+- **战法库**：40 个内置战法，可视化编辑
 
 ## TUI 界面
 
@@ -95,4 +110,4 @@ A: 首次加载语义模型到内存，后续秒级响应。可设置 `"provider
 A: Windows 用户执行 `chcp 65001`，或使用 Windows Terminal。
 
 **Q: 如何禁用评判Agent？**
-A: `python -m agent.tui_cli --no-judge`
+A: `python -m tui --no-judge`

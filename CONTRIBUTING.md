@@ -85,9 +85,9 @@ PR 描述中请说明：
 
 ## 添加新工具
 
-DeepPulse 的工具定义在 `agent/tools.py` 中，每个工具需要：
+DeepPulse 的工具定义在 `deeppulse/agent/tools/` 目录下，每个工具需要：
 
-1. **工具定义** — 在 `TOOL_DEFINITIONS` 列表中添加 JSON Schema
+1. **工具定义** — 在对应模块的 `TOOL_DEFINITIONS` 列表中添加 JSON Schema
 2. **工具函数** — 在 `TOOL_DISPATCH` 字典中注册处理函数
 3. **测试** — 在 `tests/` 中添加对应的单元测试
 
