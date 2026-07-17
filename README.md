@@ -3,6 +3,9 @@
 > A 股短线交易 AI 分析师 — 用自然语言对话完成技术分析、行情监控和策略回测。
 
 **演示视频** — [DeepPulse：一个专注于短线交易的 Agent](https://www.bilibili.com/video/BV1kbVQ6HELU)
+### Web页面
+<img width="1479" height="891" alt="截屏2026-07-17 15 38 07" src="https://github.com/user-attachments/assets/680b2d0e-9c86-4df8-b859-83e24a1c4a06" />
+
 
 ## 功能一览
 
