@@ -18,4 +18,4 @@ textual>=0.47.0
 # Web 后端依赖
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
-pydantic>=2.0.0
+pydantic>=2.13.4
