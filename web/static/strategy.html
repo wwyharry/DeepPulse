@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepPulse 策略平台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .sidebar { width: 280px; background: #161b22; border-right: 1px solid #30363d; }
+    .nav-btn { transition: all 0.2s; }
+    .nav-btn:hover { background: #21262d; }
+    .nav-btn.active { background: #1f6feb; color: white; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
+    .btn { padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: #1f6feb; color: white; }
+    .btn-primary:hover { background: #388bfd; }
+    .btn-success { background: #238636; color: white; }
+    .btn-success:hover { background: #2ea043; }
+    .btn-danger { background: #da3633; color: white; }
+    .btn-danger:hover { background: #f85149; }
+    .btn-secondary { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+    .btn-secondary:hover { background: #30363d; }
+    .input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 100%; }
+    .input:focus { outline: none; border-color: #1f6feb; }
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+    .badge-success { background: #238636; color: white; }
+    .badge-warning { background: #9e6a03; color: white; }
+    .badge-danger { background: #da3633; color: white; }
+    .badge-info { background: #1f6feb; color: white; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th { background: #21262d; padding: 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #30363d; }
+    .table td { padding: 12px; border-bottom: 1px solid #21262d; }
+    .table tr:hover { background: #161b22; }
+    .markdown-body { line-height: 1.6; }
+    .markdown-body h1 { font-size: 24px; margin-bottom: 16px; }
+    .markdown-body h2 { font-size: 20px; margin-top: 24px; margin-bottom: 12px; }
+    .markdown-body h3 { font-size: 16px; margin-top: 20px; margin-bottom: 8px; }
+    .markdown-body ul { margin-left: 20px; margin-bottom: 12px; }
+    .markdown-body li { margin-bottom: 4px; }
+    .markdown-body p { margin-bottom: 12px; }
+    .markdown-body code { background: #21262d; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+    .markdown-body pre { background: #21262d; padding: 16px; border-radius: 6px; overflow-x: auto; margin-bottom: 16px; }
+    .stat-card { text-align: center; padding: 20px; }
+    .stat-value { font-size: 28px; font-weight: bold; }
+    .stat-label { font-size: 14px; color: #8b949e; margin-top: 4px; }
+    .positive { color: #3fb950; }
+    .negative { color: #f85149; }
+  </style>
+</head>
+<body>
+  <div class="flex h-screen overflow-hidden">
+    <!-- 侧边栏 -->
+    <div class="sidebar flex flex-col">
+      <div class="p-4 border-b border-gray-800">
+        <h1 class="text-xl font-bold text-blue-400">📊 DeepPulse 策略平台</h1>
+        <p class="text-sm text-gray-500 mt-1">策略开发 · 回测 · 监控</p>
+      </div>
+
+      <nav class="flex-1 p-4 space-y-2">
+        <button onclick="showPage('strategies')" class="nav-btn active w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="strategies">
+          <span>📋</span>
+          <span>策略管理</span>
+        </button>
+        <button onclick="showPage('backtest')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="backtest">
+          <span>📈</span>
+          <span>策略回测</span>
+        </button>
+        <button onclick="showPage('signals')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="signals">
+          <span>🔔</span>
+          <span>信号监控</span>
+        </button>
+        <button onclick="showPage('performance')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="performance">
+          <span>📊</span>
+          <span>绩效分析</span>
+        </button>
+        <button onclick="showPage('portfolios')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="portfolios">
+          <span>💼</span>
+          <span>策略组合</span>
+        </button>
+      </nav>
+
+      <div class="p-4 border-t border-gray-800">
+        <a href="/" class="text-sm text-gray-500 hover:text-gray-300">← 返回主平台</a>
+      </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- 顶部工具栏 -->
+      <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+        <div id="page-title" class="text-lg font-semibold">策略管理</div>
+        <div class="flex items-center gap-3">
+          <button onclick="showHelp()" class="btn btn-secondary">❓ 帮助</button>
+        </div>
+      </div>
+
+      <!-- 内容区 -->
+      <div class="flex-1 overflow-y-auto p-6">
+        <!-- 策略管理页 -->
+        <div id="page-strategies" class="page-content">
+          <div class="flex gap-4 h-full">
+            <!-- 策略列表 -->
+            <div class="w-80 flex flex-col">
+              <div class="card flex-1 flex flex-col">
+                <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+                  <h3 class="font-semibold">策略列表</h3>
+                  <button onclick="createNewStrategy()" class="btn btn-success text-sm">+ 新建</button>
+                </div>
+                <div class="p-3">
+                  <input id="strategy-search" type="text" placeholder="搜索策略..." class="input text-sm" onkeyup="filterStrategies()">
+                </div>
+                <div id="strategy-list" class="flex-1 overflow-y-auto p-2 space-y-1"></div>
+              </div>
+            </div>
+
+            <!-- 策略详情 -->
+            <div class="flex-1 flex flex-col">
+              <div id="strategy-detail" class="card flex-1 flex flex-col">
+                <div class="flex items-center justify-center h-full text-gray-500">
+                  选择左侧策略查看详情
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 策略回测页 -->
+        <div id="page-backtest" class="page-content hidden">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 回测配置 -->
+            <div class="card p-6">
+              <h3 class="font-semibold mb-4">回测配置</h3>
+              <div class="space-y-4">
+                <div>
+                  <label class="text-sm text-gray-400 mb-1 block">选择策略</label>
+                  <select id="backtest-strategy" class="input"></select>
+                </div>
+                <div>
+                  <label class="text-sm text-gray-400 mb-1 block">股票代码</label>
+                  <input id="backtest-code" type="text" placeholder="如 600519" class="input">
+                </div>
+                <div>
+                  <label class="text-sm text-gray-400 mb-1 block">回测天数</label>
+                  <input id="backtest-days" type="number" value="500" class="input">
+                </div>
+                <div>
+                  <label class="text-sm text-gray-400 mb-1 block">初始资金</label>
+                  <input id="backtest-capital" type="number" value="100000" class="input">
+                </div>
+
+                <!-- 退出策略模式切换 -->
+                <div class="border-t border-gray-700 pt-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <label class="text-sm text-gray-400">退出策略</label>
+                    <div class="flex bg-gray-800 rounded-lg p-1">
+                      <button onclick="setExitMode('simple')" id="exit-mode-simple" class="px-3 py-1 text-xs rounded-md bg-blue-600 text-white">简单模式</button>
+                      <button onclick="setExitMode('advanced')" id="exit-mode-advanced" class="px-3 py-1 text-xs rounded-md text-gray-400">高级模式</button>
+                    </div>
+                  </div>
+
+                  <!-- 简单模式 -->
+                  <div id="exit-simple-mode" class="space-y-3">
+                    <div>
+                      <label class="text-sm text-gray-400 mb-2 block">策略风格</label>
+                      <div class="grid grid-cols-3 gap-2">
+                        <button onclick="setExitPreset('conservative')" id="preset-conservative" class="btn btn-secondary text-xs py-2">🛡️ 保守型</button>
+                        <button onclick="setExitPreset('balanced')" id="preset-balanced" class="btn btn-primary text-xs py-2">⚖️ 平衡型</button>
+                        <button onclick="setExitPreset('aggressive')" id="preset-aggressive" class="btn btn-secondary text-xs py-2">⚡ 激进型</button>
+                      </div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-3 text-xs text-gray-400">
+                      <div class="font-medium text-gray-300 mb-1">💡 核心理念: "没有问题就不止盈"</div>
+                      <div>• 止损: 基于ATR的动态止损，适应市场波动</div>
+                      <div>• 移动止损: 保护利润，跟随最高价</div>
+                      <div>• 技术退出: 当出现技术问题时才考虑止盈</div>
+                    </div>
+                  </div>
+
+                  <!-- 高级模式 -->
+                  <div id="exit-advanced-mode" class="space-y-3 hidden">
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">ATR止损倍数</label>
+                      <input id="exit-atr-multiple" type="number" step="0.1" value="1.5" class="input text-sm">
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input id="exit-trailing-enabled" type="checkbox" checked class="rounded">
+                      <label class="text-sm text-gray-400">启用移动止损</label>
+                    </div>
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">移动止损激活盈利 (%)</label>
+                      <input id="exit-trailing-activation" type="number" step="0.5" value="3" class="input text-sm">
+                    </div>
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">移动止损ATR倍数</label>
+                      <input id="exit-trailing-atr" type="number" step="0.1" value="2.0" class="input text-sm">
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input id="exit-breakeven-enabled" type="checkbox" checked class="rounded">
+                      <label class="text-sm text-gray-400">启用保本止损</label>
+                    </div>
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">保本止损激活盈利 (%)</label>
+                      <input id="exit-breakeven-activation" type="number" step="0.5" value="2" class="input text-sm">
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input id="exit-technical-enabled" type="checkbox" checked class="rounded">
+                      <label class="text-sm text-gray-400">启用技术退出</label>
+                    </div>
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">部分退出分数阈值</label>
+                      <input id="exit-partial-threshold" type="number" value="3" class="input text-sm">
+                    </div>
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">全部退出分数阈值</label>
+                      <input id="exit-full-threshold" type="number" value="5" class="input text-sm">
+                    </div>
+                    <div>
+                      <label class="text-sm text-gray-400 mb-1 block">最大持仓天数</label>
+                      <input id="exit-max-hold" type="number" value="25" class="input text-sm">
+                    </div>
+                  </div>
+                </div>
+
+                <button onclick="runBacktest()" class="btn btn-primary w-full">🚀 开始回测</button>
+              </div>
+            </div>
+
+            <!-- 回测结果 -->
+            <div class="lg:col-span-2 card p-6">
+              <h3 class="font-semibold mb-4">回测结果</h3>
+              <div id="backtest-result">
+                <div class="text-center text-gray-500 py-20">配置参数后点击"开始回测"</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 信号监控页 -->
+        <div id="page-signals" class="page-content hidden">
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+            <div class="card stat-card">
+              <div class="stat-value text-blue-400" id="signal-total">0</div>
+              <div class="stat-label">总信号数</div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-value text-yellow-400" id="signal-pending">0</div>
+              <div class="stat-label">待确认</div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-value text-green-400" id="signal-confirmed">0</div>
+              <div class="stat-label">已确认</div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-value text-purple-400" id="signal-avg-confidence">0%</div>
+              <div class="stat-label">平均置信度</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+              <h3 class="font-semibold">信号列表</h3>
+              <div class="flex gap-2">
+                <button onclick="scanSignals()" class="btn btn-primary text-sm">🔍 扫描信号</button>
+                <button onclick="refreshSignals()" class="btn btn-secondary text-sm">🔄 刷新</button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>策略</th>
+                    <th>股票</th>
+                    <th>信号类型</th>
+                    <th>价格</th>
+                    <th>置信度</th>
+                    <th>时间</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="signals-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 绩效分析页 -->
+        <div id="page-performance" class="page-content hidden">
+          <div class="card p-6 mb-6">
+            <h3 class="font-semibold mb-4">绩效概览</h3>
+            <div id="performance-summary" class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <div class="stat-card">
+                <div class="stat-value text-blue-400" id="perf-strategies">0</div>
+                <div class="stat-label">策略总数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value text-green-400" id="perf-active">0</div>
+                <div class="stat-label">活跃策略</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value text-yellow-400" id="perf-backtests">0</div>
+                <div class="stat-label">回测总数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="perf-avg-return">0%</div>
+                <div class="stat-label">平均收益</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value text-purple-400" id="perf-signals">0</div>
+                <div class="stat-label">信号总数</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-6">
+            <h3 class="font-semibold mb-4">策略对比</h3>
+            <div class="mb-4">
+              <select id="perf-strategy-select" class="input" onchange="loadStrategyPerformance()">
+                <option value="">选择策略查看详细绩效</option>
+              </select>
+            </div>
+            <div id="strategy-performance-detail">
+              <div class="text-center text-gray-500 py-10">选择策略查看详细绩效分析</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 策略组合页 -->
+        <div id="page-portfolios" class="page-content hidden">
+          <div class="flex gap-6">
+            <!-- 组合列表 -->
+            <div class="w-80">
+              <div class="card">
+                <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+                  <h3 class="font-semibold">组合列表</h3>
+                  <button onclick="createNewPortfolio()" class="btn btn-success text-sm">+ 新建</button>
+                </div>
+                <div id="portfolio-list" class="p-2 space-y-2 max-h-96 overflow-y-auto"></div>
+              </div>
+            </div>
+
+            <!-- 组合详情 -->
+            <div class="flex-1">
+              <div id="portfolio-detail" class="card p-6">
+                <div class="text-center text-gray-500 py-20">选择左侧组合查看详情</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 全局状态
+    let allStrategies = [];
+    let allPortfolios = [];
+    let currentPage = 'strategies';
+
+    // 页面切换
+    function showPage(page) {
+      currentPage = page;
+      document.querySelectorAll('.page-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`page-${page}`).classList.remove('hidden');
+
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelector(`[data-page="${page}"]`).classList.add('active');
+
+      const titles = {
+        strategies: '策略管理',
+        backtest: '策略回测',
+        signals: '信号监控',
+        performance: '绩效分析',
+        portfolios: '策略组合',
+      };
+      document.getElementById('page-title').textContent = titles[page];
+
+      // 加载页面数据
+      switch (page) {
+        case 'strategies': loadStrategies(); break;
+        case 'backtest': loadBacktestStrategies(); break;
+        case 'signals': loadSignals(); break;
+        case 'performance': loadPerformanceSummary(); break;
+        case 'portfolios': loadPortfolios(); break;
+      }
+    }
+
+    // API 请求封装
+    async function fetchJSON(url, method = 'GET', body = null) {
+      const options = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) options.body = JSON.stringify(body);
+      const res = await fetch(url, options);
+      return res.json();
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 格式化数字
+    function formatNumber(num, decimals = 2) {
+      if (typeof num !== 'number') return '-';
+      return num.toFixed(decimals);
+    }
+
+    // 格式化百分比
+    function formatPercent(num) {
+      if (typeof num !== 'number') return '-';
+      return (num * 100).toFixed(2) + '%';
+    }
+
+    // 格式化金额
+    function formatMoney(num) {
+      if (typeof num !== 'number') return '-';
+      return num.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' });
+    }
+
+    // ═══ 策略管理 ═══
+
+    async function loadStrategies() {
+      const list = document.getElementById('strategy-list');
+      list.innerHTML = '<div class="text-center text-gray-500 py-4 text-sm">加载中...</div>';
+
+      try {
+        const data = await fetchJSON('/api/strategy/list');
+        allStrategies = data.strategies || [];
+        renderStrategyList(allStrategies);
+      } catch (e) {
+        list.innerHTML = `<div class="text-red-400 text-sm p-2">加载失败: ${e.message}</div>`;
+      }
+    }
+
+    function renderStrategyList(strategies) {
+      const list = document.getElementById('strategy-list');
+      if (!strategies.length) {
+        list.innerHTML = '<div class="text-gray-500 text-sm p-2">暂无策略</div>';
+        return;
+      }
+
+      list.innerHTML = strategies.map((s, i) => `
+        <div class="px-3 py-2 rounded cursor-pointer text-sm hover:bg-gray-800 text-gray-300" onclick="showStrategy('${s.id}')">
+          <div class="font-medium">${escapeHtml(s.name)}</div>
+          <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
+            <span class="badge badge-${s.risk_level === 'high' ? 'danger' : s.risk_level === 'low' ? 'success' : 'warning'}">${s.risk_level}</span>
+            <span>${escapeHtml(s.category || '未分类')}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function filterStrategies() {
+      const q = document.getElementById('strategy-search').value.trim().toLowerCase();
+      if (!q) {
+        renderStrategyList(allStrategies);
+        return;
+      }
+      const filtered = allStrategies.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        s.category.toLowerCase().includes(q) ||
+        (s.tags || []).some(t => t.toLowerCase().includes(q))
+      );
+      renderStrategyList(filtered);
+    }
+
+    async function showStrategy(strategyId) {
+      const el = document.getElementById('strategy-detail');
+      el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+
+      try {
+        const data = await fetchJSON(`/api/strategy/${strategyId}`);
+        const strategy = data.strategy;
+        renderStrategyDetail(strategy);
+      } catch (e) {
+        el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`;
+      }
+    }
+
+    function renderStrategyDetail(strategy) {
+      const el = document.getElementById('strategy-detail');
+      el.innerHTML = `
+        <!-- 工具栏 -->
+        <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold">${escapeHtml(strategy.name)}</h3>
+            <div class="text-sm text-gray-500 mt-1">
+              <span class="badge badge-info">${escapeHtml(strategy.category || '未分类')}</span>
+              <span class="badge badge-${strategy.risk_level === 'high' ? 'danger' : strategy.risk_level === 'low' ? 'success' : 'warning'} ml-2">${strategy.risk_level}</span>
+              <span class="ml-2">版本 ${strategy.version}</span>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="editStrategy('${strategy.id}')" class="btn btn-primary text-sm">✏️ 编辑</button>
+            <button onclick="cloneStrategy('${strategy.id}')" class="btn btn-secondary text-sm">📋 克隆</button>
+            <button onclick="deleteStrategy('${strategy.id}')" class="btn btn-danger text-sm">🗑️ 删除</button>
+          </div>
+        </div>
+        <!-- 标签 -->
+        ${strategy.tags && strategy.tags.length ? `
+          <div class="px-4 py-2 border-b border-gray-800">
+            <div class="flex flex-wrap gap-2">
+              ${strategy.tags.map(t => `<span class="badge badge-info">${escapeHtml(t)}</span>`).join('')}
+            </div>
+          </div>
+        ` : ''}
+        <!-- 内容 -->
+        <div class="flex-1 overflow-y-auto p-6">
+          <div class="max-w-3xl mx-auto">
+            <div class="bg-gray-800 rounded-lg p-6 markdown-body">${marked.parse(strategy.content)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function createNewStrategy() {
+      const el = document.getElementById('strategy-detail');
+      el.innerHTML = `
+        <div class="p-4 border-b border-gray-800">
+          <h3 class="font-semibold">新建策略</h3>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+          <div class="max-w-3xl mx-auto space-y-4">
+            <div>
+              <label class="text-sm text-gray-400 mb-1 block">策略名称</label>
+              <input id="new-strategy-name" type="text" placeholder="输入策略名称" class="input">
+            </div>
+            <div>
+              <label class="text-sm text-gray-400 mb-1 block">策略分类</label>
+              <input id="new-strategy-category" type="text" placeholder="如：首板、接力、低吸" class="input">
+            </div>
+            <div>
+              <label class="text-sm text-gray-400 mb-1 block">风险等级</label>
+              <select id="new-strategy-risk" class="input">
+                <option value="low">低风险</option>
+                <option value="medium" selected>中风险</option>
+                <option value="high">高风险</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-sm text-gray-400 mb-1 block">策略内容 (Markdown)</label>
+              <textarea id="new-strategy-content" class="input h-64 font-mono text-sm" placeholder="# 策略名称\n\n## 适用场景\n...\n\n## 核心条件\n- ...\n\n## 买入信号\n- ...\n\n## 卖出信号\n- ..."></textarea>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="saveNewStrategy()" class="btn btn-success">💾 保存</button>
+              <button onclick="loadStrategies()" class="btn btn-secondary">取消</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveNewStrategy() {
+      const name = document.getElementById('new-strategy-name').value.trim();
+      const category = document.getElementById('new-strategy-category').value.trim();
+      const riskLevel = document.getElementById('new-strategy-risk').value;
+      const content = document.getElementById('new-strategy-content').value.trim();
+
+      if (!name || !content) {
+        alert('请填写策略名称和内容');
+        return;
+      }
+
+      try {
+        const data = await fetchJSON('/api/strategy/create', 'POST', {
+          name,
+          category,
+          risk_level: riskLevel,
+          content,
+        });
+
+        if (data.status === 'created') {
+          alert('策略创建成功！');
+          loadStrategies();
+        } else {
+          alert('创建失败: ' + (data.error || '未知错误'));
+        }
+      } catch (e) {
+        alert('创建失败: ' + e.message);
+      }
+    }
+
+    async function editStrategy(strategyId) {
+      try {
+        const data = await fetchJSON(`/api/strategy/${strategyId}`);
+        const strategy = data.strategy;
+
+        const el = document.getElementById('strategy-detail');
+        el.innerHTML = `
+          <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+            <h3 class="font-semibold">编辑策略: ${escapeHtml(strategy.name)}</h3>
+            <div class="flex gap-2">
+              <button onclick="saveEditStrategy('${strategyId}')" class="btn btn-success text-sm">💾 保存</button>
+              <button onclick="showStrategy('${strategyId}')" class="btn btn-secondary text-sm">取消</button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto p-6">
+            <div class="max-w-3xl mx-auto space-y-4">
+              <div>
+                <label class="text-sm text-gray-400 mb-1 block">策略名称</label>
+                <input id="edit-strategy-name" type="text" value="${escapeHtml(strategy.name)}" class="input">
+              </div>
+              <div>
+                <label class="text-sm text-gray-400 mb-1 block">策略分类</label>
+                <input id="edit-strategy-category" type="text" value="${escapeHtml(strategy.category || '')}" class="input">
+              </div>
+              <div>
+                <label class="text-sm text-gray-400 mb-1 block">风险等级</label>
+                <select id="edit-strategy-risk" class="input">
+                  <option value="low" ${strategy.risk_level === 'low' ? 'selected' : ''}>低风险</option>
+                  <option value="medium" ${strategy.risk_level === 'medium' ? 'selected' : ''}>中风险</option>
+                  <option value="high" ${strategy.risk_level === 'high' ? 'selected' : ''}>高风险</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-sm text-gray-400 mb-1 block">策略内容 (Markdown)</label>
+                <textarea id="edit-strategy-content" class="input h-64 font-mono text-sm">${escapeHtml(strategy.content)}</textarea>
+              </div>
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        alert('加载失败: ' + e.message);
+      }
+    }
+
+    async function saveEditStrategy(strategyId) {
+      const name = document.getElementById('edit-strategy-name').value.trim();
+      const category = document.getElementById('edit-strategy-category').value.trim();
+      const riskLevel = document.getElementById('edit-strategy-risk').value;
+      const content = document.getElementById('edit-strategy-content').value.trim();
+
+      if (!name || !content) {
+        alert('请填写策略名称和内容');
+        return;
+      }
+
+      try {
+        const data = await fetchJSON(`/api/strategy/${strategyId}`, 'PUT', {
+          name,
+          category,
+          risk_level: riskLevel,
+          content,
+        });
+
+        if (data.status === 'updated') {
+          alert('策略更新成功！');
+          loadStrategies();
+          showStrategy(strategyId);
+        } else {
+          alert('更新失败: ' + (data.error || '未知错误'));
+        }
+      } catch (e) {
+        alert('更新失败: ' + e.message);
+      }
+    }
+
+    async function cloneStrategy(strategyId) {
+      const newName = prompt('请输入新策略名称:');
+      if (!newName) return;
+
+      try {
+        const data = await fetchJSON(`/api/strategy/${strategyId}/clone?new_name=${encodeURIComponent(newName)}`, 'POST');
+
+        if (data.status === 'cloned') {
+          alert('策略克隆成功！');
+          loadStrategies();
+        } else {
+          alert('克隆失败: ' + (data.error || '未知错误'));
+        }
+      } catch (e) {
+        alert('克隆失败: ' + e.message);
+      }
+    }
+
+    async function deleteStrategy(strategyId) {
+      if (!confirm('确认删除此策略？此操作不可撤销。')) return;
+
+      try {
+        const data = await fetchJSON(`/api/strategy/${strategyId}`, 'DELETE');
+
+        if (data.status === 'deleted') {
+          alert('策略已删除');
+          loadStrategies();
+          document.getElementById('strategy-detail').innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">选择左侧策略查看详情</div>';
+        } else {
+          alert('删除失败: ' + (data.error || '未知错误'));
+        }
+      } catch (e) {
+        alert('删除失败: ' + e.message);
+      }
+    }
+
+    // ═══ 策略回测 ═══
+
+    let currentExitMode = 'simple';
+    let currentExitPreset = 'balanced';
+
+    function setExitMode(mode) {
+      currentExitMode = mode;
+      document.getElementById('exit-simple-mode').classList.toggle('hidden', mode !== 'simple');
+      document.getElementById('exit-advanced-mode').classList.toggle('hidden', mode !== 'advanced');
+      document.getElementById('exit-mode-simple').className = mode === 'simple' ? 'px-3 py-1 text-xs rounded-md bg-blue-600 text-white' : 'px-3 py-1 text-xs rounded-md text-gray-400';
+      document.getElementById('exit-mode-advanced').className = mode === 'advanced' ? 'px-3 py-1 text-xs rounded-md bg-blue-600 text-white' : 'px-3 py-1 text-xs rounded-md text-gray-400';
+    }
+
+    function setExitPreset(preset) {
+      currentExitPreset = preset;
+      document.getElementById('preset-conservative').className = preset === 'conservative' ? 'btn btn-primary text-xs py-2' : 'btn btn-secondary text-xs py-2';
+      document.getElementById('preset-balanced').className = preset === 'balanced' ? 'btn btn-primary text-xs py-2' : 'btn btn-secondary text-xs py-2';
+      document.getElementById('preset-aggressive').className = preset === 'aggressive' ? 'btn btn-primary text-xs py-2' : 'btn btn-secondary text-xs py-2';
+    }
+
+    async function loadBacktestStrategies() {
+      const select = document.getElementById('backtest-strategy');
+      select.innerHTML = '<option value="">加载中...</option>';
+
+      try {
+        const data = await fetchJSON('/api/strategy/list');
+        const strategies = data.strategies || [];
+
+        select.innerHTML = '<option value="">请选择策略</option>' +
+          strategies.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+      } catch (e) {
+        select.innerHTML = '<option value="">加载失败</option>';
+      }
+    }
+
+    async function runBacktest() {
+      const strategyId = document.getElementById('backtest-strategy').value;
+      const stockCode = document.getElementById('backtest-code').value.trim();
+      const days = parseInt(document.getElementById('backtest-days').value);
+      const capital = parseFloat(document.getElementById('backtest-capital').value);
+
+      if (!strategyId || !stockCode) {
+        alert('请选择策略和输入股票代码');
+        return;
+      }
+
+      const resultEl = document.getElementById('backtest-result');
+      resultEl.innerHTML = '<div class="text-center text-gray-500 py-10">回测中...</div>';
+
+      // 构建请求参数
+      const params = {
+        strategy_id: strategyId,
+        stock_code: stockCode,
+        days: days,
+        initial_capital: capital,
+        use_dynamic_exit: true,
+      };
+
+      if (currentExitMode === 'simple') {
+        params.exit_strategy_preset = currentExitPreset;
+      } else {
+        // 高级模式：收集自定义参数
+        params.exit_strategy_preset = 'custom';
+        params.exit_strategy_params = {
+          stop_loss_atr_multiple: parseFloat(document.getElementById('exit-atr-multiple').value),
+          trailing_stop_enabled: document.getElementById('exit-trailing-enabled').checked,
+          trailing_stop_activation_pct: parseFloat(document.getElementById('exit-trailing-activation').value) / 100,
+          trailing_stop_atr_multiple: parseFloat(document.getElementById('exit-trailing-atr').value),
+          breakeven_enabled: document.getElementById('exit-breakeven-enabled').checked,
+          breakeven_activation_pct: parseFloat(document.getElementById('exit-breakeven-activation').value) / 100,
+          technical_exit_enabled: document.getElementById('exit-technical-enabled').checked,
+          exit_score_threshold_partial: parseInt(document.getElementById('exit-partial-threshold').value),
+          exit_score_threshold_full: parseInt(document.getElementById('exit-full-threshold').value),
+          max_hold_days: parseInt(document.getElementById('exit-max-hold').value),
+        };
+      }
+
+      try {
+        const data = await fetchJSON('/api/strategy/backtest', 'POST', params);
+
+        if (data.backtest) {
+          renderBacktestResult(data.backtest, data.summary);
+        } else {
+          resultEl.innerHTML = `<div class="text-red-400">回测失败: ${data.error || '未知错误'}</div>`;
+        }
+      } catch (e) {
+        resultEl.innerHTML = `<div class="text-red-400">回测失败: ${e.message}</div>`;
+      }
+    }
+
+    function renderBacktestResult(result, summary) {
+      const el = document.getElementById('backtest-result');
+      const returnClass = result.total_return >= 0 ? 'positive' : 'negative';
+
+      // 退出统计
+      const exitStats = result.exit_statistics || {};
+      const exitAnalysis = result.exit_analysis || {};
+      const totalExits = Object.values(exitStats).reduce((a, b) => a + b, 0);
+
+      el.innerHTML = `
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="stat-card">
+            <div class="stat-value ${returnClass}">${formatPercent(result.total_return)}</div>
+            <div class="stat-label">总收益率</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${formatPercent(result.win_rate)}</div>
+            <div class="stat-label">胜率</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value negative">${formatPercent(result.max_drawdown)}</div>
+            <div class="stat-label">最大回撤</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${formatNumber(result.sharpe_ratio)}</div>
+            <div class="stat-label">夏普比率</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div>
+            <div class="text-sm text-gray-400">初始资金</div>
+            <div class="font-medium">${formatMoney(result.initial_capital)}</div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-400">最终资金</div>
+            <div class="font-medium ${returnClass}">${formatMoney(result.final_capital)}</div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-400">交易次数</div>
+            <div class="font-medium">${result.total_trades}</div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-400">盈利因子</div>
+            <div class="font-medium">${formatNumber(result.profit_factor)}</div>
+          </div>
+        </div>
+
+        ${result.exit_strategy_type ? `
+          <div class="bg-gray-800 rounded-lg p-4 mb-4">
+            <div class="text-sm text-gray-400 mb-1">退出策略</div>
+            <div class="font-medium">${result.exit_strategy_type === 'conservative' ? '🛡️ 保守型' : result.exit_strategy_type === 'balanced' ? '⚖️ 平衡型' : result.exit_strategy_type === 'aggressive' ? '⚡ 激进型' : '⚙️ 自定义'}</div>
+          </div>
+        ` : ''}
+
+        ${totalExits > 0 ? `
+          <div class="bg-gray-800 rounded-lg p-4 mb-4">
+            <div class="text-sm text-gray-400 mb-3">退出统计</div>
+            <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+              ${Object.entries(exitStats).map(([reason, count]) => `
+                <div class="flex items-center justify-between p-2 bg-gray-700 rounded">
+                  <span class="text-sm">${escapeHtml(reason)}</span>
+                  <span class="font-medium">${count}次 (${(count / totalExits * 100).toFixed(1)}%)</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        ${Object.keys(exitAnalysis).length > 0 ? `
+          <div class="bg-gray-800 rounded-lg p-4 mb-4">
+            <div class="text-sm text-gray-400 mb-3">退出原因分析</div>
+            <div class="space-y-2">
+              ${Object.entries(exitAnalysis).map(([reason, analysis]) => `
+                <div class="flex items-center justify-between p-2 bg-gray-700 rounded">
+                  <span class="text-sm">${escapeHtml(reason)}</span>
+                  <span class="font-medium ${(analysis.avg_return || 0) >= 0 ? 'positive' : 'negative'}">平均收益: ${formatPercent(analysis.avg_return)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="bg-gray-800 rounded-lg p-4 mb-4">
+          <pre class="text-sm text-gray-300 whitespace-pre-wrap">${summary}</pre>
+        </div>
+
+        ${result.trades && result.trades.length ? `
+          <div>
+            <h4 class="font-semibold mb-3">交易记录</h4>
+            <div class="overflow-x-auto">
+              <table class="table text-sm">
+                <thead>
+                  <tr>
+                    <th>买入日期</th>
+                    <th>买入价格</th>
+                    <th>卖出日期</th>
+                    <th>卖出价格</th>
+                    <th>持仓天数</th>
+                    <th>盈亏比例</th>
+                    <th>退出原因</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${result.trades.map(t => `
+                    <tr>
+                      <td>${t.entry_date}</td>
+                      <td>${formatNumber(t.entry_price, 3)}</td>
+                      <td>${t.exit_date}</td>
+                      <td>${formatNumber(t.exit_price, 3)}</td>
+                      <td>${t.hold_days}</td>
+                      <td class="${t.pnl_pct >= 0 ? 'positive' : 'negative'}">${formatPercent(t.pnl_pct)}</td>
+                      <td>${escapeHtml(t.exit_reason)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    // ═══ 信号监控 ═══
+
+    async function loadSignals() {
+      try {
+        // 加载统计数据
+        const stats = await fetchJSON('/api/strategy/signals/stats');
+        document.getElementById('signal-total').textContent = stats.total || 0;
+        document.getElementById('signal-pending').textContent = stats.pending || 0;
+        document.getElementById('signal-confirmed').textContent = stats.confirmed || 0;
+        document.getElementById('signal-avg-confidence').textContent = ((stats.avg_confidence || 0) * 100).toFixed(0) + '%';
+
+        // 加载信号列表
+        const data = await fetchJSON('/api/strategy/signals?limit=50');
+        renderSignals(data.signals || []);
+      } catch (e) {
+        console.error('加载信号失败:', e);
+      }
+    }
+
+    function renderSignals(signals) {
+      const tbody = document.getElementById('signals-table');
+      if (!signals.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-500 py-8">暂无信号</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = signals.map(s => `
+        <tr>
+          <td>${escapeHtml(s.strategy_name)}</td>
+          <td>${escapeHtml(s.stock_code)} ${escapeHtml(s.stock_name)}</td>
+          <td>
+            <span class="badge ${s.signal_type === 'buy' ? 'badge-success' : 'badge-danger'}">
+              ${s.signal_type === 'buy' ? '买入' : '卖出'}
+            </span>
+          </td>
+          <td>${formatNumber(s.signal_price, 3)}</td>
+          <td>${(s.confidence * 100).toFixed(0)}%</td>
+          <td>${s.signal_time ? s.signal_time.substring(0, 16) : '-'}</td>
+          <td>
+            <span class="badge ${s.status === 'confirmed' ? 'badge-success' : s.status === 'expired' ? 'badge-warning' : 'badge-info'}">
+              ${s.status === 'confirmed' ? '已确认' : s.status === 'expired' ? '已过期' : '待确认'}
+            </span>
+          </td>
+          <td>
+            ${s.status === 'pending' ? `
+              <button onclick="confirmSignal('${s.id}')" class="text-green-400 hover:text-green-300 text-sm">确认</button>
+              <button onclick="expireSignal('${s.id}')" class="text-yellow-400 hover:text-yellow-300 text-sm ml-2">过期</button>
+            ` : ''}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function scanSignals() {
+      try {
+        const data = await fetchJSON('/api/strategy/signals/scan', 'POST', {});
+        alert(`扫描完成，发现 ${data.total || 0} 个信号`);
+        loadSignals();
+      } catch (e) {
+        alert('扫描失败: ' + e.message);
+      }
+    }
+
+    async function refreshSignals() {
+      loadSignals();
+    }
+
+    async function confirmSignal(signalId) {
+      try {
+        await fetchJSON(`/api/strategy/signals/${signalId}/confirm`, 'POST');
+        loadSignals();
+      } catch (e) {
+        alert('确认失败: ' + e.message);
+      }
+    }
+
+    async function expireSignal(signalId) {
+      try {
+        await fetchJSON(`/api/strategy/signals/${signalId}/expire`, 'POST');
+        loadSignals();
+      } catch (e) {
+        alert('操作失败: ' + e.message);
+      }
+    }
+
+    // ═══ 绩效分析 ═══
+
+    async function loadPerformanceSummary() {
+      try {
+        const data = await fetchJSON('/api/strategy/performance/summary');
+        document.getElementById('perf-strategies').textContent = data.total_strategies || 0;
+        document.getElementById('perf-active').textContent = data.active_strategies || 0;
+        document.getElementById('perf-backtests').textContent = data.total_backtests || 0;
+        document.getElementById('perf-avg-return').textContent = formatPercent(data.avg_return || 0);
+        document.getElementById('perf-avg-return').className = `stat-value ${(data.avg_return || 0) >= 0 ? 'positive' : 'negative'}`;
+        document.getElementById('perf-signals').textContent = data.total_signals || 0;
+
+        // 加载策略列表到下拉框
+        const strategiesData = await fetchJSON('/api/strategy/list');
+        const select = document.getElementById('perf-strategy-select');
+        select.innerHTML = '<option value="">选择策略查看详细绩效</option>' +
+          (strategiesData.strategies || []).map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+      } catch (e) {
+        console.error('加载绩效摘要失败:', e);
+      }
+    }
+
+    async function loadStrategyPerformance() {
+      const strategyId = document.getElementById('perf-strategy-select').value;
+      const el = document.getElementById('strategy-performance-detail');
+
+      if (!strategyId) {
+        el.innerHTML = '<div class="text-center text-gray-500 py-10">选择策略查看详细绩效分析</div>';
+        return;
+      }
+
+      el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+
+      try {
+        const data = await fetchJSON(`/api/strategy/${strategyId}/performance`);
+        renderStrategyPerformance(data);
+      } catch (e) {
+        el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`;
+      }
+    }
+
+    function renderStrategyPerformance(data) {
+      const el = document.getElementById('strategy-performance-detail');
+      const metrics = data.metrics || {};
+
+      el.innerHTML = `
+        <h4 class="font-semibold mb-4">${escapeHtml(data.strategy_name)} - 绩效分析</h4>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="stat-card">
+            <div class="stat-value ${(metrics.avg_return || 0) >= 0 ? 'positive' : 'negative'}">${formatPercent(metrics.avg_return)}</div>
+            <div class="stat-label">平均收益</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${formatPercent(metrics.avg_win_rate)}</div>
+            <div class="stat-label">平均胜率</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${formatNumber(metrics.avg_sharpe_ratio)}</div>
+            <div class="stat-label">夏普比率</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${formatPercent(metrics.positive_rate)}</div>
+            <div class="stat-label">正收益概率</div>
+          </div>
+        </div>
+
+        ${data.recommendation ? `
+          <div class="bg-gray-800 rounded-lg p-4 mb-4">
+            <div class="text-sm text-gray-400 mb-1">策略建议</div>
+            <div>${escapeHtml(data.recommendation)}</div>
+          </div>
+        ` : ''}
+
+        ${data.attribution && data.attribution.insights ? `
+          <div class="bg-gray-800 rounded-lg p-4">
+            <div class="text-sm text-gray-400 mb-2">归因分析</div>
+            <ul class="space-y-1">
+              ${data.attribution.insights.map(i => `<li class="text-sm">• ${escapeHtml(i)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    // ═══ 策略组合 ═══
+
+    async function loadPortfolios() {
+      const list = document.getElementById('portfolio-list');
+      list.innerHTML = '<div class="text-center text-gray-500 py-4 text-sm">加载中...</div>';
+
+      try {
+        const data = await fetchJSON('/api/strategy/portfolios/list');
+        allPortfolios = data.portfolios || [];
+        renderPortfolioList(allPortfolios);
+      } catch (e) {
+        list.innerHTML = `<div class="text-red-400 text-sm p-2">加载失败: ${e.message}</div>`;
+      }
+    }
+
+    function renderPortfolioList(portfolios) {
+      const list = document.getElementById('portfolio-list');
+      if (!portfolios.length) {
+        list.innerHTML = '<div class="text-gray-500 text-sm p-2">暂无组合</div>';
+        return;
+      }
+
+      list.innerHTML = portfolios.map(p => `
+        <div class="px-3 py-2 rounded cursor-pointer text-sm hover:bg-gray-800 text-gray-300" onclick="showPortfolio('${p.id}')">
+          <div class="font-medium">${escapeHtml(p.name)}</div>
+          <div class="text-xs text-gray-500 mt-1">${p.strategies ? p.strategies.length : 0} 个策略</div>
+        </div>
+      `).join('');
+    }
+
+    async function showPortfolio(portfolioId) {
+      const el = document.getElementById('portfolio-detail');
+      el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
+
+      try {
+        const data = await fetchJSON(`/api/strategy/portfolios/${portfolioId}`);
+        renderPortfolioDetail(data.portfolio);
+      } catch (e) {
+        el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`;
+      }
+    }
+
+    function renderPortfolioDetail(portfolio) {
+      const el = document.getElementById('portfolio-detail');
+      el.innerHTML = `
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-lg font-semibold">${escapeHtml(portfolio.name)}</h3>
+            <div class="text-sm text-gray-500 mt-1">${escapeHtml(portfolio.description || '无描述')}</div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="editPortfolio('${portfolio.id}')" class="btn btn-primary text-sm">✏️ 编辑</button>
+            <button onclick="deletePortfolio('${portfolio.id}')" class="btn btn-danger text-sm">🗑️ 删除</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div>
+            <div class="text-sm text-gray-400">总资金</div>
+            <div class="font-medium">${formatMoney(portfolio.total_capital)}</div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-400">风险预算</div>
+            <div class="font-medium">${(portfolio.risk_budget * 100).toFixed(1)}%</div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-400">策略数量</div>
+            <div class="font-medium">${portfolio.strategies ? portfolio.strategies.length : 0}</div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-400">再平衡频率</div>
+            <div class="font-medium">${portfolio.rebalance_frequency || 'monthly'}</div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <h4 class="font-semibold mb-3">包含策略</h4>
+          ${portfolio.strategies && portfolio.strategies.length ? `
+            <div class="space-y-2">
+              ${portfolio.strategies.map(s => `
+                <div class="flex items-center justify-between p-3 bg-gray-800 rounded">
+                  <div>
+                    <div class="font-medium">${escapeHtml(s.strategy_id)}</div>
+                    <div class="text-sm text-gray-500">权重: ${(s.weight * 100).toFixed(1)}%</div>
+                  </div>
+                  <button onclick="removeStrategyFromPortfolio('${portfolio.id}', '${s.strategy_id}')" class="text-red-400 hover:text-red-300 text-sm">移除</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="text-center text-gray-500 py-4">暂无策略</div>
+          `}
+        </div>
+      `;
+    }
+
+    function createNewPortfolio() {
+      const el = document.getElementById('portfolio-detail');
+      el.innerHTML = `
+        <h3 class="text-lg font-semibold mb-4">新建组合</h3>
+        <div class="space-y-4">
+          <div>
+            <label class="text-sm text-gray-400 mb-1 block">组合名称</label>
+            <input id="new-portfolio-name" type="text" placeholder="输入组合名称" class="input">
+          </div>
+          <div>
+            <label class="text-sm text-gray-400 mb-1 block">描述</label>
+            <input id="new-portfolio-desc" type="text" placeholder="组合描述" class="input">
+          </div>
+          <div>
+            <label class="text-sm text-gray-400 mb-1 block">总资金</label>
+            <input id="new-portfolio-capital" type="number" value="1000000" class="input">
+          </div>
+          <div>
+            <label class="text-sm text-gray-400 mb-1 block">风险预算 (%)</label>
+            <input id="new-portfolio-risk" type="number" step="0.1" value="2" class="input">
+          </div>
+          <div class="flex gap-2">
+            <button onclick="saveNewPortfolio()" class="btn btn-success">💾 保存</button>
+            <button onclick="loadPortfolios()" class="btn btn-secondary">取消</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveNewPortfolio() {
+      const name = document.getElementById('new-portfolio-name').value.trim();
+      const description = document.getElementById('new-portfolio-desc').value.trim();
+      const capital = parseFloat(document.getElementById('new-portfolio-capital').value);
+      const riskBudget = parseFloat(document.getElementById('new-portfolio-risk').value) / 100;
+
+      if (!name) {
+        alert('请输入组合名称');
+        return;
+      }
+
+      try {
+        const data = await fetchJSON('/api/strategy/portfolios/create', 'POST', {
+          name,
+          description,
+          total_capital: capital,
+          risk_budget: riskBudget,
+        });
+
+        if (data.status === 'created') {
+          alert('组合创建成功！');
+          loadPortfolios();
+        } else {
+          alert('创建失败');
+        }
+      } catch (e) {
+        alert('创建失败: ' + e.message);
+      }
+    }
+
+    async function deletePortfolio(portfolioId) {
+      if (!confirm('确认删除此组合？')) return;
+
+      try {
+        const data = await fetchJSON(`/api/strategy/portfolios/${portfolioId}`, 'DELETE');
+        if (data.status === 'deleted') {
+          alert('组合已删除');
+          loadPortfolios();
+          document.getElementById('portfolio-detail').innerHTML = '<div class="text-center text-gray-500 py-20">选择左侧组合查看详情</div>';
+        }
+      } catch (e) {
+        alert('删除失败: ' + e.message);
+      }
+    }
+
+    async function removeStrategyFromPortfolio(portfolioId, strategyId) {
+      try {
+        await fetchJSON(`/api/strategy/portfolios/${portfolioId}/strategies/${strategyId}`, 'DELETE');
+        showPortfolio(portfolioId);
+      } catch (e) {
+        alert('移除失败: ' + e.message);
+      }
+    }
+
+    // ═══ 帮助 ═══
+
+    function showHelp() {
+      alert(`DeepPulse 策略平台使用帮助
+
+📋 策略管理
+- 创建、编辑、删除、克隆策略
+- 支持 Markdown 格式编写策略内容
+- 按分类和标签组织策略
+
+📈 策略回测
+- 选择策略和股票进行历史回测
+- 查看收益率、胜率、最大回撤等指标
+- 分析交易记录
+- 支持动态退出策略（ATR止损、移动止损、技术退出）
+
+🔔 信号监控
+- 实时扫描策略信号
+- 确认或过期信号
+- 查看信号统计
+
+📊 绩效分析
+- 查看策略整体绩效
+- 比较不同策略表现
+- 归因分析
+
+💼 策略组合
+- 创建多策略组合
+- 管理资金分配
+- 优化组合配置
+
+═══ 动态退出策略说明 ═══
+
+核心理念: "没有问题就不止盈"
+
+🛡️ 保守型
+- ATR止损: 2倍ATR（宽止损）
+- 移动止损: 2.5倍ATR，激活盈利5%
+- 适合: 稳健投资者
+
+⚖️ 平衡型（推荐）
+- ATR止损: 1.5倍ATR
+- 移动止损: 2倍ATR，激活盈利3%
+- 适合: 大多数场景
+
+⚡ 激进型
+- ATR止损: 1倍ATR（窄止损）
+- 移动止损: 1.5倍ATR，激活盈利2%
+- 适合: 短线交易
+
+退出机制:
+1. ATR止损: 根据市场波动动态调整止损位
+2. 移动止损: 保护利润，跟随最高价
+3. 保本止损: 盈利达到阈值后保护本金
+4. 技术退出: 当出现技术问题时才考虑止盈
+5. 时间退出: 超过最大持仓时间`);
+    }
+
+    // 初始化
+    document.addEventListener('DOMContentLoaded', () => {
+      showPage('strategies');
+    });
+  </script>
+</body>
+</html>
