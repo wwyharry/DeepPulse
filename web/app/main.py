@@ -12,9 +12,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from web.app.api import analysis, market, memory, portfolio, strategy, system
-from web.app.ws import chat_handler, realtime_handler
+from web.app.api import analysis, market, memory, portfolio, strategy, strategy_llm, system
+from web.app.ws import chat_handler, realtime_handler, strategy_handler
 
 # 静态文件目录
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -67,10 +68,15 @@ app.include_router(portfolio.router, prefix="/api/portfolio", tags=["组合"])
 app.include_router(memory.router, prefix="/api/memory", tags=["记忆"])
 app.include_router(system.router, prefix="/api/system", tags=["系统"])
 app.include_router(strategy.router, prefix="/api/strategy", tags=["策略"])
+app.include_router(strategy_llm.router, prefix="/api/strategy/llm", tags=["LLM策略"])
+
+# 静态资源（CSS/JS 等共享设计系统文件）
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # WebSocket 路由
 app.include_router(chat_handler.router, prefix="/ws")
 app.include_router(realtime_handler.router, prefix="/ws")
+app.include_router(strategy_handler.router, prefix="/ws")
 
 
 @app.get("/", response_class=HTMLResponse)

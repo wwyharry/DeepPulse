@@ -11,7 +11,7 @@ from deeppulse.strategy.engine import StrategyEngine
 from deeppulse.strategy.repository import StrategyRepository
 from deeppulse.strategy.signals import SignalGenerator
 from deeppulse.strategy.monitor import SignalMonitor
-from deeppulse.strategy.performance import PerformanceAnalyzer
+from deeppulse.strategy.performance import AIAnalyzer, get_ai_analyzer
 from deeppulse.strategy.exit_strategies import (
     ExitStrategy,
     DynamicExitEngine,
@@ -30,7 +30,8 @@ __all__ = [
     "StrategyRepository",
     "SignalGenerator",
     "SignalMonitor",
-    "PerformanceAnalyzer",
+    "AIAnalyzer",
+    "get_ai_analyzer",
     "ExitStrategy",
     "DynamicExitEngine",
     "PRESET_EXIT_STRATEGIES",

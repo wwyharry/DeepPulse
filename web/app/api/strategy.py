@@ -38,8 +38,8 @@ class StrategyUpdate(BaseModel):
 class BacktestRequest(BaseModel):
     """回测请求"""
 
-    strategy_id: str
-    stock_code: str
+    strategy_id: str = ""  # 旧版：通用策略ID
+    stock_code: str = ""
     days: int = 500
     initial_capital: float = 100000
     stop_loss: float = 0.05
@@ -48,6 +48,7 @@ class BacktestRequest(BaseModel):
     use_dynamic_exit: bool = True  # 是否使用动态退出策略
     exit_strategy_preset: str = "balanced"  # 动态退出策略预设 (conservative/balanced/aggressive)
     exit_strategy_params: Optional[dict] = None  # 自定义退出策略参数
+    stock_strategy_id: str = ""  # 新版：个股AI策略ID（优先使用）
 
 
 class OptimizeRequest(BaseModel):
@@ -59,13 +60,6 @@ class OptimizeRequest(BaseModel):
     days: int = 250
     use_dynamic_exit: bool = True
     exit_strategy_preset: str = "balanced"
-
-
-class SignalScanRequest(BaseModel):
-    """信号扫描请求"""
-
-    strategy_ids: list[str] = []
-    stock_codes: list[str] = []
 
 
 class PortfolioCreate(BaseModel):
@@ -326,36 +320,74 @@ async def clone_strategy(strategy_id: str, new_name: str = Query(...)):
 
 @router.post("/backtest")
 async def run_backtest(body: BacktestRequest):
-    """运行回测"""
+    """运行回测
+
+    支持两种模式：
+    1. stock_strategy_id：使用已保存的个股AI策略（StrategySpec）
+    2. strategy_id + stock_code：使用旧版通用策略
+    """
     from deeppulse.strategy.backtest import backtest_stock, SIGNAL_FUNCTIONS
     from deeppulse.strategy.repository import get_repository
 
     repo = get_repository()
-    strategy = repo.get_strategy(body.strategy_id)
 
+    # 优先使用新版个股策略
+    if body.stock_strategy_id:
+        ss = repo.get_stock_strategy(body.stock_strategy_id)
+        if not ss:
+            raise HTTPException(status_code=404, detail="个股策略不存在")
+
+        from deeppulse.strategy.spec import compile_signal_func
+
+        spec = ss.get_spec()
+        try:
+            signal_func = compile_signal_func(spec)
+            result = backtest_stock(
+                code=ss.stock_code,
+                signal_func=signal_func,
+                days=body.days,
+                initial_capital=body.initial_capital,
+                use_dynamic_exit=body.use_dynamic_exit,
+                exit_strategy_preset=body.exit_strategy_preset,
+                exit_strategy_params=body.exit_strategy_params,
+            )
+            result.strategy_name = ss.name
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"回测失败: {e}") from e
+
+        return {
+            "backtest": result.to_dict(),
+            "summary": result.summary(),
+        }
+
+    # 旧版通用策略回测
+    if not body.strategy_id or not body.stock_code:
+        raise HTTPException(
+            status_code=400,
+            detail="需要提供 stock_strategy_id 或 strategy_id + stock_code",
+        )
+
+    strategy = repo.get_strategy(body.strategy_id)
     if not strategy:
         raise HTTPException(status_code=404, detail="策略不存在")
 
     # 确定信号函数名称
-    # 尝试使用策略名称匹配信号函数，如果不存在则使用默认的macd_cross
     strategy_name = strategy.name
     if strategy_name not in SIGNAL_FUNCTIONS:
-        # 尝试从策略内容中推断信号函数
         content = strategy.content.lower()
-        if 'macd' in content:
-            strategy_name = 'macd_cross'
-        elif 'ma' in content or '均线' in content:
-            strategy_name = 'ma_cross'
-        elif 'rsi' in content:
-            strategy_name = 'rsi_oversold'
-        elif '布林' in content or 'boll' in content:
-            strategy_name = 'boll_bounce'
-        elif 'kdj' in content:
-            strategy_name = 'kdj_cross'
+        if "macd" in content:
+            strategy_name = "macd_cross"
+        elif "ma" in content or "均线" in content:
+            strategy_name = "ma_cross"
+        elif "rsi" in content:
+            strategy_name = "rsi_oversold"
+        elif "布林" in content or "boll" in content:
+            strategy_name = "boll_bounce"
+        elif "kdj" in content:
+            strategy_name = "kdj_cross"
         else:
-            strategy_name = 'macd_cross'  # 默认使用MACD
+            strategy_name = "macd_cross"
 
-    # 运行回测
     result = backtest_stock(
         code=body.stock_code,
         strategy=strategy_name,
@@ -369,7 +401,6 @@ async def run_backtest(body: BacktestRequest):
         exit_strategy_params=body.exit_strategy_params,
     )
 
-    # 保存回测结果
     from deeppulse.strategy.models import BacktestResult
 
     backtest_result = BacktestResult(
@@ -527,174 +558,56 @@ async def monte_carlo_simulation(
     return mc_result
 
 
-# ============ 策略信号 API ============
+# ============ 策略健康度 API ============
 
 
-@router.get("/signals")
-async def list_signals(strategy_id: str = Query(None), limit: int = Query(50)):
-    """获取信号列表"""
-    from deeppulse.strategy.repository import get_repository
+@router.get("/health/dashboard")
+async def health_dashboard():
+    """获取所有策略的健康度面板数据"""
+    from deeppulse.strategy.health import get_health_monitor
 
-    repo = get_repository()
-    signals = repo.get_signals(strategy_id=strategy_id, limit=limit)
+    monitor = get_health_monitor()
+    return monitor.get_dashboard()
+
+
+@router.get("/health/trend/{strategy_id}")
+async def health_trend(strategy_id: str, days: int = Query(30)):
+    """获取某策略的得分趋势"""
+    from deeppulse.strategy.health import get_health_monitor
+
+    monitor = get_health_monitor()
+    return monitor.get_trend(strategy_id, days=days)
+
+
+@router.post("/health/scan")
+async def health_scan():
+    """手动触发一次健康度扫描"""
+    from deeppulse.strategy.health import get_health_monitor
+
+    monitor = get_health_monitor()
+    snapshots = monitor.scan_all()
 
     return {
-        "total": len(signals),
-        "signals": [s.to_dict() for s in signals],
+        "total": len(snapshots),
+        "snapshots": [s.to_dict() for s in snapshots],
     }
 
 
-@router.post("/signals/scan")
-async def scan_signals(body: SignalScanRequest):
-    """扫描信号"""
-    from deeppulse.strategy.signals import get_signal_generator
-
-    generator = get_signal_generator()
-
-    if body.strategy_ids:
-        # 扫描指定策略
-        all_signals = []
-        for strategy_id in body.strategy_ids:
-            signals = generator.generate_signals(
-                strategy_id=strategy_id,
-                stock_codes=body.stock_codes,
-            )
-            all_signals.extend(signals)
-    else:
-        # 扫描所有策略
-        all_signals = generator.scan_all_strategies(stock_codes=body.stock_codes)
-
-    return {
-        "total": len(all_signals),
-        "signals": [s.to_dict() for s in all_signals],
-    }
+# ============ AI 策略分析 API ============
 
 
-@router.post("/signals/{signal_id}/confirm")
-async def confirm_signal(signal_id: str):
-    """确认信号"""
-    from deeppulse.strategy.monitor import get_signal_monitor
+@router.post("/ai-analyze/{stock_strategy_id}")
+async def ai_analyze_strategy(stock_strategy_id: str):
+    """用已保存的策略 + LLM 分析当前行情，预测买卖点"""
+    from deeppulse.strategy.performance import get_ai_analyzer
 
-    monitor = get_signal_monitor()
-    success = monitor.confirm_signal(signal_id)
-
-    if not success:
-        raise HTTPException(status_code=404, detail="信号不存在")
-
-    return {"status": "confirmed"}
-
-
-@router.post("/signals/{signal_id}/expire")
-async def expire_signal(signal_id: str):
-    """过期信号"""
-    from deeppulse.strategy.monitor import get_signal_monitor
-
-    monitor = get_signal_monitor()
-    success = monitor.expire_signal(signal_id)
-
-    if not success:
-        raise HTTPException(status_code=404, detail="信号不存在")
-
-    return {"status": "expired"}
-
-
-@router.get("/signals/stats")
-async def get_signal_stats():
-    """获取信号统计"""
-    from deeppulse.strategy.monitor import get_signal_monitor
-
-    monitor = get_signal_monitor()
-    stats = monitor.get_signal_statistics()
-
-    return stats
-
-
-# ============ 信号监控 API ============
-
-
-@router.get("/monitor/status")
-async def get_monitor_status():
-    """获取监控状态"""
-    from deeppulse.strategy.monitor import get_signal_monitor
-
-    monitor = get_signal_monitor()
-    return monitor.get_status()
-
-
-@router.post("/monitor/start")
-async def start_monitor(interval: int = Query(300)):
-    """启动监控"""
-    from deeppulse.strategy.monitor import get_signal_monitor
-
-    monitor = get_signal_monitor()
-    monitor.start(interval=interval)
-
-    return {"status": "started", "interval": interval}
-
-
-@router.post("/monitor/stop")
-async def stop_monitor():
-    """停止监控"""
-    from deeppulse.strategy.monitor import get_signal_monitor
-
-    monitor = get_signal_monitor()
-    monitor.stop()
-
-    return {"status": "stopped"}
-
-
-@router.post("/monitor/scan-now")
-async def scan_now():
-    """立即扫描"""
-    from deeppulse.strategy.monitor import get_signal_monitor
-
-    monitor = get_signal_monitor()
-    signals = monitor.scan_now()
-
-    return {
-        "total": len(signals),
-        "signals": [s.to_dict() for s in signals],
-    }
-
-
-# ============ 策略绩效 API ============
-
-
-@router.get("/{strategy_id}/performance")
-async def get_strategy_performance(strategy_id: str):
-    """获取策略绩效"""
-    from deeppulse.strategy.performance import get_performance_analyzer
-
-    analyzer = get_performance_analyzer()
-    result = analyzer.analyze_strategy(strategy_id)
+    analyzer = get_ai_analyzer()
+    result = analyzer.analyze_with_strategy(stock_strategy_id)
 
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
 
     return result
-
-
-@router.post("/compare")
-async def compare_strategies(strategy_ids: list[str]):
-    """比较策略"""
-    from deeppulse.strategy.performance import get_performance_analyzer
-
-    analyzer = get_performance_analyzer()
-    result = analyzer.compare_strategies(strategy_ids)
-
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-
-    return result
-
-
-@router.get("/performance/summary")
-async def get_performance_summary():
-    """获取绩效摘要"""
-    from deeppulse.strategy.performance import get_performance_analyzer
-
-    analyzer = get_performance_analyzer()
-    return analyzer.get_performance_summary()
 
 
 # ============ 策略组合 API ============

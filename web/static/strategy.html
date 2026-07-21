@@ -6,1317 +6,1726 @@
   <title>DeepPulse 策略平台</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
   <style>
-    body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    .sidebar { width: 280px; background: #161b22; border-right: 1px solid #30363d; }
-    .nav-btn { transition: all 0.2s; }
-    .nav-btn:hover { background: #21262d; }
-    .nav-btn.active { background: #1f6feb; color: white; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
-    .btn { padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
-    .btn-primary { background: #1f6feb; color: white; }
-    .btn-primary:hover { background: #388bfd; }
-    .btn-success { background: #238636; color: white; }
-    .btn-success:hover { background: #2ea043; }
-    .btn-danger { background: #da3633; color: white; }
-    .btn-danger:hover { background: #f85149; }
-    .btn-secondary { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
-    .btn-secondary:hover { background: #30363d; }
-    .input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; width: 100%; }
-    .input:focus { outline: none; border-color: #1f6feb; }
-    .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px; }
-    .badge-success { background: #238636; color: white; }
-    .badge-warning { background: #9e6a03; color: white; }
-    .badge-danger { background: #da3633; color: white; }
-    .badge-info { background: #1f6feb; color: white; }
-    .table { width: 100%; border-collapse: collapse; }
-    .table th { background: #21262d; padding: 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #30363d; }
-    .table td { padding: 12px; border-bottom: 1px solid #21262d; }
-    .table tr:hover { background: #161b22; }
-    .markdown-body { line-height: 1.6; }
-    .markdown-body h1 { font-size: 24px; margin-bottom: 16px; }
-    .markdown-body h2 { font-size: 20px; margin-top: 24px; margin-bottom: 12px; }
-    .markdown-body h3 { font-size: 16px; margin-top: 20px; margin-bottom: 8px; }
-    .markdown-body ul { margin-left: 20px; margin-bottom: 12px; }
-    .markdown-body li { margin-bottom: 4px; }
-    .markdown-body p { margin-bottom: 12px; }
-    .markdown-body code { background: #21262d; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
-    .markdown-body pre { background: #21262d; padding: 16px; border-radius: 6px; overflow-x: auto; margin-bottom: 16px; }
-    .stat-card { text-align: center; padding: 20px; }
-    .stat-value { font-size: 28px; font-weight: bold; }
-    .stat-label { font-size: 14px; color: #8b949e; margin-top: 4px; }
-    .positive { color: #3fb950; }
-    .negative { color: #f85149; }
+    .page-content { display: none; }
+    .page-content.active { display: block; }
+    .nav-btn.active { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border-left: 3px solid #3b82f6; }
+    .metric-card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(100, 116, 139, 0.3); border-radius: 0.5rem; padding: 1rem; }
+    .factor-bar { height: 8px; border-radius: 4px; transition: width 0.5s; }
+    .signal-buy { background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .signal-sell { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .signal-hold { background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); }
+    .stock-item.active { background: rgba(59, 130, 246, 0.15); border-left: 3px solid #3b82f6; }
+    .strategy-card { transition: all 0.2s; }
+    .strategy-card:hover { border-color: rgba(59, 130, 246, 0.5); }
+    .score-strong { color: #22c55e; }
+    .score-medium { color: #eab308; }
+    .score-weak { color: #ef4444; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* ===== 进度面板动画 ===== */
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    @keyframes slide-in { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes typewriter-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    .progress-step { animation: slide-in 0.2s ease-out; }
+    .progress-step.running .step-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+    .step-timeline { position: relative; padding-left: 24px; }
+    .step-timeline::before {
+      content: ''; position: absolute; left: 7px; top: 0; bottom: 0;
+      width: 2px; background: rgba(100,116,139,0.2);
+    }
+    .step-dot {
+      position: absolute; left: 0; top: 6px; width: 16px; height: 16px;
+      border-radius: 50%; border: 2px solid #475569; background: #1e293b;
+      display: flex; align-items: center; justify-content: center; font-size: 8px;
+      z-index: 1;
+    }
+    .progress-step.done .step-dot { border-color: #22c55e; background: #22c55e; color: #fff; }
+    .progress-step.running .step-dot { border-color: #3b82f6; background: #3b82f6; box-shadow: 0 0 8px rgba(59,130,246,0.5); }
+    .progress-step.warning .step-dot { border-color: #eab308; background: #eab308; }
+    .progress-step.error .step-dot { border-color: #ef4444; background: #ef4444; }
+    .progress-step.improved .step-dot { border-color: #a855f7; background: #a855f7; }
+
+    .step-substeps { margin-top: 4px; padding-left: 8px; border-left: 1px solid rgba(100,116,139,0.15); }
+    .substep-item { font-size: 11px; color: #64748b; padding: 1px 0; display: flex; align-items: center; gap: 4px; }
+    .substep-item::before { content: '›'; color: #475569; }
+
+    .live-metrics {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px;
+      padding: 10px; background: rgba(15,23,42,0.6); border-radius: 8px; border: 1px solid rgba(59,130,246,0.15);
+    }
+    .live-metric { text-align: center; }
+    .live-metric .value { font-size: 16px; font-weight: 700; font-family: 'Menlo', 'Consolas', monospace; }
+    .live-metric .label { font-size: 10px; color: #64748b; margin-top: 2px; }
+
+    .llm-stream-box {
+      background: rgba(2,6,23,0.8); border: 1px solid rgba(100,116,139,0.2);
+      border-radius: 6px; padding: 10px; max-height: 150px; overflow-y: auto;
+      font-family: 'Menlo', 'Consolas', monospace; font-size: 12px;
+      color: #94a3b8; line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+    }
+    .llm-stream-box .cursor {
+      display: inline-block; width: 6px; height: 14px; background: #60a5fa;
+      animation: typewriter-blink 0.8s step-end infinite; vertical-align: text-bottom; margin-left: 1px;
+    }
+
+    .progress-bar-animated {
+      background: linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6);
+      background-size: 200% 100%; animation: shimmer 2s linear infinite;
+    }
+
+    .tune-item { font-size: 11px; color: #a78bfa; padding: 1px 0; display: flex; align-items: center; gap: 4px; }
+    .tune-item::before { content: '⚡'; font-size: 10px; }
+
+    .elapsed-badge {
+      font-size: 10px; color: #64748b; background: rgba(30,41,59,0.5);
+      padding: 1px 6px; border-radius: 10px; margin-left: auto; white-space: nowrap;
+    }
+
+    .factor-score-bar { height: 4px; border-radius: 2px; transition: width 0.5s; background: #3b82f6; }
   </style>
 </head>
-<body>
-  <div class="flex h-screen overflow-hidden">
-    <!-- 侧边栏 -->
-    <div class="sidebar flex flex-col">
+<body class="bg-gray-950 text-gray-200 min-h-screen">
+  <div class="flex h-screen">
+    <!-- 左侧导航 -->
+    <nav class="w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
       <div class="p-4 border-b border-gray-800">
-        <h1 class="text-xl font-bold text-blue-400">📊 DeepPulse 策略平台</h1>
-        <p class="text-sm text-gray-500 mt-1">策略开发 · 回测 · 监控</p>
+        <h1 class="text-lg font-bold text-blue-400">DeepPulse</h1>
+        <p class="text-xs text-gray-500">策略平台</p>
       </div>
-
-      <nav class="flex-1 p-4 space-y-2">
-        <button onclick="showPage('strategies')" class="nav-btn active w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="strategies">
-          <span>📋</span>
-          <span>策略管理</span>
+      <div class="flex-1 py-2">
+        <button class="nav-btn active w-full text-left px-4 py-3 text-sm hover:bg-gray-800 flex items-center gap-2" onclick="showPage('ai', this)">
+          <span>🤖</span> AI 策略生成
         </button>
-        <button onclick="showPage('backtest')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="backtest">
-          <span>📈</span>
-          <span>策略回测</span>
+        <button class="nav-btn w-full text-left px-4 py-3 text-sm hover:bg-gray-800 flex items-center gap-2" onclick="showPage('my-strategies', this)">
+          <span>📁</span> 我的策略
         </button>
-        <button onclick="showPage('signals')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="signals">
-          <span>🔔</span>
-          <span>信号监控</span>
+        <button class="nav-btn w-full text-left px-4 py-3 text-sm hover:bg-gray-800 flex items-center gap-2" onclick="showPage('backtest', this)">
+          <span>📊</span> 策略回测
         </button>
-        <button onclick="showPage('performance')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="performance">
-          <span>📊</span>
-          <span>绩效分析</span>
+        <button class="nav-btn w-full text-left px-4 py-3 text-sm hover:bg-gray-800 flex items-center gap-2" onclick="showPage('ai-analyze', this)">
+          <span>🧠</span> AI 策略分析
         </button>
-        <button onclick="showPage('portfolios')" class="nav-btn w-full text-left px-4 py-3 rounded flex items-center gap-3" data-page="portfolios">
-          <span>💼</span>
-          <span>策略组合</span>
+        <button class="nav-btn w-full text-left px-4 py-3 text-sm hover:bg-gray-800 flex items-center gap-2" onclick="showPage('health', this)">
+          <span>📊</span> 策略健康度
         </button>
-      </nav>
-
+      </div>
       <div class="p-4 border-t border-gray-800">
-        <a href="/" class="text-sm text-gray-500 hover:text-gray-300">← 返回主平台</a>
+        <a href="/" class="text-xs text-gray-500 hover:text-gray-300">← 返回主站</a>
       </div>
-    </div>
+    </nav>
 
     <!-- 主内容区 -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <!-- 顶部工具栏 -->
-      <div class="p-4 border-b border-gray-800 flex items-center justify-between">
-        <div id="page-title" class="text-lg font-semibold">策略管理</div>
-        <div class="flex items-center gap-3">
-          <button onclick="showHelp()" class="btn btn-secondary">❓ 帮助</button>
+    <main class="flex-1 overflow-y-auto p-6">
+
+      <!-- ==================== Tab 1: AI 策略生成 ==================== -->
+      <div id="page-ai" class="page-content active">
+        <h2 class="text-xl font-bold mb-4">🤖 AI 策略生成</h2>
+        <p class="text-sm text-gray-400 mb-6">输入股票代码，AI 自动分析行情并生成多因子量化策略，经回测验证后可保存。</p>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- 左：输入 -->
+          <div class="space-y-4">
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-1">股票代码</label>
+              <input id="ai-code" type="text" placeholder="如 000001"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                maxlength="6">
+            </div>
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-1">回测天数</label>
+              <input id="ai-days" type="number" value="750" min="120" max="2000"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+            </div>
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-1">优化轮数</label>
+              <input id="ai-iterations" type="number" value="7" min="5" max="15"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+            </div>
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-1">偏好提示（可选）</label>
+              <input id="ai-hint" type="text" placeholder="如：偏好短线反弹"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+            </div>
+            <button id="ai-run-btn" onclick="runAiOptimize()"
+              class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded text-sm font-medium transition">
+              开始生成 & 调优
+            </button>
+          </div>
+
+          <!-- 右：进度 + 结果 -->
+          <div class="lg:col-span-2 space-y-4">
+            <!-- 进度面板 -->
+            <div id="ai-progress" class="hidden metric-card">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-medium text-gray-300">🔄 优化进度</h3>
+                <div class="flex items-center gap-2">
+                  <span id="ai-elapsed" class="text-xs text-gray-500 font-mono"></span>
+                  <span id="ai-progress-stock" class="text-xs text-gray-500"></span>
+                </div>
+              </div>
+              <!-- 进度条 -->
+              <div class="flex items-center gap-2 mb-3">
+                <span id="ai-progress-text" class="text-xs text-gray-400 shrink-0">准备中</span>
+                <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div id="ai-progress-fill" class="h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+              </div>
+              <!-- 实时指标 -->
+              <div id="ai-live-metrics" class="hidden live-metrics mb-3">
+                <div class="live-metric"><div class="value text-green-400" id="lm-return">--</div><div class="label">总收益</div></div>
+                <div class="live-metric"><div class="value text-blue-400" id="lm-winrate">--</div><div class="label">胜率</div></div>
+                <div class="live-metric"><div class="value text-red-400" id="lm-drawdown">--</div><div class="label">最大回撤</div></div>
+                <div class="live-metric"><div class="value text-yellow-400" id="lm-sharpe">--</div><div class="label">夏普</div></div>
+                <div class="live-metric"><div class="value text-gray-300" id="lm-trades">--</div><div class="label">交易</div></div>
+                <div class="live-metric"><div class="value text-purple-400" id="lm-score">--</div><div class="label">评分</div></div>
+              </div>
+              <!-- 步骤时间线 -->
+              <div id="ai-progress-steps" class="step-timeline"></div>
+              <!-- LLM 流式输出 -->
+              <div id="ai-llm-box" class="hidden mt-3">
+                <div class="text-xs text-gray-500 mb-1">🤖 LLM 分析输出</div>
+                <div id="ai-llm-text" class="llm-stream-box"><span class="cursor"></span></div>
+              </div>
+            </div>
+
+            <!-- 结果 -->
+            <div id="ai-result" class="space-y-4"></div>
+            <div id="ai-save-section" class="hidden metric-card">
+              <h3 class="text-sm font-medium text-gray-300 mb-3">💾 保存策略</h3>
+              <div class="flex gap-3">
+                <input id="ai-save-name" type="text" placeholder="策略名称（可修改）"
+                  class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+                <button onclick="saveAiStrategy()"
+                  class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded text-sm font-medium">
+                  保存到我的策略
+                </button>
+              </div>
+              <p class="text-xs text-gray-500 mt-2">保存后可在"我的策略"中查看、回测和 AI 分析</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 因子库 -->
+        <div class="mt-8">
+          <h3 class="text-lg font-medium mb-3">📐 可用因子库</h3>
+          <div id="factor-library" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
         </div>
       </div>
 
-      <!-- 内容区 -->
-      <div class="flex-1 overflow-y-auto p-6">
-        <!-- 策略管理页 -->
-        <div id="page-strategies" class="page-content">
-          <div class="flex gap-4 h-full">
-            <!-- 策略列表 -->
-            <div class="w-80 flex flex-col">
-              <div class="card flex-1 flex flex-col">
-                <div class="p-4 border-b border-gray-800 flex items-center justify-between">
-                  <h3 class="font-semibold">策略列表</h3>
-                  <button onclick="createNewStrategy()" class="btn btn-success text-sm">+ 新建</button>
-                </div>
-                <div class="p-3">
-                  <input id="strategy-search" type="text" placeholder="搜索策略..." class="input text-sm" onkeyup="filterStrategies()">
-                </div>
-                <div id="strategy-list" class="flex-1 overflow-y-auto p-2 space-y-1"></div>
-              </div>
-            </div>
+      <!-- ==================== Tab 2: 我的策略 ==================== -->
+      <div id="page-my-strategies" class="page-content">
+        <h2 class="text-xl font-bold mb-4">📁 我的策略</h2>
+        <p class="text-sm text-gray-400 mb-6">按个股查看已保存的 AI 策略，每只股票可保存多个不同时期的策略。</p>
 
-            <!-- 策略详情 -->
-            <div class="flex-1 flex flex-col">
-              <div id="strategy-detail" class="card flex-1 flex flex-col">
-                <div class="flex items-center justify-center h-full text-gray-500">
-                  选择左侧策略查看详情
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <!-- 左：股票列表 -->
+          <div class="metric-card max-h-[70vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-medium text-gray-300">股票列表</h3>
+              <button onclick="loadStockList()" class="text-xs text-blue-400 hover:text-blue-300">刷新</button>
+            </div>
+            <div id="stock-list" class="space-y-1"></div>
+          </div>
+
+          <!-- 右：策略详情 -->
+          <div class="lg:col-span-3">
+            <div id="my-strategies-content">
+              <div class="flex items-center justify-center h-full text-gray-500 py-12">
+                <div class="text-center">
+                  <div class="text-4xl mb-4">📋</div>
+                  <p class="text-lg">选择左侧股票</p>
+                  <p class="text-sm mt-2">查看该股票的所有已保存策略</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- 策略回测页 -->
-        <div id="page-backtest" class="page-content hidden">
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- 回测配置 -->
-            <div class="card p-6">
-              <h3 class="font-semibold mb-4">回测配置</h3>
-              <div class="space-y-4">
-                <div>
-                  <label class="text-sm text-gray-400 mb-1 block">选择策略</label>
-                  <select id="backtest-strategy" class="input"></select>
-                </div>
-                <div>
-                  <label class="text-sm text-gray-400 mb-1 block">股票代码</label>
-                  <input id="backtest-code" type="text" placeholder="如 600519" class="input">
-                </div>
-                <div>
-                  <label class="text-sm text-gray-400 mb-1 block">回测天数</label>
-                  <input id="backtest-days" type="number" value="500" class="input">
-                </div>
-                <div>
-                  <label class="text-sm text-gray-400 mb-1 block">初始资金</label>
-                  <input id="backtest-capital" type="number" value="100000" class="input">
-                </div>
+      <!-- ==================== Tab 3: 策略回测 ==================== -->
+      <div id="page-backtest" class="page-content">
+        <h2 class="text-xl font-bold mb-4">📊 策略回测</h2>
+        <p class="text-sm text-gray-400 mb-6">选择已保存的策略进行回测，或临时输入股票代码生成策略。</p>
 
-                <!-- 退出策略模式切换 -->
-                <div class="border-t border-gray-700 pt-4">
-                  <div class="flex items-center justify-between mb-3">
-                    <label class="text-sm text-gray-400">退出策略</label>
-                    <div class="flex bg-gray-800 rounded-lg p-1">
-                      <button onclick="setExitMode('simple')" id="exit-mode-simple" class="px-3 py-1 text-xs rounded-md bg-blue-600 text-white">简单模式</button>
-                      <button onclick="setExitMode('advanced')" id="exit-mode-advanced" class="px-3 py-1 text-xs rounded-md text-gray-400">高级模式</button>
-                    </div>
-                  </div>
-
-                  <!-- 简单模式 -->
-                  <div id="exit-simple-mode" class="space-y-3">
-                    <div>
-                      <label class="text-sm text-gray-400 mb-2 block">策略风格</label>
-                      <div class="grid grid-cols-3 gap-2">
-                        <button onclick="setExitPreset('conservative')" id="preset-conservative" class="btn btn-secondary text-xs py-2">🛡️ 保守型</button>
-                        <button onclick="setExitPreset('balanced')" id="preset-balanced" class="btn btn-primary text-xs py-2">⚖️ 平衡型</button>
-                        <button onclick="setExitPreset('aggressive')" id="preset-aggressive" class="btn btn-secondary text-xs py-2">⚡ 激进型</button>
-                      </div>
-                    </div>
-                    <div class="bg-gray-800 rounded-lg p-3 text-xs text-gray-400">
-                      <div class="font-medium text-gray-300 mb-1">💡 核心理念: "没有问题就不止盈"</div>
-                      <div>• 止损: 基于ATR的动态止损，适应市场波动</div>
-                      <div>• 移动止损: 保护利润，跟随最高价</div>
-                      <div>• 技术退出: 当出现技术问题时才考虑止盈</div>
-                    </div>
-                  </div>
-
-                  <!-- 高级模式 -->
-                  <div id="exit-advanced-mode" class="space-y-3 hidden">
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">ATR止损倍数</label>
-                      <input id="exit-atr-multiple" type="number" step="0.1" value="1.5" class="input text-sm">
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <input id="exit-trailing-enabled" type="checkbox" checked class="rounded">
-                      <label class="text-sm text-gray-400">启用移动止损</label>
-                    </div>
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">移动止损激活盈利 (%)</label>
-                      <input id="exit-trailing-activation" type="number" step="0.5" value="3" class="input text-sm">
-                    </div>
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">移动止损ATR倍数</label>
-                      <input id="exit-trailing-atr" type="number" step="0.1" value="2.0" class="input text-sm">
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <input id="exit-breakeven-enabled" type="checkbox" checked class="rounded">
-                      <label class="text-sm text-gray-400">启用保本止损</label>
-                    </div>
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">保本止损激活盈利 (%)</label>
-                      <input id="exit-breakeven-activation" type="number" step="0.5" value="2" class="input text-sm">
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <input id="exit-technical-enabled" type="checkbox" checked class="rounded">
-                      <label class="text-sm text-gray-400">启用技术退出</label>
-                    </div>
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">部分退出分数阈值</label>
-                      <input id="exit-partial-threshold" type="number" value="3" class="input text-sm">
-                    </div>
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">全部退出分数阈值</label>
-                      <input id="exit-full-threshold" type="number" value="5" class="input text-sm">
-                    </div>
-                    <div>
-                      <label class="text-sm text-gray-400 mb-1 block">最大持仓天数</label>
-                      <input id="exit-max-hold" type="number" value="25" class="input text-sm">
-                    </div>
-                  </div>
-                </div>
-
-                <button onclick="runBacktest()" class="btn btn-primary w-full">🚀 开始回测</button>
-              </div>
-            </div>
-
-            <!-- 回测结果 -->
-            <div class="lg:col-span-2 card p-6">
-              <h3 class="font-semibold mb-4">回测结果</h3>
-              <div id="backtest-result">
-                <div class="text-center text-gray-500 py-20">配置参数后点击"开始回测"</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 信号监控页 -->
-        <div id="page-signals" class="page-content hidden">
-          <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
-            <div class="card stat-card">
-              <div class="stat-value text-blue-400" id="signal-total">0</div>
-              <div class="stat-label">总信号数</div>
-            </div>
-            <div class="card stat-card">
-              <div class="stat-value text-yellow-400" id="signal-pending">0</div>
-              <div class="stat-label">待确认</div>
-            </div>
-            <div class="card stat-card">
-              <div class="stat-value text-green-400" id="signal-confirmed">0</div>
-              <div class="stat-label">已确认</div>
-            </div>
-            <div class="card stat-card">
-              <div class="stat-value text-purple-400" id="signal-avg-confidence">0%</div>
-              <div class="stat-label">平均置信度</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="p-4 border-b border-gray-800 flex items-center justify-between">
-              <h3 class="font-semibold">信号列表</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- 左：配置 -->
+          <div class="space-y-4">
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-2">回测模式</label>
               <div class="flex gap-2">
-                <button onclick="scanSignals()" class="btn btn-primary text-sm">🔍 扫描信号</button>
-                <button onclick="refreshSignals()" class="btn btn-secondary text-sm">🔄 刷新</button>
+                <button id="bt-mode-saved" onclick="setBacktestMode('saved')"
+                  class="flex-1 py-2 text-xs rounded bg-blue-600 text-white">已保存策略</button>
+                <button id="bt-mode-temp" onclick="setBacktestMode('temp')"
+                  class="flex-1 py-2 text-xs rounded bg-gray-700 text-gray-300">临时生成</button>
               </div>
             </div>
-            <div class="overflow-x-auto">
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>策略</th>
-                    <th>股票</th>
-                    <th>信号类型</th>
-                    <th>价格</th>
-                    <th>置信度</th>
-                    <th>时间</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody id="signals-table"></tbody>
-              </table>
+
+            <!-- 已保存策略模式 -->
+            <div id="bt-saved-section">
+              <div class="metric-card">
+                <label class="block text-sm text-gray-400 mb-1">选择策略</label>
+                <select id="bt-strategy-select"
+                  class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+                  <option value="">加载中...</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 临时生成模式 -->
+            <div id="bt-temp-section" class="hidden">
+              <div class="metric-card">
+                <label class="block text-sm text-gray-400 mb-1">股票代码</label>
+                <input id="bt-temp-code" type="text" placeholder="如 000001"
+                  class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm" maxlength="6">
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-1">回测天数</label>
+              <input id="bt-days" type="number" value="500" min="120" max="2000"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+            </div>
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-2">退出策略</label>
+              <div class="flex gap-2">
+                <button onclick="setExitPreset('conservative')" class="exit-preset-btn flex-1 py-2 text-xs rounded bg-gray-700 text-gray-300" data-preset="conservative">保守</button>
+                <button onclick="setExitPreset('balanced')" class="exit-preset-btn flex-1 py-2 text-xs rounded bg-blue-600 text-white" data-preset="balanced">均衡</button>
+                <button onclick="setExitPreset('aggressive')" class="exit-preset-btn flex-1 py-2 text-xs rounded bg-gray-700 text-gray-300" data-preset="aggressive">激进</button>
+              </div>
+            </div>
+            <button onclick="runBacktest()"
+              class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded text-sm font-medium">
+              开始回测
+            </button>
+            <div id="bt-status" class="hidden text-center py-3">
+              <div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-blue-400"></div>
+              <p class="text-sm text-gray-400 mt-1">回测中...</p>
+            </div>
+          </div>
+
+          <!-- 右：结果 -->
+          <div class="lg:col-span-2">
+            <div id="bt-result" class="space-y-4">
+              <p class="text-gray-500 text-center py-12">配置参数后点击"开始回测"</p>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- 绩效分析页 -->
-        <div id="page-performance" class="page-content hidden">
-          <div class="card p-6 mb-6">
-            <h3 class="font-semibold mb-4">绩效概览</h3>
-            <div id="performance-summary" class="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <div class="stat-card">
-                <div class="stat-value text-blue-400" id="perf-strategies">0</div>
-                <div class="stat-label">策略总数</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value text-green-400" id="perf-active">0</div>
-                <div class="stat-label">活跃策略</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value text-yellow-400" id="perf-backtests">0</div>
-                <div class="stat-label">回测总数</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value" id="perf-avg-return">0%</div>
-                <div class="stat-label">平均收益</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value text-purple-400" id="perf-signals">0</div>
-                <div class="stat-label">信号总数</div>
-              </div>
-            </div>
-          </div>
+      <!-- ==================== Tab 4: AI 策略分析 ==================== -->
+      <div id="page-ai-analyze" class="page-content">
+        <h2 class="text-xl font-bold mb-4">🧠 AI 策略分析</h2>
+        <p class="text-sm text-gray-400 mb-6">选择一个已保存的策略，AI 基于其因子框架分析当前行情，预测买卖点。</p>
 
-          <div class="card p-6">
-            <h3 class="font-semibold mb-4">策略对比</h3>
-            <div class="mb-4">
-              <select id="perf-strategy-select" class="input" onchange="loadStrategyPerformance()">
-                <option value="">选择策略查看详细绩效</option>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- 左：选择 -->
+          <div class="space-y-4">
+            <div class="metric-card">
+              <label class="block text-sm text-gray-400 mb-1">选择策略</label>
+              <select id="analyze-strategy-select"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+                <option value="">加载中...</option>
               </select>
             </div>
-            <div id="strategy-performance-detail">
-              <div class="text-center text-gray-500 py-10">选择策略查看详细绩效分析</div>
-            </div>
+            <button onclick="runAiAnalyze()"
+              class="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded text-sm font-medium">
+              🧠 AI 分析当前行情
+            </button>
           </div>
-        </div>
 
-        <!-- 策略组合页 -->
-        <div id="page-portfolios" class="page-content hidden">
-          <div class="flex gap-6">
-            <!-- 组合列表 -->
-            <div class="w-80">
-              <div class="card">
-                <div class="p-4 border-b border-gray-800 flex items-center justify-between">
-                  <h3 class="font-semibold">组合列表</h3>
-                  <button onclick="createNewPortfolio()" class="btn btn-success text-sm">+ 新建</button>
+          <!-- 右：进度 + 分析结果 -->
+          <div class="lg:col-span-2 space-y-4">
+            <!-- 进度面板 -->
+            <div id="analyze-progress" class="hidden metric-card">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-medium text-gray-300">🔄 分析进度</h3>
+                <div class="flex items-center gap-2">
+                  <span id="analyze-elapsed" class="text-xs text-gray-500 font-mono"></span>
+                  <span id="analyze-progress-stock" class="text-xs text-gray-500"></span>
                 </div>
-                <div id="portfolio-list" class="p-2 space-y-2 max-h-96 overflow-y-auto"></div>
+              </div>
+              <!-- 因子得分实时展示 -->
+              <div id="analyze-factor-scores" class="hidden mb-3">
+                <div class="text-xs text-gray-500 mb-2">📊 因子得分</div>
+                <div id="analyze-factors-grid" class="grid grid-cols-2 gap-2"></div>
+              </div>
+              <!-- 步骤时间线 -->
+              <div id="analyze-progress-steps" class="step-timeline"></div>
+              <!-- LLM 流式输出 -->
+              <div id="analyze-llm-box" class="hidden mt-3">
+                <div class="text-xs text-gray-500 mb-1">🧠 AI 分析输出</div>
+                <div id="analyze-llm-text" class="llm-stream-box"><span class="cursor"></span></div>
               </div>
             </div>
 
-            <!-- 组合详情 -->
-            <div class="flex-1">
-              <div id="portfolio-detail" class="card p-6">
-                <div class="text-center text-gray-500 py-20">选择左侧组合查看详情</div>
+            <!-- 分析结果 -->
+            <div id="analyze-result" class="space-y-4">
+              <div class="flex items-center justify-center h-full text-gray-500 py-12">
+                <div class="text-center">
+                  <div class="text-4xl mb-4">🧠</div>
+                  <p class="text-lg">选择左侧策略</p>
+                  <p class="text-sm mt-2">点击"AI 分析当前行情"开始</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+
+      <!-- ==================== Tab 5: 策略健康度 ==================== -->
+      <div id="page-health" class="page-content">
+        <h2 class="text-xl font-bold mb-4">📊 策略健康度</h2>
+        <p class="text-sm text-gray-400 mb-6">监控所有已保存策略在最新行情下的因子得分变化，及时发现策略状态异常。</p>
+
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="metric-card text-center">
+            <p class="text-2xl font-bold text-blue-400" id="health-total">0</p>
+            <p class="text-xs text-gray-400">总策略数</p>
+          </div>
+          <div class="metric-card text-center">
+            <p class="text-2xl font-bold text-green-400" id="health-healthy">0</p>
+            <p class="text-xs text-gray-400">🟢 健康</p>
+          </div>
+          <div class="metric-card text-center">
+            <p class="text-2xl font-bold text-yellow-400" id="health-watch">0</p>
+            <p class="text-xs text-gray-400">🟡 关注</p>
+          </div>
+          <div class="metric-card text-center">
+            <p class="text-2xl font-bold text-red-400" id="health-abnormal">0</p>
+            <p class="text-xs text-gray-400">🔴 异常</p>
+          </div>
+        </div>
+
+        <!-- 操作 -->
+        <div class="flex gap-3 mb-4">
+          <button onclick="healthScan()"
+            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">
+            🔄 立即扫描
+          </button>
+          <button onclick="refreshHealth()"
+            class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm">
+            刷新面板
+          </button>
+        </div>
+
+        <!-- 策略列表 -->
+        <div id="health-list" class="space-y-3"></div>
+
+        <!-- 趋势面板 -->
+        <div id="health-trend-panel" class="hidden mt-6">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-medium" id="trend-title">📈 得分趋势</h3>
+            <button onclick="closeTrend()" class="text-xs text-gray-400 hover:text-gray-200">✕ 关闭</button>
+          </div>
+          <div id="health-trend-content" class="metric-card"></div>
+        </div>
+      </div>
+
+    </main>
   </div>
 
   <script>
-    // 全局状态
-    let allStrategies = [];
-    let allPortfolios = [];
-    let currentPage = 'strategies';
+    // ============ 全局状态 ============
+    let currentPage = 'ai';
+    let lastAiSpec = null;
+    let lastAiBacktest = null;
+    let lastAiCode = '';
+    let lastAiName = '';
+    let currentExitPreset = 'balanced';
+    let backtestMode = 'saved';
+    let aiWs = null;
+    let analyzeWs = null;
 
-    // 页面切换
-    function showPage(page) {
-      currentPage = page;
-      document.querySelectorAll('.page-content').forEach(el => el.classList.add('hidden'));
-      document.getElementById(`page-${page}`).classList.remove('hidden');
+    // ============ 进度管理 ============
+    const STEP_META = {
+      llm_generate:   { label: 'LLM 生成初始策略', icon: '🤖' },
+      backtest:       { label: '回测验证', icon: '📈' },
+      grid_search:    { label: '网格搜索优化', icon: '🔍' },
+      llm_analyze:    { label: 'AI 综合分析', icon: '🧠' },
+      save:           { label: '保存策略', icon: '💾' },
+      load_data:      { label: '加载K线数据', icon: '📊' },
+      load_strategy:  { label: '加载策略', icon: '📋' },
+      load_kline:     { label: '加载K线数据', icon: '📊' },
+      calc_factors:   { label: '计算因子得分', icon: '📐' },
+      build_stats:    { label: '构建行情画像', icon: '📈' },
+      converged:      { label: '收敛退出', icon: '🎯' },
+    };
 
-      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-      document.querySelector(`[data-page="${page}"]`).classList.add('active');
-
-      const titles = {
-        strategies: '策略管理',
-        backtest: '策略回测',
-        signals: '信号监控',
-        performance: '绩效分析',
-        portfolios: '策略组合',
-      };
-      document.getElementById('page-title').textContent = titles[page];
-
-      // 加载页面数据
-      switch (page) {
-        case 'strategies': loadStrategies(); break;
-        case 'backtest': loadBacktestStrategies(); break;
-        case 'signals': loadSignals(); break;
-        case 'performance': loadPerformanceSummary(); break;
-        case 'portfolios': loadPortfolios(); break;
-      }
+    // 全局计时器
+    const _timers = {};
+    function _startTimer(elapsedId) {
+      const start = Date.now();
+      _timers[elapsedId] = setInterval(() => {
+        const s = Math.floor((Date.now() - start) / 1000);
+        const m = Math.floor(s / 60);
+        const ss = s % 60;
+        const el = document.getElementById(elapsedId);
+        if (el) el.textContent = m > 0 ? `${m}:${String(ss).padStart(2,'0')}` : `${ss}s`;
+      }, 200);
+      return start;
+    }
+    function _stopTimer(elapsedId) {
+      if (_timers[elapsedId]) { clearInterval(_timers[elapsedId]); delete _timers[elapsedId]; }
     }
 
-    // API 请求封装
+    function _fmtElapsed(ms) {
+      if (!ms && ms !== 0) return '';
+      if (ms < 1000) return ms + 'ms';
+      return (ms / 1000).toFixed(1) + 's';
+    }
+
+    // 初始化步骤时间线
+    function initProgressTimeline(containerId, steps) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      el.innerHTML = steps.map(key => {
+        const m = STEP_META[key] || { label: key, icon: '⏳' };
+        return `<div id="step-${containerId}-${key}" class="progress-step py-1.5">
+          <div class="step-dot"></div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-sm text-gray-400">${m.icon} ${m.label}</span>
+            <span class="step-elapsed elapsed-badge"></span>
+          </div>
+          <div class="step-detail text-xs text-gray-500 mt-0.5"></div>
+          <div class="step-substeps"></div>
+          <div class="step-tunes"></div>
+        </div>`;
+      }).join('');
+    }
+
+    // 更新步骤状态
+    function updateStep(containerId, key, status, message, elapsedMs) {
+      const el = document.getElementById(`step-${containerId}-${key}`);
+      if (!el) return;
+      el.className = `progress-step py-1.5 ${status}`;
+      const detail = el.querySelector('.step-detail');
+      if (detail && message) detail.textContent = message;
+      const elapsed = el.querySelector('.step-elapsed');
+      if (elapsed && elapsedMs !== undefined) elapsed.textContent = _fmtElapsed(elapsedMs);
+    }
+
+    // 添加子步骤
+    function addSubstep(containerId, stepKey, subText) {
+      const el = document.getElementById(`step-${containerId}-${stepKey}`);
+      if (!el) return;
+      const subs = el.querySelector('.step-substeps');
+      if (!subs) return;
+      const item = document.createElement('div');
+      item.className = 'substep-item';
+      item.textContent = subText;
+      subs.appendChild(item);
+    }
+
+    // 添加参数调优记录
+    function addTune(containerId, stepKey, param, oldVal, newVal) {
+      const el = document.getElementById(`step-${containerId}-${stepKey}`);
+      if (!el) return;
+      const tunes = el.querySelector('.step-tunes');
+      if (!tunes) return;
+      const item = document.createElement('div');
+      item.className = 'tune-item';
+      item.textContent = `${param}: ${oldVal} → ${newVal}`;
+      tunes.appendChild(item);
+    }
+
+    // 更新实时指标面板
+    function updateLiveMetrics(panelId, metrics) {
+      const panel = document.getElementById(panelId);
+      if (!panel) return;
+      panel.classList.remove('hidden');
+      const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+      const ret = metrics.total_return || 0;
+      set('lm-return', (ret >= 0 ? '+' : '') + (ret * 100).toFixed(1) + '%');
+      set('lm-winrate', ((metrics.win_rate || 0) * 100).toFixed(0) + '%');
+      set('lm-drawdown', ((metrics.max_drawdown || 0) * 100).toFixed(1) + '%');
+      set('lm-sharpe', (metrics.sharpe || 0).toFixed(2));
+      set('lm-trades', String(metrics.trades || 0));
+      set('lm-score', (metrics.score || 0).toFixed(4));
+    }
+
+    // LLM 流式输出
+    function appendLlmToken(boxId, textId, token) {
+      const box = document.getElementById(boxId);
+      const textEl = document.getElementById(textId);
+      if (!box || !textEl) return;
+      box.classList.remove('hidden');
+      // 在 cursor 前插入文本
+      const cursor = textEl.querySelector('.cursor');
+      if (cursor) {
+        cursor.insertAdjacentText('beforebegin', token);
+      } else {
+        textEl.textContent += token;
+      }
+      // 自动滚到底
+      textEl.scrollTop = textEl.scrollHeight;
+    }
+
+    // 重置 LLM 输出框
+    function resetLlmStream(boxId, textId) {
+      const box = document.getElementById(boxId);
+      const textEl = document.getElementById(textId);
+      if (box) box.classList.remove('hidden');
+      if (textEl) textEl.innerHTML = '<span class="cursor"></span>';
+    }
+
+    // ============ 导航 ============
+    function showPage(name, btn) {
+      document.querySelectorAll('.page-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('page-' + name).classList.add('active');
+      if (btn) btn.classList.add('active');
+      currentPage = name;
+
+      if (name === 'my-strategies') loadStockList();
+      if (name === 'backtest') loadBacktestStrategies();
+      if (name === 'ai-analyze') loadAnalyzeStrategies();
+      if (name === 'health') refreshHealth();
+    }
+
+    // ============ 工具函数 ============
     async function fetchJSON(url, method = 'GET', body = null) {
-      const options = { method, headers: { 'Content-Type': 'application/json' } };
-      if (body) options.body = JSON.stringify(body);
-      const res = await fetch(url, options);
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(url, opts);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || '请求失败');
+      }
       return res.json();
     }
 
-    // HTML 转义
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
+    function formatPercent(v) { return (v * 100).toFixed(2) + '%'; }
+    function formatMoney(v) { return v.toLocaleString('zh-CN', { maximumFractionDigits: 0 }); }
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
     }
 
-    // 格式化数字
-    function formatNumber(num, decimals = 2) {
-      if (typeof num !== 'number') return '-';
-      return num.toFixed(decimals);
+    // ============ Tab 1: AI 策略生成 ============
+    function runAiOptimize() {
+      const code = document.getElementById('ai-code').value.trim();
+      if (!/^\d{6}$/.test(code)) { alert('请输入6位股票代码'); return; }
+
+      const days = parseInt(document.getElementById('ai-days').value) || 750;
+      const iterations = parseInt(document.getElementById('ai-iterations').value) || 7;
+      const hint = document.getElementById('ai-hint').value.trim() || '';
+
+      // 初始化进度面板
+      document.getElementById('ai-progress').classList.remove('hidden');
+      document.getElementById('ai-progress-stock').textContent = `${code} · ${days}天 · 最多${iterations}轮`;
+      document.getElementById('ai-progress-fill').style.width = '0%';
+      document.getElementById('ai-progress-fill').className = 'h-full rounded-full transition-all duration-500 progress-bar-animated';
+      document.getElementById('ai-progress-text').textContent = '连接中...';
+      document.getElementById('ai-live-metrics').classList.add('hidden');
+      document.getElementById('ai-llm-box').classList.add('hidden');
+      document.getElementById('ai-result').innerHTML = '';
+      document.getElementById('ai-save-section').classList.add('hidden');
+      document.getElementById('ai-run-btn').disabled = true;
+      document.getElementById('ai-elapsed').textContent = '';
+
+      initProgressTimeline('ai-progress-steps', ['load_data', 'llm_generate', 'backtest', 'tune', 'llm_tune', 'final_analysis']);
+      _startTimer('ai-elapsed');
+
+      lastAiSpec = null; lastAiBacktest = null; lastAiCode = code; lastAiName = '';
+
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      let wsUrl = `${proto}://${location.host}/ws/strategy/optimize?code=${code}&days=${days}&max_iterations=${iterations}`;
+      if (hint) wsUrl += `&hint=${encodeURIComponent(hint)}`;
+
+      if (aiWs) { try { aiWs.close(); } catch(e){} }
+
+      const resultData = { best_spec: null, best_result: null, history: [], best_score: 0, converged: false, total_iterations: 0 };
+      let _currentMetrics = {};
+
+      aiWs = new WebSocket(wsUrl);
+
+      aiWs.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        switch (msg.type) {
+          case 'start': {
+            const name = msg.stock_name || msg.code || code;
+            document.getElementById('ai-progress-stock').textContent =
+              `${name} · ${days}天 · 最多${iterations}轮`;
+            document.getElementById('ai-progress-text').textContent = '准备中';
+            document.getElementById('ai-progress-fill').style.width = '0%';
+            break;
+          }
+
+          case 'step':
+            if (msg.status === 'running') {
+              updateStep('ai-progress-steps', msg.step, 'running', msg.message);
+              // 更新进度条文本
+              document.getElementById('ai-progress-text').textContent = msg.message || msg.step;
+            } else if (msg.status === 'done' || msg.status === 'improved' || msg.status === 'warning') {
+              updateStep('ai-progress-steps', msg.step, msg.status, msg.message, msg.elapsed_ms);
+            } else if (msg.status === 'error') {
+              updateStep('ai-progress-steps', msg.step, 'error', msg.message, msg.elapsed_ms);
+            }
+            // 更新进度条
+            if (msg.progress) {
+              const pct = Math.round((msg.progress.current / msg.progress.total) * 100);
+              document.getElementById('ai-progress-fill').style.width = pct + '%';
+            }
+            break;
+
+          case 'substep':
+            addSubstep('ai-progress-steps', msg.step, msg.sub);
+            break;
+
+          case 'tune':
+            addTune('ai-progress-steps', msg.step || 'tune', msg.param, msg.old, msg.new);
+            break;
+
+          case 'metrics': {
+            updateLiveMetrics('ai-live-metrics', msg);
+            _currentMetrics = { ...msg };
+            // 使用实际进度而不是轮次
+            if (msg.progress) {
+              const pct = Math.round((msg.progress.current / msg.progress.total) * 100);
+              document.getElementById('ai-progress-fill').style.width = pct + '%';
+            }
+            const phaseLabel = msg.phase === 'base' ? '基础训练' : 'LLM调优';
+            document.getElementById('ai-progress-text').textContent = `第 ${msg.iteration}/${iterations} 轮 [${phaseLabel}] · 评分 ${msg.score}`;
+            break;
+          }
+
+          case 'llm_token':
+            appendLlmToken('ai-llm-box', 'ai-llm-text', msg.text);
+            break;
+
+          case 'stream':
+            // LLM 流式输出 - 逐 token 显示
+            appendLlmToken('ai-llm-box', 'ai-llm-text', msg.text);
+            break;
+
+          case 'stream_start':
+            // 流式输出开始 - 显示 LLM 输出框
+            resetLlmStream('ai-llm-box', 'ai-llm-text');
+            document.getElementById('ai-llm-box').classList.remove('hidden');
+            break;
+
+          case 'stream_end':
+            // 流式输出结束
+            break;
+
+          case 'log':
+            // 实时日志 - 更新进度文本
+            if (msg.message) {
+              document.getElementById('ai-progress-text').textContent = msg.message;
+            }
+            break;
+
+          case 'iteration_done': {
+            // 使用实际进度
+            if (msg.progress) {
+              const pct = Math.round((msg.progress.current / msg.progress.total) * 100);
+              document.getElementById('ai-progress-fill').style.width = pct + '%';
+            }
+            const phaseLabel = msg.phase === 'base' ? '基础训练' : 'LLM调优';
+            const statusText = msg.rolled_back
+              ? `第 ${msg.iteration}/${iterations} 轮 [${phaseLabel}] · 已回滚`
+              : `第 ${msg.iteration}/${iterations} 轮 [${phaseLabel}] 完成`;
+            document.getElementById('ai-progress-text').textContent = statusText;
+            resultData.history.push({
+              iteration: msg.iteration, score: msg.score, phase: msg.phase,
+              metrics: { ..._currentMetrics }, llm_comment: msg.comment,
+              spec_name: msg.spec_name, rolled_back: msg.rolled_back,
+            });
+            _currentMetrics = {};
+            break;
+          }
+
+          case 'rollback':
+            // 显示回滚提示
+            addSubstep('ai-progress-steps', 'backtest', `↩️ ${msg.message}`);
+            break;
+
+          case 'best':
+            resultData.best_score = msg.score;
+            resultData.best_spec = msg.spec;
+            resultData.best_result = msg.metrics || resultData.best_result;
+            break;
+
+          case 'done':
+            _stopTimer('ai-elapsed');
+            resultData.best_spec = resultData.best_spec || msg.best_spec;
+            resultData.best_result = resultData.best_result || msg.best_result;
+            resultData.converged = msg.converged;
+            resultData.total_iterations = msg.total_iterations;
+            resultData.llm_final_reasoning = msg.llm_final_reasoning || '';
+            lastAiSpec = resultData.best_spec;
+            lastAiBacktest = resultData.best_result;
+            lastAiName = (resultData.best_spec || {}).name || '';
+            document.getElementById('ai-progress-fill').style.width = '100%';
+            document.getElementById('ai-progress-fill').className = 'h-full rounded-full bg-green-500';
+            document.getElementById('ai-progress-text').textContent = `完成 · ${msg.total_iterations} 轮`;
+            renderAiResult(resultData);
+            document.getElementById('ai-save-name').value = lastAiName;
+            document.getElementById('ai-save-section').classList.remove('hidden');
+            document.getElementById('ai-run-btn').disabled = false;
+            try { aiWs.close(); } catch(e){}
+            break;
+
+          case 'error':
+            _stopTimer('ai-elapsed');
+            document.getElementById('ai-result').innerHTML =
+              `<div class="metric-card border-red-500/50"><p class="text-red-400">❌ ${escapeHtml(msg.message)}</p></div>`;
+            document.getElementById('ai-run-btn').disabled = false;
+            document.getElementById('ai-progress-fill').className = 'h-full rounded-full bg-red-500';
+            try { aiWs.close(); } catch(e){}
+            break;
+        }
+      };
+
+      aiWs.onerror = () => {
+        _stopTimer('ai-elapsed');
+        document.getElementById('ai-result').innerHTML =
+          `<div class="metric-card border-yellow-500/30"><p class="text-yellow-400">⚠️ WebSocket 连接失败，回退到 HTTP 模式...</p></div>`;
+        fallbackAiOptimize(code, days, iterations, hint);
+      };
+
+      aiWs.onclose = () => {
+        _stopTimer('ai-elapsed');
+        document.getElementById('ai-run-btn').disabled = false;
+      };
     }
 
-    // 格式化百分比
-    function formatPercent(num) {
-      if (typeof num !== 'number') return '-';
-      return (num * 100).toFixed(2) + '%';
-    }
-
-    // 格式化金额
-    function formatMoney(num) {
-      if (typeof num !== 'number') return '-';
-      return num.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' });
-    }
-
-    // ═══ 策略管理 ═══
-
-    async function loadStrategies() {
-      const list = document.getElementById('strategy-list');
-      list.innerHTML = '<div class="text-center text-gray-500 py-4 text-sm">加载中...</div>';
-
+    async function fallbackAiOptimize(code, days, iterations, hint) {
       try {
-        const data = await fetchJSON('/api/strategy/list');
-        allStrategies = data.strategies || [];
-        renderStrategyList(allStrategies);
-      } catch (e) {
-        list.innerHTML = `<div class="text-red-400 text-sm p-2">加载失败: ${e.message}</div>`;
-      }
-    }
-
-    function renderStrategyList(strategies) {
-      const list = document.getElementById('strategy-list');
-      if (!strategies.length) {
-        list.innerHTML = '<div class="text-gray-500 text-sm p-2">暂无策略</div>';
-        return;
-      }
-
-      list.innerHTML = strategies.map((s, i) => `
-        <div class="px-3 py-2 rounded cursor-pointer text-sm hover:bg-gray-800 text-gray-300" onclick="showStrategy('${s.id}')">
-          <div class="font-medium">${escapeHtml(s.name)}</div>
-          <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
-            <span class="badge badge-${s.risk_level === 'high' ? 'danger' : s.risk_level === 'low' ? 'success' : 'warning'}">${s.risk_level}</span>
-            <span>${escapeHtml(s.category || '未分类')}</span>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    function filterStrategies() {
-      const q = document.getElementById('strategy-search').value.trim().toLowerCase();
-      if (!q) {
-        renderStrategyList(allStrategies);
-        return;
-      }
-      const filtered = allStrategies.filter(s =>
-        s.name.toLowerCase().includes(q) ||
-        s.category.toLowerCase().includes(q) ||
-        (s.tags || []).some(t => t.toLowerCase().includes(q))
-      );
-      renderStrategyList(filtered);
-    }
-
-    async function showStrategy(strategyId) {
-      const el = document.getElementById('strategy-detail');
-      el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
-
-      try {
-        const data = await fetchJSON(`/api/strategy/${strategyId}`);
-        const strategy = data.strategy;
-        renderStrategyDetail(strategy);
-      } catch (e) {
-        el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`;
-      }
-    }
-
-    function renderStrategyDetail(strategy) {
-      const el = document.getElementById('strategy-detail');
-      el.innerHTML = `
-        <!-- 工具栏 -->
-        <div class="p-4 border-b border-gray-800 flex items-center justify-between">
-          <div>
-            <h3 class="font-semibold">${escapeHtml(strategy.name)}</h3>
-            <div class="text-sm text-gray-500 mt-1">
-              <span class="badge badge-info">${escapeHtml(strategy.category || '未分类')}</span>
-              <span class="badge badge-${strategy.risk_level === 'high' ? 'danger' : strategy.risk_level === 'low' ? 'success' : 'warning'} ml-2">${strategy.risk_level}</span>
-              <span class="ml-2">版本 ${strategy.version}</span>
-            </div>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="editStrategy('${strategy.id}')" class="btn btn-primary text-sm">✏️ 编辑</button>
-            <button onclick="cloneStrategy('${strategy.id}')" class="btn btn-secondary text-sm">📋 克隆</button>
-            <button onclick="deleteStrategy('${strategy.id}')" class="btn btn-danger text-sm">🗑️ 删除</button>
-          </div>
-        </div>
-        <!-- 标签 -->
-        ${strategy.tags && strategy.tags.length ? `
-          <div class="px-4 py-2 border-b border-gray-800">
-            <div class="flex flex-wrap gap-2">
-              ${strategy.tags.map(t => `<span class="badge badge-info">${escapeHtml(t)}</span>`).join('')}
-            </div>
-          </div>
-        ` : ''}
-        <!-- 内容 -->
-        <div class="flex-1 overflow-y-auto p-6">
-          <div class="max-w-3xl mx-auto">
-            <div class="bg-gray-800 rounded-lg p-6 markdown-body">${marked.parse(strategy.content)}</div>
-          </div>
-        </div>
-      `;
-    }
-
-    function createNewStrategy() {
-      const el = document.getElementById('strategy-detail');
-      el.innerHTML = `
-        <div class="p-4 border-b border-gray-800">
-          <h3 class="font-semibold">新建策略</h3>
-        </div>
-        <div class="flex-1 overflow-y-auto p-6">
-          <div class="max-w-3xl mx-auto space-y-4">
-            <div>
-              <label class="text-sm text-gray-400 mb-1 block">策略名称</label>
-              <input id="new-strategy-name" type="text" placeholder="输入策略名称" class="input">
-            </div>
-            <div>
-              <label class="text-sm text-gray-400 mb-1 block">策略分类</label>
-              <input id="new-strategy-category" type="text" placeholder="如：首板、接力、低吸" class="input">
-            </div>
-            <div>
-              <label class="text-sm text-gray-400 mb-1 block">风险等级</label>
-              <select id="new-strategy-risk" class="input">
-                <option value="low">低风险</option>
-                <option value="medium" selected>中风险</option>
-                <option value="high">高风险</option>
-              </select>
-            </div>
-            <div>
-              <label class="text-sm text-gray-400 mb-1 block">策略内容 (Markdown)</label>
-              <textarea id="new-strategy-content" class="input h-64 font-mono text-sm" placeholder="# 策略名称\n\n## 适用场景\n...\n\n## 核心条件\n- ...\n\n## 买入信号\n- ...\n\n## 卖出信号\n- ..."></textarea>
-            </div>
-            <div class="flex gap-2">
-              <button onclick="saveNewStrategy()" class="btn btn-success">💾 保存</button>
-              <button onclick="loadStrategies()" class="btn btn-secondary">取消</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    async function saveNewStrategy() {
-      const name = document.getElementById('new-strategy-name').value.trim();
-      const category = document.getElementById('new-strategy-category').value.trim();
-      const riskLevel = document.getElementById('new-strategy-risk').value;
-      const content = document.getElementById('new-strategy-content').value.trim();
-
-      if (!name || !content) {
-        alert('请填写策略名称和内容');
-        return;
-      }
-
-      try {
-        const data = await fetchJSON('/api/strategy/create', 'POST', {
-          name,
-          category,
-          risk_level: riskLevel,
-          content,
+        const data = await fetchJSON('/api/strategy/llm/optimize', 'POST', {
+          code, days, max_iterations: iterations, hint
         });
+        lastAiSpec = data.best_spec;
+        lastAiBacktest = data.best_result;
+        lastAiCode = code;
+        lastAiName = data.best_spec?.name || '';
+        document.getElementById('ai-save-name').value = lastAiName;
+        renderAiResult(data);
+        document.getElementById('ai-save-section').classList.remove('hidden');
+      } catch (e) {
+        document.getElementById('ai-result').innerHTML =
+          `<div class="metric-card border-red-500/50"><p class="text-red-400">❌ ${escapeHtml(e.message)}</p></div>`;
+      }
+    }
 
-        if (data.status === 'created') {
-          alert('策略创建成功！');
-          loadStrategies();
-        } else {
-          alert('创建失败: ' + (data.error || '未知错误'));
+    function renderAiResult(data) {
+      const spec = data.best_spec;
+      const bt = data.best_result || {};
+      const history = data.history || [];
+
+      let html = '';
+
+      // 指标卡片
+      html += `<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="metric-card text-center">
+          <p class="text-lg font-bold ${bt.total_return >= 0 ? 'text-green-400' : 'text-red-400'}">${formatPercent(bt.total_return || 0)}</p>
+          <p class="text-xs text-gray-400">总收益</p>
+        </div>
+        <div class="metric-card text-center">
+          <p class="text-lg font-bold text-blue-400">${formatPercent(bt.annual_return || 0)}</p>
+          <p class="text-xs text-gray-400">年化收益</p>
+        </div>
+        <div class="metric-card text-center">
+          <p class="text-lg font-bold text-green-400">${((bt.win_rate || 0) * 100).toFixed(1)}%</p>
+          <p class="text-xs text-gray-400">胜率</p>
+        </div>
+        <div class="metric-card text-center">
+          <p class="text-lg font-bold text-yellow-400">${(bt.sharpe_ratio || 0).toFixed(2)}</p>
+          <p class="text-xs text-gray-400">夏普比率</p>
+        </div>
+        <div class="metric-card text-center">
+          <p class="text-lg font-bold text-red-400">${formatPercent(bt.max_drawdown || 0)}</p>
+          <p class="text-xs text-gray-400">最大回撤</p>
+        </div>
+        <div class="metric-card text-center">
+          <p class="text-lg font-bold text-gray-300">${bt.total_trades || 0}</p>
+          <p class="text-xs text-gray-400">交易次数</p>
+        </div>
+      </div>`;
+
+      // 策略名称 & 分数
+      html += `<div class="metric-card">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-lg font-medium">${escapeHtml(spec.name || '')}</h3>
+          <span class="px-3 py-1 rounded-full text-sm font-medium bg-blue-500/20 text-blue-400">
+            综合评分: ${(data.best_score || 0).toFixed(4)}
+          </span>
+        </div>
+        <p class="text-sm text-gray-400">${escapeHtml(spec.llm_rationale || '')}</p>
+        <div class="mt-2 text-xs text-gray-500">
+          入场阈值: ${spec.entry_threshold} | 退出预设: ${spec.exit_preset} | 收敛: ${data.converged ? '是' : '否'}
+        </div>
+      </div>`;
+
+      // LLM 最终分析
+      if (data.llm_final_reasoning) {
+        html += `<div class="metric-card border-blue-500/30">
+          <h3 class="text-sm font-medium text-blue-400 mb-2">🤖 LLM 综合分析</h3>
+          <p class="text-sm text-gray-300 whitespace-pre-wrap">${escapeHtml(data.llm_final_reasoning)}</p>
+        </div>`;
+      }
+
+      // 因子权重
+      html += `<div class="metric-card">
+        <h3 class="text-sm font-medium text-gray-300 mb-3">📐 因子组合</h3>
+        <div class="space-y-2">`;
+      for (const f of (spec.factors || [])) {
+        const pct = Math.min(100, (f.weight / 2) * 100);
+        const dir = f.direction === -1 ? '<span class="text-xs text-red-400 ml-1">(反向)</span>' : '';
+        html += `<div>
+          <div class="flex justify-between text-sm mb-1">
+            <span>${escapeHtml(f.factor_id)}${dir}</span>
+            <span class="text-gray-400">权重 ${f.weight}</span>
+          </div>
+          <div class="w-full bg-gray-800 rounded-full h-2">
+            <div class="factor-bar bg-blue-500" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+      }
+      html += `</div></div>`;
+
+      // 迭代历史
+      if (history.length > 0) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-3">📈 迭代历史</h3>
+          <div class="space-y-3">`;
+        for (const h of history) {
+          const m = h.metrics || {};
+          const rollbackBadge = h.rolled_back
+            ? `<span class="px-1.5 py-0.5 bg-yellow-600/20 text-yellow-400 text-xs rounded ml-2">↩️ 已回滚</span>`
+            : '';
+          const phaseBadge = h.phase === 'base'
+            ? `<span class="px-1.5 py-0.5 bg-gray-600/20 text-gray-400 text-xs rounded ml-1">基础</span>`
+            : `<span class="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-xs rounded ml-1">LLM</span>`;
+          html += `<div class="bg-gray-800/50 rounded p-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium">第 ${h.iteration} 轮${phaseBadge}${rollbackBadge}</span>
+              <span class="text-sm text-blue-400">评分 ${(h.score || 0).toFixed(4)}</span>
+            </div>
+            <div class="flex gap-4 text-xs text-gray-400">
+              <span>收益 ${formatPercent(m.total_return || 0)}</span>
+              <span>胜率 ${((m.win_rate || 0) * 100).toFixed(1)}%</span>
+              <span>回撤 ${formatPercent(m.max_drawdown || 0)}</span>
+            </div>
+            ${(h.llm_comment || h.comment) ? `<p class="text-xs text-gray-500 mt-1">${escapeHtml(h.llm_comment || h.comment)}</p>` : ''}
+          </div>`;
         }
-      } catch (e) {
-        alert('创建失败: ' + e.message);
+        html += `</div></div>`;
       }
+
+      document.getElementById('ai-result').innerHTML = html;
     }
 
-    async function editStrategy(strategyId) {
-      try {
-        const data = await fetchJSON(`/api/strategy/${strategyId}`);
-        const strategy = data.strategy;
-
-        const el = document.getElementById('strategy-detail');
-        el.innerHTML = `
-          <div class="p-4 border-b border-gray-800 flex items-center justify-between">
-            <h3 class="font-semibold">编辑策略: ${escapeHtml(strategy.name)}</h3>
-            <div class="flex gap-2">
-              <button onclick="saveEditStrategy('${strategyId}')" class="btn btn-success text-sm">💾 保存</button>
-              <button onclick="showStrategy('${strategyId}')" class="btn btn-secondary text-sm">取消</button>
-            </div>
-          </div>
-          <div class="flex-1 overflow-y-auto p-6">
-            <div class="max-w-3xl mx-auto space-y-4">
-              <div>
-                <label class="text-sm text-gray-400 mb-1 block">策略名称</label>
-                <input id="edit-strategy-name" type="text" value="${escapeHtml(strategy.name)}" class="input">
-              </div>
-              <div>
-                <label class="text-sm text-gray-400 mb-1 block">策略分类</label>
-                <input id="edit-strategy-category" type="text" value="${escapeHtml(strategy.category || '')}" class="input">
-              </div>
-              <div>
-                <label class="text-sm text-gray-400 mb-1 block">风险等级</label>
-                <select id="edit-strategy-risk" class="input">
-                  <option value="low" ${strategy.risk_level === 'low' ? 'selected' : ''}>低风险</option>
-                  <option value="medium" ${strategy.risk_level === 'medium' ? 'selected' : ''}>中风险</option>
-                  <option value="high" ${strategy.risk_level === 'high' ? 'selected' : ''}>高风险</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-sm text-gray-400 mb-1 block">策略内容 (Markdown)</label>
-                <textarea id="edit-strategy-content" class="input h-64 font-mono text-sm">${escapeHtml(strategy.content)}</textarea>
-              </div>
-            </div>
-          </div>
-        `;
-      } catch (e) {
-        alert('加载失败: ' + e.message);
-      }
-    }
-
-    async function saveEditStrategy(strategyId) {
-      const name = document.getElementById('edit-strategy-name').value.trim();
-      const category = document.getElementById('edit-strategy-category').value.trim();
-      const riskLevel = document.getElementById('edit-strategy-risk').value;
-      const content = document.getElementById('edit-strategy-content').value.trim();
-
-      if (!name || !content) {
-        alert('请填写策略名称和内容');
-        return;
-      }
+    async function saveAiStrategy() {
+      if (!lastAiSpec || !lastAiCode) { alert('请先生成策略'); return; }
+      const name = document.getElementById('ai-save-name').value.trim() || lastAiName;
 
       try {
-        const data = await fetchJSON(`/api/strategy/${strategyId}`, 'PUT', {
+        const data = await fetchJSON('/api/strategy/llm/save', 'POST', {
+          stock_code: lastAiCode,
           name,
-          category,
-          risk_level: riskLevel,
-          content,
+          spec: lastAiSpec,
+          backtest: lastAiBacktest || {},
+          llm_rationale: lastAiSpec.llm_rationale || '',
         });
-
-        if (data.status === 'updated') {
-          alert('策略更新成功！');
-          loadStrategies();
-          showStrategy(strategyId);
-        } else {
-          alert('更新失败: ' + (data.error || '未知错误'));
-        }
+        alert(`✅ 策略已保存：${data.strategy.name}（${data.strategy.stock_code}）`);
+        document.getElementById('ai-save-section').classList.add('hidden');
       } catch (e) {
-        alert('更新失败: ' + e.message);
+        alert('保存失败: ' + e.message);
       }
     }
 
-    async function cloneStrategy(strategyId) {
-      const newName = prompt('请输入新策略名称:');
-      if (!newName) return;
-
+    // ============ Tab 2: 我的策略 ============
+    async function loadStockList() {
       try {
-        const data = await fetchJSON(`/api/strategy/${strategyId}/clone?new_name=${encodeURIComponent(newName)}`, 'POST');
-
-        if (data.status === 'cloned') {
-          alert('策略克隆成功！');
-          loadStrategies();
-        } else {
-          alert('克隆失败: ' + (data.error || '未知错误'));
+        const data = await fetchJSON('/api/strategy/llm/stock-codes');
+        const container = document.getElementById('stock-list');
+        if (!data.stocks || data.stocks.length === 0) {
+          container.innerHTML = `
+            <div class="text-center py-8">
+              <div class="text-3xl mb-2">📭</div>
+              <p class="text-gray-500 text-sm">暂无已保存的策略</p>
+              <p class="text-xs text-gray-600 mt-1">在"AI 策略生成"中生成并保存策略</p>
+            </div>`;
+          return;
         }
+        container.innerHTML = data.stocks.map(s => `
+          <div class="stock-item cursor-pointer px-3 py-2.5 rounded-lg text-sm hover:bg-gray-800 transition-colors"
+               onclick="loadStockStrategies('${escapeHtml(s.stock_code)}', '${escapeHtml(s.stock_name || '')}', this)">
+            <div class="flex items-center justify-between">
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-gray-200 truncate">${escapeHtml(s.stock_name || '未知')}</div>
+                <div class="text-xs text-gray-500 font-mono">${escapeHtml(s.stock_code)}</div>
+              </div>
+              <span class="ml-2 px-2 py-0.5 bg-blue-600/20 text-blue-400 text-xs rounded-full shrink-0">${s.count}</span>
+            </div>
+          </div>
+        `).join('');
       } catch (e) {
-        alert('克隆失败: ' + e.message);
+        document.getElementById('stock-list').innerHTML = `<p class="text-red-400 text-sm">${escapeHtml(e.message)}</p>`;
       }
     }
 
-    async function deleteStrategy(strategyId) {
-      if (!confirm('确认删除此策略？此操作不可撤销。')) return;
+    async function loadStockStrategies(code, name, el) {
+      document.querySelectorAll('.stock-item').forEach(e => e.classList.remove('active'));
+      if (el) el.classList.add('active');
+
+      const container = document.getElementById('my-strategies-content');
+      container.innerHTML = '<p class="text-gray-500 text-center py-8">加载中...</p>';
 
       try {
-        const data = await fetchJSON(`/api/strategy/${strategyId}`, 'DELETE');
-
-        if (data.status === 'deleted') {
-          alert('策略已删除');
-          loadStrategies();
-          document.getElementById('strategy-detail').innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">选择左侧策略查看详情</div>';
-        } else {
-          alert('删除失败: ' + (data.error || '未知错误'));
+        const data = await fetchJSON(`/api/strategy/llm/saved?stock_code=${code}`);
+        if (!data.strategies || data.strategies.length === 0) {
+          container.innerHTML = '<p class="text-gray-500 text-center py-8">该股票暂无已保存的策略</p>';
+          return;
         }
+
+        let html = `
+          <div class="mb-4">
+            <h3 class="text-lg font-medium">${escapeHtml(name || code)}</h3>
+            <p class="text-sm text-gray-500 font-mono">${escapeHtml(code)} · 共 ${data.total} 个策略</p>
+          </div>`;
+
+        // 按时间排序，最新的在前
+        const strategies = data.strategies.sort((a, b) =>
+          new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        );
+
+        for (const s of strategies) {
+          const summary = s.spec_summary || {};
+          const bt = s.backtest_result || {};
+          const factors = (summary.factors || []).map(f => f.id);
+          const returnColor = ((bt.total_return || 0) >= 0) ? 'text-green-400' : 'text-red-400';
+          const returnBg = ((bt.total_return || 0) >= 0) ? 'bg-green-500/10' : 'bg-red-500/10';
+          const createdDate = (s.created_at || '').slice(0, 10);
+          const createdTime = (s.created_at || '').slice(11, 16);
+
+          html += `<div class="metric-card strategy-card mb-3">
+            <div class="flex items-start gap-4">
+              <!-- 左侧：收益指标 -->
+              <div class="text-center ${returnBg} rounded-lg px-4 py-3 min-w-[100px]">
+                <div class="text-2xl font-bold ${returnColor}">${formatPercent(bt.total_return || 0)}</div>
+                <div class="text-xs text-gray-500 mt-1">总收益</div>
+              </div>
+
+              <!-- 右侧：策略详情 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h4 class="font-medium text-gray-200">${escapeHtml(s.name)}</h4>
+                    <div class="flex items-center gap-2 mt-1">
+                      <span class="text-xs text-gray-500">${escapeHtml(createdDate)}</span>
+                      <span class="text-xs text-gray-600">${escapeHtml(createdTime)}</span>
+                    </div>
+                  </div>
+                  <div class="flex gap-1">
+                    <button onclick="runBacktestForStrategy('${s.id}')"
+                      class="text-xs bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded hover:bg-blue-600/30 transition">回测</button>
+                    <button onclick="analyzeStrategy('${s.id}')"
+                      class="text-xs bg-purple-600/20 text-purple-400 px-2.5 py-1 rounded hover:bg-purple-600/30 transition">AI 分析</button>
+                    <button onclick="deleteStockStrategy('${s.id}', '${escapeHtml(code)}', '${escapeHtml(name || '')}')"
+                      class="text-xs bg-red-600/20 text-red-400 px-2.5 py-1 rounded hover:bg-red-600/30 transition">删除</button>
+                  </div>
+                </div>
+
+                <!-- 关键指标 -->
+                <div class="grid grid-cols-4 gap-3 mt-3">
+                  <div>
+                    <div class="text-xs text-gray-500">年化收益</div>
+                    <div class="text-sm font-mono ${((bt.annual_return || 0) >= 0) ? 'text-green-400' : 'text-red-400'}">${formatPercent(bt.annual_return || 0)}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-gray-500">胜率</div>
+                    <div class="text-sm font-mono text-gray-300">${((bt.win_rate || 0) * 100).toFixed(1)}%</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-gray-500">最大回撤</div>
+                    <div class="text-sm font-mono text-red-400">${formatPercent(bt.max_drawdown || 0)}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-gray-500">夏普比率</div>
+                    <div class="text-sm font-mono text-gray-300">${(bt.sharpe_ratio || 0).toFixed(2)}</div>
+                  </div>
+                </div>
+
+                <!-- 因子标签 -->
+                <div class="flex flex-wrap gap-1 mt-2">
+                  ${factors.map(f => `<span class="px-1.5 py-0.5 bg-gray-700/50 text-gray-400 text-xs rounded">${escapeHtml(f)}</span>`).join('')}
+                  <span class="px-1.5 py-0.5 bg-gray-700/50 text-gray-400 text-xs rounded">阈值 ${summary.entry_threshold || '-'}</span>
+                  <span class="px-1.5 py-0.5 bg-gray-700/50 text-gray-400 text-xs rounded">${summary.exit_preset || 'balanced'}</span>
+                </div>
+
+                ${s.llm_rationale ? `<p class="text-xs text-gray-500 mt-2 line-clamp-2">${escapeHtml(s.llm_rationale)}</p>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }
+        container.innerHTML = html;
+      } catch (e) {
+        container.innerHTML = `<p class="text-red-400 text-center py-8">${escapeHtml(e.message)}</p>`;
+      }
+    }
+
+    async function deleteStockStrategy(id, code, name) {
+      if (!confirm('确定删除此策略？')) return;
+      try {
+        await fetchJSON(`/api/strategy/llm/saved/${id}`, 'DELETE');
+        loadStockStrategies(code, name, document.querySelector('.stock-item.active'));
       } catch (e) {
         alert('删除失败: ' + e.message);
       }
     }
 
-    // ═══ 策略回测 ═══
+    function analyzeStrategy(id) {
+      document.querySelectorAll('.page-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('page-ai-analyze').classList.add('active');
+      document.querySelectorAll('.nav-btn')[3].classList.add('active');
+      currentPage = 'ai-analyze';
 
-    let currentExitMode = 'simple';
-    let currentExitPreset = 'balanced';
+      loadAnalyzeStrategies().then(() => {
+        document.getElementById('analyze-strategy-select').value = id;
+      });
+    }
 
-    function setExitMode(mode) {
-      currentExitMode = mode;
-      document.getElementById('exit-simple-mode').classList.toggle('hidden', mode !== 'simple');
-      document.getElementById('exit-advanced-mode').classList.toggle('hidden', mode !== 'advanced');
-      document.getElementById('exit-mode-simple').className = mode === 'simple' ? 'px-3 py-1 text-xs rounded-md bg-blue-600 text-white' : 'px-3 py-1 text-xs rounded-md text-gray-400';
-      document.getElementById('exit-mode-advanced').className = mode === 'advanced' ? 'px-3 py-1 text-xs rounded-md bg-blue-600 text-white' : 'px-3 py-1 text-xs rounded-md text-gray-400';
+    function runBacktestForStrategy(id) {
+      document.querySelectorAll('.page-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('page-backtest').classList.add('active');
+      document.querySelectorAll('.nav-btn')[2].classList.add('active');
+      currentPage = 'backtest';
+
+      setBacktestMode('saved');
+      loadBacktestStrategies().then(() => {
+        document.getElementById('bt-strategy-select').value = id;
+      });
+    }
+
+    // ============ Tab 3: 策略回测 ============
+    function setBacktestMode(mode) {
+      backtestMode = mode;
+      document.getElementById('bt-saved-section').classList.toggle('hidden', mode !== 'saved');
+      document.getElementById('bt-temp-section').classList.toggle('hidden', mode !== 'temp');
+      document.getElementById('bt-mode-saved').className =
+        `flex-1 py-2 text-xs rounded ${mode === 'saved' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`;
+      document.getElementById('bt-mode-temp').className =
+        `flex-1 py-2 text-xs rounded ${mode === 'temp' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`;
+    }
+
+    async function loadBacktestStrategies() {
+      try {
+        const data = await fetchJSON('/api/strategy/llm/saved');
+        const sel = document.getElementById('bt-strategy-select');
+        if (!data.strategies || data.strategies.length === 0) {
+          sel.innerHTML = '<option value="">暂无已保存策略</option>';
+          return;
+        }
+        const grouped = {};
+        for (const s of data.strategies) {
+          const key = `${s.stock_name || '未知'} (${s.stock_code})`;
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(s);
+        }
+        let html = '';
+        for (const [group, strategies] of Object.entries(grouped)) {
+          html += `<optgroup label="${escapeHtml(group)}">`;
+          for (const s of strategies) {
+            const bt = s.backtest_result || {};
+            const returnStr = ((bt.total_return || 0) * 100).toFixed(1);
+            const dateStr = (s.created_at || '').slice(5, 10);
+            html += `<option value="${s.id}">${escapeHtml(s.name)} (${dateStr} 收益${returnStr}%)</option>`;
+          }
+          html += '</optgroup>';
+        }
+        sel.innerHTML = html;
+      } catch (e) {
+        document.getElementById('bt-strategy-select').innerHTML = '<option value="">加载失败</option>';
+      }
     }
 
     function setExitPreset(preset) {
       currentExitPreset = preset;
-      document.getElementById('preset-conservative').className = preset === 'conservative' ? 'btn btn-primary text-xs py-2' : 'btn btn-secondary text-xs py-2';
-      document.getElementById('preset-balanced').className = preset === 'balanced' ? 'btn btn-primary text-xs py-2' : 'btn btn-secondary text-xs py-2';
-      document.getElementById('preset-aggressive').className = preset === 'aggressive' ? 'btn btn-primary text-xs py-2' : 'btn btn-secondary text-xs py-2';
-    }
-
-    async function loadBacktestStrategies() {
-      const select = document.getElementById('backtest-strategy');
-      select.innerHTML = '<option value="">加载中...</option>';
-
-      try {
-        const data = await fetchJSON('/api/strategy/list');
-        const strategies = data.strategies || [];
-
-        select.innerHTML = '<option value="">请选择策略</option>' +
-          strategies.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
-      } catch (e) {
-        select.innerHTML = '<option value="">加载失败</option>';
-      }
+      document.querySelectorAll('.exit-preset-btn').forEach(btn => {
+        btn.className = `exit-preset-btn flex-1 py-2 text-xs rounded ${
+          btn.dataset.preset === preset ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
+        }`;
+      });
     }
 
     async function runBacktest() {
-      const strategyId = document.getElementById('backtest-strategy').value;
-      const stockCode = document.getElementById('backtest-code').value.trim();
-      const days = parseInt(document.getElementById('backtest-days').value);
-      const capital = parseFloat(document.getElementById('backtest-capital').value);
+      const days = parseInt(document.getElementById('bt-days').value) || 500;
+      document.getElementById('bt-status').classList.remove('hidden');
+      document.getElementById('bt-result').innerHTML = '';
 
-      if (!strategyId || !stockCode) {
-        alert('请选择策略和输入股票代码');
-        return;
+      try {
+        let result;
+        if (backtestMode === 'saved') {
+          const id = document.getElementById('bt-strategy-select').value;
+          if (!id) { alert('请选择策略'); return; }
+          result = await fetchJSON('/api/strategy/backtest', 'POST', {
+            stock_strategy_id: id, days, exit_strategy_preset: currentExitPreset
+          });
+        } else {
+          const code = document.getElementById('bt-temp-code').value.trim();
+          if (!/^\d{6}$/.test(code)) { alert('请输入6位股票代码'); return; }
+          const genResult = await fetchJSON('/api/strategy/llm/generate', 'POST', { code, days });
+          result = { backtest: genResult.backtest, summary: '' };
+        }
+
+        renderBacktestResult(result);
+      } catch (e) {
+        document.getElementById('bt-result').innerHTML =
+          `<div class="metric-card border-red-500/50"><p class="text-red-400">❌ ${escapeHtml(e.message)}</p></div>`;
+      } finally {
+        document.getElementById('bt-status').classList.add('hidden');
+      }
+    }
+
+    function renderBacktestResult(data) {
+      const bt = data.backtest || {};
+      let html = `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="metric-card text-center">
+            <p class="text-xl font-bold ${bt.total_return >= 0 ? 'text-green-400' : 'text-red-400'}">${formatPercent(bt.total_return || 0)}</p>
+            <p class="text-xs text-gray-400">总收益</p>
+          </div>
+          <div class="metric-card text-center">
+            <p class="text-xl font-bold text-green-400">${((bt.win_rate || 0) * 100).toFixed(1)}%</p>
+            <p class="text-xs text-gray-400">胜率</p>
+          </div>
+          <div class="metric-card text-center">
+            <p class="text-xl font-bold text-red-400">${formatPercent(bt.max_drawdown || 0)}</p>
+            <p class="text-xs text-gray-400">最大回撤</p>
+          </div>
+          <div class="metric-card text-center">
+            <p class="text-xl font-bold text-yellow-400">${(bt.sharpe_ratio || 0).toFixed(2)}</p>
+            <p class="text-xs text-gray-400">夏普比率</p>
+          </div>
+        </div>
+        <div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-2">资金信息</h3>
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div><span class="text-gray-400">初始资金:</span> ${formatMoney(bt.initial_capital || 100000)}</div>
+            <div><span class="text-gray-400">最终资金:</span> ${formatMoney(bt.final_capital || 100000)}</div>
+            <div><span class="text-gray-400">交易次数:</span> ${bt.total_trades || 0}</div>
+          </div>
+        </div>`;
+
+      if (bt.exit_statistics && Object.keys(bt.exit_statistics).length > 0) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-2">退出统计</h3>
+          <div class="space-y-1">`;
+        for (const [reason, count] of Object.entries(bt.exit_statistics)) {
+          const pct = bt.total_trades > 0 ? ((count / bt.total_trades) * 100).toFixed(1) : 0;
+          html += `<div class="flex justify-between text-sm">
+            <span>${escapeHtml(reason)}</span>
+            <span class="text-gray-400">${count} 次 (${pct}%)</span>
+          </div>`;
+        }
+        html += `</div></div>`;
       }
 
-      const resultEl = document.getElementById('backtest-result');
-      resultEl.innerHTML = '<div class="text-center text-gray-500 py-10">回测中...</div>';
+      if (bt.trades && bt.trades.length > 0) {
+        html += `<div class="metric-card overflow-x-auto">
+          <h3 class="text-sm font-medium text-gray-300 mb-2">交易记录（前50条）</h3>
+          <table class="w-full text-xs">
+            <thead><tr class="text-gray-400 border-b border-gray-700">
+              <th class="text-left py-1 px-1">买入日期</th>
+              <th class="text-left py-1 px-1">买入价</th>
+              <th class="text-left py-1 px-1">卖出日期</th>
+              <th class="text-left py-1 px-1">卖出价</th>
+              <th class="text-left py-1 px-1">持仓天</th>
+              <th class="text-left py-1 px-1">盈亏</th>
+              <th class="text-left py-1 px-1">退出原因</th>
+            </tr></thead>
+            <tbody>`;
+        for (const t of bt.trades.slice(0, 50)) {
+          const pnlClass = (t.pnl_pct || 0) >= 0 ? 'text-green-400' : 'text-red-400';
+          html += `<tr class="border-b border-gray-800">
+            <td class="py-1 px-1">${escapeHtml(t.entry_date || '')}</td>
+            <td class="py-1 px-1">${(t.entry_price || 0).toFixed(2)}</td>
+            <td class="py-1 px-1">${escapeHtml(t.exit_date || '')}</td>
+            <td class="py-1 px-1">${(t.exit_price || 0).toFixed(2)}</td>
+            <td class="py-1 px-1">${t.hold_days || 0}</td>
+            <td class="py-1 px-1 ${pnlClass}">${formatPercent(t.pnl_pct || 0)}</td>
+            <td class="py-1 px-1">${escapeHtml(t.exit_reason || '')}</td>
+          </tr>`;
+        }
+        html += '</tbody></table></div>';
+      }
 
-      // 构建请求参数
-      const params = {
-        strategy_id: strategyId,
-        stock_code: stockCode,
-        days: days,
-        initial_capital: capital,
-        use_dynamic_exit: true,
+      if (data.summary) {
+        html += `<div class="metric-card"><pre class="text-xs text-gray-400 whitespace-pre-wrap">${escapeHtml(data.summary)}</pre></div>`;
+      }
+
+      document.getElementById('bt-result').innerHTML = html;
+    }
+
+    // ============ Tab 4: AI 策略分析 ============
+    async function loadAnalyzeStrategies() {
+      try {
+        const data = await fetchJSON('/api/strategy/llm/saved');
+        const sel = document.getElementById('analyze-strategy-select');
+        if (!data.strategies || data.strategies.length === 0) {
+          sel.innerHTML = '<option value="">暂无已保存策略</option>';
+          return;
+        }
+        const grouped = {};
+        for (const s of data.strategies) {
+          const key = `${s.stock_name || '未知'} (${s.stock_code})`;
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(s);
+        }
+        let html = '';
+        for (const [group, strategies] of Object.entries(grouped)) {
+          html += `<optgroup label="${escapeHtml(group)}">`;
+          for (const s of strategies) {
+            const dateStr = (s.created_at || '').slice(5, 10);
+            html += `<option value="${s.id}">${escapeHtml(s.name)} (${dateStr})</option>`;
+          }
+          html += '</optgroup>';
+        }
+        sel.innerHTML = html;
+      } catch (e) {
+        document.getElementById('analyze-strategy-select').innerHTML = '<option value="">加载失败</option>';
+      }
+    }
+
+    function runAiAnalyze() {
+      const id = document.getElementById('analyze-strategy-select').value;
+      if (!id) { alert('请选择策略'); return; }
+
+      // 初始化进度面板
+      document.getElementById('analyze-progress').classList.remove('hidden');
+      document.getElementById('analyze-progress-stock').textContent = `策略 #${id}`;
+      document.getElementById('analyze-elapsed').textContent = '';
+      document.getElementById('analyze-llm-box').classList.add('hidden');
+      document.getElementById('analyze-llm-text').innerHTML = '';
+      document.getElementById('analyze-factor-scores').classList.add('hidden');
+      document.getElementById('analyze-factors-grid').innerHTML = '';
+      document.getElementById('analyze-result').innerHTML = '';
+
+      initProgressTimeline('analyze-progress-steps', ['load_strategy', 'load_kline', 'calc_factors', 'build_stats', 'llm_analyze']);
+      _startTimer('analyze-elapsed');
+
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const wsUrl = `${proto}://${location.host}/ws/strategy/analyze?strategy_id=${id}`;
+
+      if (analyzeWs) { try { analyzeWs.close(); } catch(e){} }
+
+      analyzeWs = new WebSocket(wsUrl);
+
+      analyzeWs.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        switch (msg.type) {
+          case 'start':
+            document.getElementById('analyze-progress-stock').textContent =
+              `${msg.stock_code || ''} ${msg.stock_name || ''} · ${msg.strategy_name || ''}`;
+            break;
+
+          case 'step':
+            updateStep('analyze-progress-steps', msg.step, msg.status || 'running',
+                       msg.message, msg.elapsed_ms);
+            break;
+
+          case 'substep':
+            addSubstep('analyze-progress-steps', msg.step, msg.sub);
+            break;
+
+          case 'factor_score': {
+            // 实时显示每个因子得分
+            const panel = document.getElementById('analyze-factor-scores');
+            const grid = document.getElementById('analyze-factors-grid');
+            panel.classList.remove('hidden');
+            const pct = Math.min(100, (msg.score || 0) * 100);
+            const color = msg.score >= 0.7 ? 'bg-green-500' : msg.score >= 0.4 ? 'bg-yellow-500' : 'bg-red-500';
+            const textColor = msg.score >= 0.7 ? 'text-green-400' : msg.score >= 0.4 ? 'text-yellow-400' : 'text-red-400';
+            grid.innerHTML += `<div class="bg-gray-800/50 rounded p-2">
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-gray-400">${escapeHtml(msg.factor_name || msg.factor_id)}</span>
+                <span class="${textColor} font-mono">${(msg.score || 0).toFixed(3)}</span>
+              </div>
+              <div class="w-full bg-gray-800 rounded-full h-1">
+                <div class="factor-score-bar ${color}" style="width:${pct}%"></div>
+              </div>
+            </div>`;
+            break;
+          }
+
+          case 'llm_token':
+            appendLlmToken('analyze-llm-box', 'analyze-llm-text', msg.text);
+            break;
+
+          case 'done':
+            _stopTimer('analyze-elapsed');
+            renderAnalyzeResult(msg);
+            document.getElementById('analyze-llm-box').classList.add('hidden');
+            try { analyzeWs.close(); } catch(e){}
+            break;
+
+          case 'error':
+            _stopTimer('analyze-elapsed');
+            document.getElementById('analyze-result').innerHTML =
+              `<div class="metric-card border-red-500/50"><p class="text-red-400">❌ ${escapeHtml(msg.message)}</p></div>`;
+            try { analyzeWs.close(); } catch(e){}
+            break;
+        }
       };
 
-      if (currentExitMode === 'simple') {
-        params.exit_strategy_preset = currentExitPreset;
-      } else {
-        // 高级模式：收集自定义参数
-        params.exit_strategy_preset = 'custom';
-        params.exit_strategy_params = {
-          stop_loss_atr_multiple: parseFloat(document.getElementById('exit-atr-multiple').value),
-          trailing_stop_enabled: document.getElementById('exit-trailing-enabled').checked,
-          trailing_stop_activation_pct: parseFloat(document.getElementById('exit-trailing-activation').value) / 100,
-          trailing_stop_atr_multiple: parseFloat(document.getElementById('exit-trailing-atr').value),
-          breakeven_enabled: document.getElementById('exit-breakeven-enabled').checked,
-          breakeven_activation_pct: parseFloat(document.getElementById('exit-breakeven-activation').value) / 100,
-          technical_exit_enabled: document.getElementById('exit-technical-enabled').checked,
-          exit_score_threshold_partial: parseInt(document.getElementById('exit-partial-threshold').value),
-          exit_score_threshold_full: parseInt(document.getElementById('exit-full-threshold').value),
-          max_hold_days: parseInt(document.getElementById('exit-max-hold').value),
-        };
-      }
+      analyzeWs.onerror = () => {
+        _stopTimer('analyze-elapsed');
+        document.getElementById('analyze-result').innerHTML =
+          `<div class="metric-card border-yellow-500/30"><p class="text-yellow-400">⚠️ WebSocket 连接失败，回退到 HTTP 模式...</p></div>`;
+        fallbackAiAnalyze(id);
+      };
+    }
 
+    async function fallbackAiAnalyze(id) {
       try {
-        const data = await fetchJSON('/api/strategy/backtest', 'POST', params);
+        const data = await fetchJSON(`/api/strategy/ai-analyze/${id}`, 'POST');
+        renderAnalyzeResult(data);
+      } catch (e) {
+        document.getElementById('analyze-result').innerHTML =
+          `<div class="metric-card border-red-500/50"><p class="text-red-400">❌ ${escapeHtml(e.message)}</p></div>`;
+      }
+    }
 
-        if (data.backtest) {
-          renderBacktestResult(data.backtest, data.summary);
-        } else {
-          resultEl.innerHTML = `<div class="text-red-400">回测失败: ${data.error || '未知错误'}</div>`;
+    function renderAnalyzeResult(data) {
+      const analysis = data.llm_analysis || {};
+      const scores = data.factor_scores || {};
+      let html = '';
+
+      const signal = analysis.signal || '观望';
+      const signalClass = signal === '买入' ? 'signal-buy' : signal === '卖出' ? 'signal-sell' : 'signal-hold';
+      const confidence = analysis.confidence || 0;
+
+      html += `<div class="metric-card">
+        <div class="flex items-center gap-4 mb-3">
+          <span class="px-4 py-2 rounded-lg text-lg font-bold ${signalClass}">${signal}</span>
+          <div class="flex-1">
+            <div class="flex justify-between text-sm mb-1">
+              <span class="text-gray-400">置信度</span>
+              <span>${(confidence * 100).toFixed(0)}%</span>
+            </div>
+            <div class="w-full bg-gray-800 rounded-full h-3">
+              <div class="h-3 rounded-full ${confidence >= 0.7 ? 'bg-green-500' : confidence >= 0.4 ? 'bg-yellow-500' : 'bg-red-500'}"
+                   style="width: ${confidence * 100}%"></div>
+            </div>
+          </div>
+        </div>
+        <p class="text-sm text-gray-300">${escapeHtml(analysis.overall_assessment || '')}</p>
+      </div>`;
+
+      html += `<div class="metric-card">
+        <h3 class="text-sm font-medium text-gray-300 mb-2">📋 股票信息</h3>
+        <p class="text-sm">${escapeHtml(data.stock_code || '')} ${escapeHtml(data.stock_name || '')}</p>
+        <p class="text-xs text-gray-500">策略: ${escapeHtml(data.strategy_name || '')}</p>
+      </div>`;
+
+      const factorAnalysis = analysis.factor_analysis || [];
+      if (factorAnalysis.length > 0) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-3">📐 因子状态</h3>
+          <div class="space-y-2">`;
+        for (const f of factorAnalysis) {
+          const statusColor = f.status === '强' ? 'score-strong' : f.status === '中' ? 'score-medium' : 'score-weak';
+          html += `<div class="bg-gray-800/50 rounded p-3">
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-sm font-medium">${escapeHtml(f.factor_name || f.factor_id || '')}</span>
+              <span class="text-sm font-bold ${statusColor}">${escapeHtml(f.status || '')}</span>
+            </div>
+            <p class="text-xs text-gray-400">${escapeHtml(f.interpretation || '')}</p>
+          </div>`;
         }
-      } catch (e) {
-        resultEl.innerHTML = `<div class="text-red-400">回测失败: ${e.message}</div>`;
-      }
-    }
-
-    function renderBacktestResult(result, summary) {
-      const el = document.getElementById('backtest-result');
-      const returnClass = result.total_return >= 0 ? 'positive' : 'negative';
-
-      // 退出统计
-      const exitStats = result.exit_statistics || {};
-      const exitAnalysis = result.exit_analysis || {};
-      const totalExits = Object.values(exitStats).reduce((a, b) => a + b, 0);
-
-      el.innerHTML = `
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="stat-card">
-            <div class="stat-value ${returnClass}">${formatPercent(result.total_return)}</div>
-            <div class="stat-label">总收益率</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${formatPercent(result.win_rate)}</div>
-            <div class="stat-label">胜率</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value negative">${formatPercent(result.max_drawdown)}</div>
-            <div class="stat-label">最大回撤</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${formatNumber(result.sharpe_ratio)}</div>
-            <div class="stat-label">夏普比率</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div>
-            <div class="text-sm text-gray-400">初始资金</div>
-            <div class="font-medium">${formatMoney(result.initial_capital)}</div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-400">最终资金</div>
-            <div class="font-medium ${returnClass}">${formatMoney(result.final_capital)}</div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-400">交易次数</div>
-            <div class="font-medium">${result.total_trades}</div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-400">盈利因子</div>
-            <div class="font-medium">${formatNumber(result.profit_factor)}</div>
-          </div>
-        </div>
-
-        ${result.exit_strategy_type ? `
-          <div class="bg-gray-800 rounded-lg p-4 mb-4">
-            <div class="text-sm text-gray-400 mb-1">退出策略</div>
-            <div class="font-medium">${result.exit_strategy_type === 'conservative' ? '🛡️ 保守型' : result.exit_strategy_type === 'balanced' ? '⚖️ 平衡型' : result.exit_strategy_type === 'aggressive' ? '⚡ 激进型' : '⚙️ 自定义'}</div>
-          </div>
-        ` : ''}
-
-        ${totalExits > 0 ? `
-          <div class="bg-gray-800 rounded-lg p-4 mb-4">
-            <div class="text-sm text-gray-400 mb-3">退出统计</div>
-            <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
-              ${Object.entries(exitStats).map(([reason, count]) => `
-                <div class="flex items-center justify-between p-2 bg-gray-700 rounded">
-                  <span class="text-sm">${escapeHtml(reason)}</span>
-                  <span class="font-medium">${count}次 (${(count / totalExits * 100).toFixed(1)}%)</span>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
-
-        ${Object.keys(exitAnalysis).length > 0 ? `
-          <div class="bg-gray-800 rounded-lg p-4 mb-4">
-            <div class="text-sm text-gray-400 mb-3">退出原因分析</div>
-            <div class="space-y-2">
-              ${Object.entries(exitAnalysis).map(([reason, analysis]) => `
-                <div class="flex items-center justify-between p-2 bg-gray-700 rounded">
-                  <span class="text-sm">${escapeHtml(reason)}</span>
-                  <span class="font-medium ${(analysis.avg_return || 0) >= 0 ? 'positive' : 'negative'}">平均收益: ${formatPercent(analysis.avg_return)}</span>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
-
-        <div class="bg-gray-800 rounded-lg p-4 mb-4">
-          <pre class="text-sm text-gray-300 whitespace-pre-wrap">${summary}</pre>
-        </div>
-
-        ${result.trades && result.trades.length ? `
-          <div>
-            <h4 class="font-semibold mb-3">交易记录</h4>
-            <div class="overflow-x-auto">
-              <table class="table text-sm">
-                <thead>
-                  <tr>
-                    <th>买入日期</th>
-                    <th>买入价格</th>
-                    <th>卖出日期</th>
-                    <th>卖出价格</th>
-                    <th>持仓天数</th>
-                    <th>盈亏比例</th>
-                    <th>退出原因</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${result.trades.map(t => `
-                    <tr>
-                      <td>${t.entry_date}</td>
-                      <td>${formatNumber(t.entry_price, 3)}</td>
-                      <td>${t.exit_date}</td>
-                      <td>${formatNumber(t.exit_price, 3)}</td>
-                      <td>${t.hold_days}</td>
-                      <td class="${t.pnl_pct >= 0 ? 'positive' : 'negative'}">${formatPercent(t.pnl_pct)}</td>
-                      <td>${escapeHtml(t.exit_reason)}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ` : ''}
-      `;
-    }
-
-    // ═══ 信号监控 ═══
-
-    async function loadSignals() {
-      try {
-        // 加载统计数据
-        const stats = await fetchJSON('/api/strategy/signals/stats');
-        document.getElementById('signal-total').textContent = stats.total || 0;
-        document.getElementById('signal-pending').textContent = stats.pending || 0;
-        document.getElementById('signal-confirmed').textContent = stats.confirmed || 0;
-        document.getElementById('signal-avg-confidence').textContent = ((stats.avg_confidence || 0) * 100).toFixed(0) + '%';
-
-        // 加载信号列表
-        const data = await fetchJSON('/api/strategy/signals?limit=50');
-        renderSignals(data.signals || []);
-      } catch (e) {
-        console.error('加载信号失败:', e);
-      }
-    }
-
-    function renderSignals(signals) {
-      const tbody = document.getElementById('signals-table');
-      if (!signals.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-500 py-8">暂无信号</td></tr>';
-        return;
+        html += `</div></div>`;
       }
 
-      tbody.innerHTML = signals.map(s => `
-        <tr>
-          <td>${escapeHtml(s.strategy_name)}</td>
-          <td>${escapeHtml(s.stock_code)} ${escapeHtml(s.stock_name)}</td>
-          <td>
-            <span class="badge ${s.signal_type === 'buy' ? 'badge-success' : 'badge-danger'}">
-              ${s.signal_type === 'buy' ? '买入' : '卖出'}
+      const factorScores = scores.factors || [];
+      if (factorScores.length > 0) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-3">📊 因子得分</h3>
+          <div class="space-y-1">`;
+        for (const f of factorScores) {
+          const pct = Math.min(100, f.score * 100);
+          html += `<div>
+            <div class="flex justify-between text-sm mb-1">
+              <span>${escapeHtml(f.factor_name || f.factor_id)}</span>
+              <span class="text-gray-400">${(f.score || 0).toFixed(3)} (加权: ${(f.weighted_score || 0).toFixed(3)})</span>
+            </div>
+            <div class="w-full bg-gray-800 rounded-full h-1.5">
+              <div class="h-1.5 rounded-full bg-blue-500" style="width:${pct}%"></div>
+            </div>
+          </div>`;
+        }
+        html += `</div>
+          <div class="mt-3 pt-3 border-t border-gray-700 flex justify-between text-sm">
+            <span>综合得分</span>
+            <span class="font-bold ${scores.triggered ? 'text-green-400' : 'text-gray-400'}">
+              ${(scores.total_score || 0).toFixed(4)} / ${scores.entry_threshold || 0.6}
+              ${scores.triggered ? ' ✅ 触发' : ''}
             </span>
-          </td>
-          <td>${formatNumber(s.signal_price, 3)}</td>
-          <td>${(s.confidence * 100).toFixed(0)}%</td>
-          <td>${s.signal_time ? s.signal_time.substring(0, 16) : '-'}</td>
-          <td>
-            <span class="badge ${s.status === 'confirmed' ? 'badge-success' : s.status === 'expired' ? 'badge-warning' : 'badge-info'}">
-              ${s.status === 'confirmed' ? '已确认' : s.status === 'expired' ? '已过期' : '待确认'}
-            </span>
-          </td>
-          <td>
-            ${s.status === 'pending' ? `
-              <button onclick="confirmSignal('${s.id}')" class="text-green-400 hover:text-green-300 text-sm">确认</button>
-              <button onclick="expireSignal('${s.id}')" class="text-yellow-400 hover:text-yellow-300 text-sm ml-2">过期</button>
-            ` : ''}
-          </td>
-        </tr>
-      `).join('');
+          </div>
+        </div>`;
+      }
+
+      const levels = analysis.key_levels || {};
+      if (levels.support || levels.resistance) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-2">🎯 关键价位</h3>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="text-center">
+              <p class="text-lg font-bold text-green-400">${(levels.support || 0).toFixed(2)}</p>
+              <p class="text-xs text-gray-400">支撑位</p>
+            </div>
+            <div class="text-center">
+              <p class="text-lg font-bold text-red-400">${(levels.resistance || 0).toFixed(2)}</p>
+              <p class="text-xs text-gray-400">压力位</p>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      const risks = analysis.risk_factors || [];
+      if (risks.length > 0) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-2">⚠️ 风险提示</h3>
+          <ul class="space-y-1">`;
+        for (const r of risks) {
+          html += `<li class="text-sm text-yellow-400 flex items-start gap-2"><span>•</span> ${escapeHtml(r)}</li>`;
+        }
+        html += `</ul></div>`;
+      }
+
+      if (analysis.action_advice) {
+        html += `<div class="metric-card border-blue-500/30">
+          <h3 class="text-sm font-medium text-blue-400 mb-2">💡 操作建议</h3>
+          <p class="text-sm text-gray-300">${escapeHtml(analysis.action_advice)}</p>
+        </div>`;
+      }
+
+      if (analysis.reasoning) {
+        html += `<div class="metric-card">
+          <h3 class="text-sm font-medium text-gray-300 mb-2">🧠 推理过程</h3>
+          <p class="text-xs text-gray-400 whitespace-pre-wrap">${escapeHtml(analysis.reasoning)}</p>
+        </div>`;
+      }
+
+      document.getElementById('analyze-result').innerHTML = html;
     }
 
-    async function scanSignals() {
+    // ============ Tab 5: 策略健康度 ============
+    async function healthScan() {
       try {
-        const data = await fetchJSON('/api/strategy/signals/scan', 'POST', {});
-        alert(`扫描完成，发现 ${data.total || 0} 个信号`);
-        loadSignals();
+        const data = await fetchJSON('/api/strategy/health/scan', 'POST');
+        alert(`扫描完成，共评估 ${data.total} 个策略`);
+        refreshHealth();
       } catch (e) {
         alert('扫描失败: ' + e.message);
       }
     }
 
-    async function refreshSignals() {
-      loadSignals();
-    }
-
-    async function confirmSignal(signalId) {
+    async function refreshHealth() {
       try {
-        await fetchJSON(`/api/strategy/signals/${signalId}/confirm`, 'POST');
-        loadSignals();
-      } catch (e) {
-        alert('确认失败: ' + e.message);
-      }
-    }
+        const data = await fetchJSON('/api/strategy/health/dashboard');
 
-    async function expireSignal(signalId) {
-      try {
-        await fetchJSON(`/api/strategy/signals/${signalId}/expire`, 'POST');
-        loadSignals();
-      } catch (e) {
-        alert('操作失败: ' + e.message);
-      }
-    }
+        document.getElementById('health-total').textContent = data.total || 0;
+        document.getElementById('health-healthy').textContent = data.healthy || 0;
+        document.getElementById('health-watch').textContent = data.watch || 0;
+        document.getElementById('health-abnormal').textContent = data.abnormal || 0;
 
-    // ═══ 绩效分析 ═══
+        const container = document.getElementById('health-list');
+        if (!data.strategies || data.strategies.length === 0) {
+          container.innerHTML = `
+            <div class="text-center py-12">
+              <div class="text-4xl mb-4">📭</div>
+              <p class="text-gray-500">暂无策略健康度数据</p>
+              <p class="text-xs text-gray-600 mt-2">先在"AI 策略生成"中保存策略，然后点击"立即扫描"</p>
+            </div>`;
+          return;
+        }
 
-    async function loadPerformanceSummary() {
-      try {
-        const data = await fetchJSON('/api/strategy/performance/summary');
-        document.getElementById('perf-strategies').textContent = data.total_strategies || 0;
-        document.getElementById('perf-active').textContent = data.active_strategies || 0;
-        document.getElementById('perf-backtests').textContent = data.total_backtests || 0;
-        document.getElementById('perf-avg-return').textContent = formatPercent(data.avg_return || 0);
-        document.getElementById('perf-avg-return').className = `stat-value ${(data.avg_return || 0) >= 0 ? 'positive' : 'negative'}`;
-        document.getElementById('perf-signals').textContent = data.total_signals || 0;
+        container.innerHTML = data.strategies.map(s => {
+          const factors = s.factors || [];
+          const score = s.total_score || 0;
+          const threshold = s.entry_threshold || 0.6;
+          const ratio = threshold > 0 ? score / threshold : 0;
 
-        // 加载策略列表到下拉框
-        const strategiesData = await fetchJSON('/api/strategy/list');
-        const select = document.getElementById('perf-strategy-select');
-        select.innerHTML = '<option value="">选择策略查看详细绩效</option>' +
-          (strategiesData.strategies || []).map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
-      } catch (e) {
-        console.error('加载绩效摘要失败:', e);
-      }
-    }
+          // 状态判定
+          let statusIcon, statusColor, statusText, borderColor;
+          if (score >= threshold) {
+            statusIcon = '🟢'; statusColor = 'text-green-400'; statusText = '健康';
+            borderColor = 'border-green-500/30';
+          } else if (score >= threshold * 0.8) {
+            statusIcon = '🟡'; statusColor = 'text-yellow-400'; statusText = '关注';
+            borderColor = 'border-yellow-500/30';
+          } else {
+            statusIcon = '🔴'; statusColor = 'text-red-400'; statusText = '异常';
+            borderColor = 'border-red-500/30';
+          }
 
-    async function loadStrategyPerformance() {
-      const strategyId = document.getElementById('perf-strategy-select').value;
-      const el = document.getElementById('strategy-performance-detail');
+          // 因子状态箭头
+          const factorTags = factors.map(f => {
+            const arrow = f.score >= 0.7 ? '↑' : f.score >= 0.4 ? '→' : '↓';
+            const color = f.score >= 0.7 ? 'text-green-400' : f.score >= 0.4 ? 'text-yellow-400' : 'text-red-400';
+            return `<span class="px-1.5 py-0.5 bg-gray-800/50 rounded text-xs">
+              <span class="text-gray-400">${escapeHtml(f.factor_name || f.factor_id)}</span>
+              <span class="${color} font-mono ml-0.5">${(f.score || 0).toFixed(2)}${arrow}</span>
+            </span>`;
+          }).join('');
 
-      if (!strategyId) {
-        el.innerHTML = '<div class="text-center text-gray-500 py-10">选择策略查看详细绩效分析</div>';
-        return;
-      }
+          // 涨跌幅颜色
+          const chg1dColor = (s.price_change_1d || 0) >= 0 ? 'text-green-400' : 'text-red-400';
+          const chg5dColor = (s.price_change_5d || 0) >= 0 ? 'text-green-400' : 'text-red-400';
+          const chg1d = ((s.price_change_1d || 0) * 100).toFixed(2);
+          const chg5d = ((s.price_change_5d || 0) * 100).toFixed(2);
 
-      el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
-
-      try {
-        const data = await fetchJSON(`/api/strategy/${strategyId}/performance`);
-        renderStrategyPerformance(data);
-      } catch (e) {
-        el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`;
-      }
-    }
-
-    function renderStrategyPerformance(data) {
-      const el = document.getElementById('strategy-performance-detail');
-      const metrics = data.metrics || {};
-
-      el.innerHTML = `
-        <h4 class="font-semibold mb-4">${escapeHtml(data.strategy_name)} - 绩效分析</h4>
-
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="stat-card">
-            <div class="stat-value ${(metrics.avg_return || 0) >= 0 ? 'positive' : 'negative'}">${formatPercent(metrics.avg_return)}</div>
-            <div class="stat-label">平均收益</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${formatPercent(metrics.avg_win_rate)}</div>
-            <div class="stat-label">平均胜率</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${formatNumber(metrics.avg_sharpe_ratio)}</div>
-            <div class="stat-label">夏普比率</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${formatPercent(metrics.positive_rate)}</div>
-            <div class="stat-label">正收益概率</div>
-          </div>
-        </div>
-
-        ${data.recommendation ? `
-          <div class="bg-gray-800 rounded-lg p-4 mb-4">
-            <div class="text-sm text-gray-400 mb-1">策略建议</div>
-            <div>${escapeHtml(data.recommendation)}</div>
-          </div>
-        ` : ''}
-
-        ${data.attribution && data.attribution.insights ? `
-          <div class="bg-gray-800 rounded-lg p-4">
-            <div class="text-sm text-gray-400 mb-2">归因分析</div>
-            <ul class="space-y-1">
-              ${data.attribution.insights.map(i => `<li class="text-sm">• ${escapeHtml(i)}</li>`).join('')}
-            </ul>
-          </div>
-        ` : ''}
-      `;
-    }
-
-    // ═══ 策略组合 ═══
-
-    async function loadPortfolios() {
-      const list = document.getElementById('portfolio-list');
-      list.innerHTML = '<div class="text-center text-gray-500 py-4 text-sm">加载中...</div>';
-
-      try {
-        const data = await fetchJSON('/api/strategy/portfolios/list');
-        allPortfolios = data.portfolios || [];
-        renderPortfolioList(allPortfolios);
-      } catch (e) {
-        list.innerHTML = `<div class="text-red-400 text-sm p-2">加载失败: ${e.message}</div>`;
-      }
-    }
-
-    function renderPortfolioList(portfolios) {
-      const list = document.getElementById('portfolio-list');
-      if (!portfolios.length) {
-        list.innerHTML = '<div class="text-gray-500 text-sm p-2">暂无组合</div>';
-        return;
-      }
-
-      list.innerHTML = portfolios.map(p => `
-        <div class="px-3 py-2 rounded cursor-pointer text-sm hover:bg-gray-800 text-gray-300" onclick="showPortfolio('${p.id}')">
-          <div class="font-medium">${escapeHtml(p.name)}</div>
-          <div class="text-xs text-gray-500 mt-1">${p.strategies ? p.strategies.length : 0} 个策略</div>
-        </div>
-      `).join('');
-    }
-
-    async function showPortfolio(portfolioId) {
-      const el = document.getElementById('portfolio-detail');
-      el.innerHTML = '<div class="text-center text-gray-500 py-10">加载中...</div>';
-
-      try {
-        const data = await fetchJSON(`/api/strategy/portfolios/${portfolioId}`);
-        renderPortfolioDetail(data.portfolio);
-      } catch (e) {
-        el.innerHTML = `<div class="text-red-400">加载失败: ${e.message}</div>`;
-      }
-    }
-
-    function renderPortfolioDetail(portfolio) {
-      const el = document.getElementById('portfolio-detail');
-      el.innerHTML = `
-        <div class="flex items-center justify-between mb-6">
-          <div>
-            <h3 class="text-lg font-semibold">${escapeHtml(portfolio.name)}</h3>
-            <div class="text-sm text-gray-500 mt-1">${escapeHtml(portfolio.description || '无描述')}</div>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="editPortfolio('${portfolio.id}')" class="btn btn-primary text-sm">✏️ 编辑</button>
-            <button onclick="deletePortfolio('${portfolio.id}')" class="btn btn-danger text-sm">🗑️ 删除</button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div>
-            <div class="text-sm text-gray-400">总资金</div>
-            <div class="font-medium">${formatMoney(portfolio.total_capital)}</div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-400">风险预算</div>
-            <div class="font-medium">${(portfolio.risk_budget * 100).toFixed(1)}%</div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-400">策略数量</div>
-            <div class="font-medium">${portfolio.strategies ? portfolio.strategies.length : 0}</div>
-          </div>
-          <div>
-            <div class="text-sm text-gray-400">再平衡频率</div>
-            <div class="font-medium">${portfolio.rebalance_frequency || 'monthly'}</div>
-          </div>
-        </div>
-
-        <div class="card p-4">
-          <h4 class="font-semibold mb-3">包含策略</h4>
-          ${portfolio.strategies && portfolio.strategies.length ? `
-            <div class="space-y-2">
-              ${portfolio.strategies.map(s => `
-                <div class="flex items-center justify-between p-3 bg-gray-800 rounded">
-                  <div>
-                    <div class="font-medium">${escapeHtml(s.strategy_id)}</div>
-                    <div class="text-sm text-gray-500">权重: ${(s.weight * 100).toFixed(1)}%</div>
-                  </div>
-                  <button onclick="removeStrategyFromPortfolio('${portfolio.id}', '${s.strategy_id}')" class="text-red-400 hover:text-red-300 text-sm">移除</button>
+          return `<div class="metric-card ${borderColor} cursor-pointer hover:border-opacity-60 transition" onclick="loadHealthTrend('${s.strategy_id}', '${escapeHtml(s.strategy_name)}')">
+            <div class="flex items-start justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="text-lg">${statusIcon}</span>
+                <div>
+                  <h4 class="font-medium text-gray-200">${escapeHtml(s.stock_name || s.stock_code)}</h4>
+                  <p class="text-xs text-gray-500">${escapeHtml(s.strategy_name)} · ${escapeHtml(s.stock_code)}</p>
                 </div>
-              `).join('')}
+              </div>
+              <div class="text-right">
+                <div class="text-lg font-bold font-mono ${statusColor}">${score.toFixed(4)}</div>
+                <div class="text-xs text-gray-500">阈值 ${threshold}</div>
+              </div>
             </div>
-          ` : `
-            <div class="text-center text-gray-500 py-4">暂无策略</div>
-          `}
-        </div>
-      `;
-    }
 
-    function createNewPortfolio() {
-      const el = document.getElementById('portfolio-detail');
-      el.innerHTML = `
-        <h3 class="text-lg font-semibold mb-4">新建组合</h3>
-        <div class="space-y-4">
-          <div>
-            <label class="text-sm text-gray-400 mb-1 block">组合名称</label>
-            <input id="new-portfolio-name" type="text" placeholder="输入组合名称" class="input">
-          </div>
-          <div>
-            <label class="text-sm text-gray-400 mb-1 block">描述</label>
-            <input id="new-portfolio-desc" type="text" placeholder="组合描述" class="input">
-          </div>
-          <div>
-            <label class="text-sm text-gray-400 mb-1 block">总资金</label>
-            <input id="new-portfolio-capital" type="number" value="1000000" class="input">
-          </div>
-          <div>
-            <label class="text-sm text-gray-400 mb-1 block">风险预算 (%)</label>
-            <input id="new-portfolio-risk" type="number" step="0.1" value="2" class="input">
-          </div>
-          <div class="flex gap-2">
-            <button onclick="saveNewPortfolio()" class="btn btn-success">💾 保存</button>
-            <button onclick="loadPortfolios()" class="btn btn-secondary">取消</button>
-          </div>
-        </div>
-      `;
-    }
+            <!-- 得分条 -->
+            <div class="w-full bg-gray-800 rounded-full h-2 mb-2">
+              <div class="h-2 rounded-full transition-all ${score >= threshold ? 'bg-green-500' : score >= threshold * 0.8 ? 'bg-yellow-500' : 'bg-red-500'}"
+                   style="width: ${Math.min(100, ratio * 100)}%"></div>
+            </div>
 
-    async function saveNewPortfolio() {
-      const name = document.getElementById('new-portfolio-name').value.trim();
-      const description = document.getElementById('new-portfolio-desc').value.trim();
-      const capital = parseFloat(document.getElementById('new-portfolio-capital').value);
-      const riskBudget = parseFloat(document.getElementById('new-portfolio-risk').value) / 100;
+            <!-- 因子标签 -->
+            <div class="flex flex-wrap gap-1.5 mb-2">${factorTags}</div>
 
-      if (!name) {
-        alert('请输入组合名称');
-        return;
+            <!-- 价格信息 -->
+            <div class="flex items-center gap-4 text-xs text-gray-500">
+              <span>最新 <span class="text-gray-300 font-mono">${(s.latest_close || 0).toFixed(2)}</span></span>
+              <span>今日 <span class="${chg1dColor} font-mono">${chg1d >= 0 ? '+' : ''}${chg1d}%</span></span>
+              <span>5日 <span class="${chg5dColor} font-mono">${chg5d >= 0 ? '+' : ''}${chg5d}%</span></span>
+              <span class="ml-auto text-gray-600">${escapeHtml(s.snapshot_date || '')}</span>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('health-list').innerHTML =
+          `<p class="text-red-400 text-center py-8">${escapeHtml(e.message)}</p>`;
       }
+    }
+
+    async function loadHealthTrend(strategyId, strategyName) {
+      document.getElementById('health-trend-panel').classList.remove('hidden');
+      document.getElementById('trend-title').textContent = `📈 ${strategyName} · 得分趋势`;
 
       try {
-        const data = await fetchJSON('/api/strategy/portfolios/create', 'POST', {
-          name,
-          description,
-          total_capital: capital,
-          risk_budget: riskBudget,
-        });
+        const data = await fetchJSON(`/api/strategy/health/trend/${strategyId}`);
+        const snapshots = data.snapshots || [];
 
-        if (data.status === 'created') {
-          alert('组合创建成功！');
-          loadPortfolios();
-        } else {
-          alert('创建失败');
+        if (snapshots.length === 0) {
+          document.getElementById('health-trend-content').innerHTML =
+            '<p class="text-gray-500 text-center py-8">暂无历史数据，请先执行健康度扫描</p>';
+          return;
         }
-      } catch (e) {
-        alert('创建失败: ' + e.message);
-      }
-    }
 
-    async function deletePortfolio(portfolioId) {
-      if (!confirm('确认删除此组合？')) return;
+        // 趋势表格
+        const threshold = snapshots[0]?.entry_threshold || 0.6;
+        let html = `<div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead><tr class="text-gray-400 border-b border-gray-700">
+              <th class="text-left py-1 px-2">日期</th>
+              <th class="text-left py-1 px-2">综合得分</th>
+              <th class="text-left py-1 px-2">状态</th>
+              <th class="text-left py-1 px-2">收盘价</th>
+              <th class="text-left py-1 px-2">1日涨跌</th>
+              <th class="text-left py-1 px-2">5日涨跌</th>
+              <th class="text-left py-1 px-2">因子详情</th>
+            </tr></thead><tbody>`;
 
-      try {
-        const data = await fetchJSON(`/api/strategy/portfolios/${portfolioId}`, 'DELETE');
-        if (data.status === 'deleted') {
-          alert('组合已删除');
-          loadPortfolios();
-          document.getElementById('portfolio-detail').innerHTML = '<div class="text-center text-gray-500 py-20">选择左侧组合查看详情</div>';
+        for (const s of snapshots) {
+          const statusIcon = s.total_score >= threshold ? '🟢' : s.total_score >= threshold * 0.8 ? '🟡' : '🔴';
+          const chg1dC = (s.price_change_1d || 0) >= 0 ? 'text-green-400' : 'text-red-400';
+          const chg5dC = (s.price_change_5d || 0) >= 0 ? 'text-green-400' : 'text-red-400';
+          const factors = (s.factors || []).map(f =>
+            `${escapeHtml(f.factor_name || f.factor_id)}:${(f.score || 0).toFixed(2)}`
+          ).join(' ');
+          html += `<tr class="border-b border-gray-800/50">
+            <td class="py-1.5 px-2 font-mono">${escapeHtml(s.snapshot_date)}</td>
+            <td class="py-1.5 px-2 font-mono font-bold">${(s.total_score || 0).toFixed(4)}</td>
+            <td class="py-1.5 px-2">${statusIcon}</td>
+            <td class="py-1.5 px-2 font-mono">${(s.latest_close || 0).toFixed(2)}</td>
+            <td class="py-1.5 px-2 font-mono ${chg1dC}">${((s.price_change_1d || 0) * 100).toFixed(2)}%</td>
+            <td class="py-1.5 px-2 font-mono ${chg5dC}">${((s.price_change_5d || 0) * 100).toFixed(2)}%</td>
+            <td class="py-1.5 px-2 text-gray-500">${factors}</td>
+          </tr>`;
         }
+        html += '</tbody></table></div>';
+
+        // 趋势图（简易 ASCII 条形图）
+        const maxScore = Math.max(...snapshots.map(s => s.total_score || 0), threshold);
+        html += `<div class="mt-4 pt-3 border-t border-gray-700">
+          <div class="text-xs text-gray-500 mb-2">得分走势（阈值 ${threshold}）</div>`;
+        for (const s of snapshots.slice(-15)) {
+          const pct = maxScore > 0 ? (s.total_score / maxScore) * 100 : 0;
+          const barColor = s.total_score >= threshold ? 'bg-green-500' : s.total_score >= threshold * 0.8 ? 'bg-yellow-500' : 'bg-red-500';
+          html += `<div class="flex items-center gap-2 mb-1">
+            <span class="text-xs text-gray-500 w-16 shrink-0">${(s.snapshot_date || '').slice(5)}</span>
+            <div class="flex-1 bg-gray-800 rounded h-3 relative">
+              <div class="${barColor} h-3 rounded" style="width:${pct}%"></div>
+              <div class="absolute inset-0 flex items-center justify-end pr-1">
+                <span class="text-xs font-mono text-gray-300">${(s.total_score || 0).toFixed(3)}</span>
+              </div>
+            </div>
+          </div>`;
+        }
+        html += '</div>';
+
+        document.getElementById('health-trend-content').innerHTML = html;
       } catch (e) {
-        alert('删除失败: ' + e.message);
+        document.getElementById('health-trend-content').innerHTML =
+          `<p class="text-red-400">${escapeHtml(e.message)}</p>`;
       }
     }
 
-    async function removeStrategyFromPortfolio(portfolioId, strategyId) {
+    function closeTrend() {
+      document.getElementById('health-trend-panel').classList.add('hidden');
+    }
+
+    // ============ 因子库 ============
+    async function loadFactorLibrary() {
       try {
-        await fetchJSON(`/api/strategy/portfolios/${portfolioId}/strategies/${strategyId}`, 'DELETE');
-        showPortfolio(portfolioId);
+        const data = await fetchJSON('/api/strategy/llm/factors');
+        const container = document.getElementById('factor-library');
+        container.innerHTML = (data.factors || []).map(f => {
+          const params = Object.entries(f.params || {}).map(([k, v]) =>
+            `${k}: ${v.default} (${v.min}~${v.max})`
+          ).join(', ');
+          return `<div class="metric-card">
+            <h4 class="text-sm font-medium text-blue-400">${escapeHtml(f.id)}</h4>
+            <p class="text-xs text-gray-400 mt-1">${escapeHtml(f.name)}</p>
+            <p class="text-xs text-gray-500 mt-1">${escapeHtml(f.description)}</p>
+            ${params ? `<p class="text-xs text-gray-600 mt-1">参数: ${escapeHtml(params)}</p>` : ''}
+          </div>`;
+        }).join('');
       } catch (e) {
-        alert('移除失败: ' + e.message);
+        document.getElementById('factor-library').innerHTML = '<p class="text-gray-500 text-sm">加载失败</p>';
       }
     }
 
-    // ═══ 帮助 ═══
-
-    function showHelp() {
-      alert(`DeepPulse 策略平台使用帮助
-
-📋 策略管理
-- 创建、编辑、删除、克隆策略
-- 支持 Markdown 格式编写策略内容
-- 按分类和标签组织策略
-
-📈 策略回测
-- 选择策略和股票进行历史回测
-- 查看收益率、胜率、最大回撤等指标
-- 分析交易记录
-- 支持动态退出策略（ATR止损、移动止损、技术退出）
-
-🔔 信号监控
-- 实时扫描策略信号
-- 确认或过期信号
-- 查看信号统计
-
-📊 绩效分析
-- 查看策略整体绩效
-- 比较不同策略表现
-- 归因分析
-
-💼 策略组合
-- 创建多策略组合
-- 管理资金分配
-- 优化组合配置
-
-═══ 动态退出策略说明 ═══
-
-核心理念: "没有问题就不止盈"
-
-🛡️ 保守型
-- ATR止损: 2倍ATR（宽止损）
-- 移动止损: 2.5倍ATR，激活盈利5%
-- 适合: 稳健投资者
-
-⚖️ 平衡型（推荐）
-- ATR止损: 1.5倍ATR
-- 移动止损: 2倍ATR，激活盈利3%
-- 适合: 大多数场景
-
-⚡ 激进型
-- ATR止损: 1倍ATR（窄止损）
-- 移动止损: 1.5倍ATR，激活盈利2%
-- 适合: 短线交易
-
-退出机制:
-1. ATR止损: 根据市场波动动态调整止损位
-2. 移动止损: 保护利润，跟随最高价
-3. 保本止损: 盈利达到阈值后保护本金
-4. 技术退出: 当出现技术问题时才考虑止盈
-5. 时间退出: 超过最大持仓时间`);
-    }
-
-    // 初始化
+    // ============ 初始化 ============
     document.addEventListener('DOMContentLoaded', () => {
-      showPage('strategies');
+      loadFactorLibrary();
     });
   </script>
 </body>

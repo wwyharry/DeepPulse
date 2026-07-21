@@ -1,18 +1,17 @@
-"""信号监控器 - 实时监控策略信号"""
+"""信号监控器 - 基于已保存的个股AI策略实时扫描信号"""
 
-import asyncio
 import threading
 import time
 from datetime import datetime
 from typing import Callable, Optional
 
-from deeppulse.strategy.models import Signal, SignalStatus, SignalType
+from deeppulse.strategy.models import Signal, SignalStatus
 from deeppulse.strategy.repository import get_repository
 from deeppulse.strategy.signals import get_signal_generator
 
 
 class SignalMonitor:
-    """信号监控器 - 后台运行，实时扫描信号"""
+    """信号监控器 - 后台运行，扫描已保存的个股AI策略信号"""
 
     def __init__(self):
         self.repository = get_repository()
@@ -61,15 +60,10 @@ class SignalMonitor:
                 time.sleep(60)
 
     def _scan_once(self):
-        """执行一次扫描"""
+        """执行一次扫描 - 扫描所有已保存的个股AI策略"""
         try:
-            # 获取股票列表
-            stock_codes = self._get_stock_list()
-            if not stock_codes:
-                return
-
-            # 扫描信号
-            signals = self.signal_generator.scan_all_strategies(stock_codes)
+            # 扫描所有已保存的个股策略
+            signals = self.signal_generator.scan_all_stock_strategies()
 
             # 更新统计
             self._last_scan_time = datetime.now()
@@ -116,12 +110,10 @@ class SignalMonitor:
         """立即执行一次扫描"""
         signals = []
         try:
-            stock_codes = self._get_stock_list()
-            if stock_codes:
-                signals = self.signal_generator.scan_all_strategies(stock_codes)
-                self._last_scan_time = datetime.now()
-                self._scan_count += 1
-                self._signal_count += len(signals)
+            signals = self.signal_generator.scan_all_stock_strategies()
+            self._last_scan_time = datetime.now()
+            self._scan_count += 1
+            self._signal_count += len(signals)
         except Exception as e:
             print(f"立即扫描失败: {e}")
         return signals

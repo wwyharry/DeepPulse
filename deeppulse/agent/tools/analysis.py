@@ -382,50 +382,6 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "backtest_stock",
-            "description": "对单只股票运行指定策略的历史回测，统计胜率、盈亏比、最大回撤等指标。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {"type": "string", "description": "股票代码"},
-                    "strategy": {
-                        "type": "string",
-                        "description": "策略名 - ma_cross(均线金叉)/macd_cross(MACD金叉)/rsi_oversold(RSI超卖)/volume_breakout(放量突破)/boll_bounce(布林带反弹)/kdj_cross(KDJ金叉)/multi_confirm(多指标共振)",
-                        "default": "macd_cross",
-                    },
-                    "days": {"type": "integer", "description": "回测数据天数（交易日），默认500", "default": 500},
-                    "stop_loss": {"type": "number", "description": "止损比例，默认0.05(5%)", "default": 0.05},
-                    "take_profit": {"type": "number", "description": "止盈比例，默认0.10(10%)", "default": 0.10},
-                    "max_hold": {"type": "integer", "description": "最大持仓天数，默认20", "default": 20},
-                },
-                "required": ["code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "backtest_multi_stock",
-            "description": "在多只股票上回测同一策略，汇总统计胜率和收益率。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "strategy": {"type": "string", "description": "策略名", "default": "macd_cross"},
-                    "codes": {
-                        "type": "string",
-                        "description": "股票代码（逗号分隔），为空则随机抽样测试",
-                        "default": "",
-                    },
-                    "days": {"type": "integer", "description": "回测天数", "default": 500},
-                    "top_n": {"type": "integer", "description": "返回表现最好的N只", "default": 10},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "generate_chart",
             "description": "生成K线图（带均线、MACD等技术指标），保存到本地文件。",
             "parameters": {
@@ -554,8 +510,6 @@ TOOL_DISPATCH = {
     "update_timeframe_data": update_timeframe_data,
     "query_timeframe_kline": query_timeframe_kline,
     "multi_timeframe_analysis": multi_timeframe_analysis,
-    "backtest_stock": backtest_stock,
-    "backtest_multi_stock": backtest_multi_stock,
     "generate_chart": generate_chart,
     "compare_stocks_chart": compare_stocks_chart,
     # 新增分析工具

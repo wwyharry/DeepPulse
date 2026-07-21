@@ -165,6 +165,32 @@ class StrategyEngine:
 
         return TechnicalIndicators.add_all(df)
 
+    def evaluate_spec(self, spec, code: str, days: int = 250) -> dict:
+        """评估 LLM 生成的策略规格（StrategySpec）对某只股票的最新触发情况
+
+        返回最新 bar 的多因子得分明细、加权总分及是否触达入场阈值。
+        """
+        from deeppulse.src.query import StockQuery
+        from deeppulse.strategy.spec import factor_scores_detail
+
+        query = StockQuery()
+        end = date.today()
+        start = end - timedelta(days=days * 3)
+
+        df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
+        if df.empty:
+            return {"error": f"股票 {code} 无数据"}
+
+        df = df.sort_values("trade_date").reset_index(drop=True)
+        df = self._add_indicators(df)
+
+        detail = factor_scores_detail(spec, df)
+        return {
+            "stock_code": code,
+            "strategy_name": spec.name,
+            **detail,
+        }
+
     def _evaluate_conditions(self, df: pd.DataFrame, conditions: dict) -> dict:
         """评估条件匹配度"""
         if df.empty:

@@ -1,5 +1,6 @@
 """策略平台数据模型"""
 
+import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -335,3 +336,93 @@ class PerformanceMetrics:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass
+class StockStrategy:
+    """个股AI策略 - AI为特定股票生成的多因子策略
+
+    与通用 Strategy 的区别：
+    - 按个股组织，stock_code 是核心维度
+    - 存储 LLM 生成的 StrategySpec（JSON 序列化）
+    - 保存时的回测结果快照
+    - 不依赖 Markdown 文件
+    """
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    stock_code: str = ""  # 股票代码（如 "000001"）
+    stock_name: str = ""  # 股票名称
+    name: str = ""  # 策略名称（AI 生成或用户自定义）
+    spec_json: str = ""  # StrategySpec 的 JSON 序列化
+    backtest_result: dict = field(default_factory=dict)  # 保存时的回测结果快照
+    llm_rationale: str = ""  # AI 生成时的推理说明
+    status: str = "active"  # active / archived
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def get_spec(self):
+        """反序列化 StrategySpec"""
+        from deeppulse.strategy.spec import StrategySpec
+
+        return StrategySpec.from_json(self.spec_json)
+
+    def set_spec(self, spec) -> None:
+        """序列化 StrategySpec"""
+        self.spec_json = spec.to_json()
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        # 嵌入 spec 的可读摘要
+        try:
+            spec = self.get_spec()
+            d["spec_summary"] = {
+                "factors": [
+                    {
+                        "id": f.factor_id,
+                        "name": f.factor_id,
+                        "weight": f.weight,
+                        "direction": f.direction,
+                    }
+                    for f in spec.factors
+                ],
+                "entry_threshold": spec.entry_threshold,
+                "exit_preset": spec.exit_preset,
+            }
+        except Exception:
+            d["spec_summary"] = None
+        return d
+
+    @staticmethod
+    def from_dict(data: dict) -> "StockStrategy":
+        """从字典创建"""
+        valid_fields = {k: v for k, v in data.items() if k in StockStrategy.__dataclass_fields__}
+        return StockStrategy(**valid_fields)
+
+
+@dataclass
+class HealthSnapshot:
+    """策略健康度快照 — 每日记录一个策略的因子状态"""
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    strategy_id: str = ""
+    stock_code: str = ""
+    stock_name: str = ""
+    strategy_name: str = ""
+    total_score: float = 0.0
+    entry_threshold: float = 0.6
+    triggered: bool = False
+    factor_scores: str = "[]"  # JSON: [{factor_id, factor_name, score, weighted_score}]
+    latest_close: float = 0.0
+    price_change_1d: float = 0.0
+    price_change_5d: float = 0.0
+    snapshot_date: str = ""  # YYYY-MM-DD
+    created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        # 解析 factor_scores JSON 为可读
+        try:
+            d["factors"] = json.loads(self.factor_scores)
+        except Exception:
+            d["factors"] = []
+        return d

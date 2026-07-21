@@ -8,7 +8,9 @@ from typing import Optional
 
 from deeppulse.strategy.models import (
     BacktestResult,
+    HealthSnapshot,
     Signal,
+    StockStrategy,
     Strategy,
     StrategyVersion,
 )
@@ -58,7 +60,7 @@ class StrategyRepository:
     def _load_from_db(self):
         """从DuckDB加载自定义策略"""
         try:
-            import duckduckdb
+            import duckdb
 
             if not self.db_path.exists():
                 return
@@ -580,6 +582,322 @@ class StrategyRepository:
 
                 columns = [desc[0] for desc in conn.description]
                 return [Signal(**dict(zip(columns, row))) for row in rows]
+            finally:
+                conn.close()
+        except Exception:
+            return []
+
+    # ============ StockStrategy CRUD（个股AI策略） ============
+
+    def _ensure_stock_strategies_table(self, conn):
+        """确保 stock_strategies 表存在"""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stock_strategies (
+                id VARCHAR PRIMARY KEY,
+                stock_code VARCHAR NOT NULL,
+                stock_name VARCHAR,
+                name VARCHAR,
+                spec_json TEXT,
+                backtest_result VARCHAR,
+                llm_rationale TEXT,
+                status VARCHAR DEFAULT 'active',
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+        # 创建索引（如果不存在）
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stock_strategies_code "
+                "ON stock_strategies(stock_code)"
+            )
+        except Exception:
+            pass  # 索引可能已存在
+
+    def save_stock_strategy(self, ss: StockStrategy) -> bool:
+        """保存个股AI策略"""
+        try:
+            import duckdb
+
+            if not self.db_path.exists():
+                return False
+
+            conn = duckdb.connect(str(self.db_path))
+            try:
+                self._ensure_stock_strategies_table(conn)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO stock_strategies
+                    (id, stock_code, stock_name, name, spec_json,
+                     backtest_result, llm_rationale, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    [
+                        ss.id,
+                        ss.stock_code,
+                        ss.stock_name,
+                        ss.name,
+                        ss.spec_json,
+                        json.dumps(ss.backtest_result, ensure_ascii=False),
+                        ss.llm_rationale,
+                        ss.status,
+                        ss.created_at,
+                        ss.updated_at,
+                    ],
+                )
+                return True
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"保存个股策略失败: {e}")
+            return False
+
+    def get_stock_strategy(self, strategy_id: str) -> Optional[StockStrategy]:
+        """按 ID 获取个股AI策略"""
+        try:
+            import duckdb
+
+            if not self.db_path.exists():
+                return None
+
+            conn = duckdb.connect(str(self.db_path), read_only=True)
+            try:
+                rows = conn.execute(
+                    "SELECT * FROM stock_strategies WHERE id = ?", [strategy_id]
+                ).fetchall()
+                if not rows:
+                    return None
+                columns = [desc[0] for desc in conn.description]
+                data = dict(zip(columns, rows[0]))
+                # 反序列化 backtest_result
+                if isinstance(data.get("backtest_result"), str):
+                    try:
+                        data["backtest_result"] = json.loads(data["backtest_result"])
+                    except (json.JSONDecodeError, TypeError):
+                        data["backtest_result"] = {}
+                return StockStrategy.from_dict(data)
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
+    def list_stock_strategies(
+        self, stock_code: str = None, status: str = "active"
+    ) -> list[StockStrategy]:
+        """列出个股AI策略，可按 stock_code 筛选"""
+        try:
+            import duckdb
+
+            if not self.db_path.exists():
+                return []
+
+            conn = duckdb.connect(str(self.db_path), read_only=True)
+            try:
+                if stock_code:
+                    rows = conn.execute(
+                        "SELECT * FROM stock_strategies "
+                        "WHERE stock_code = ? AND status = ? "
+                        "ORDER BY created_at DESC",
+                        [stock_code, status],
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT * FROM stock_strategies "
+                        "WHERE status = ? ORDER BY stock_code, created_at DESC",
+                        [status],
+                    ).fetchall()
+
+                columns = [desc[0] for desc in conn.description]
+                result = []
+                for row in rows:
+                    data = dict(zip(columns, row))
+                    if isinstance(data.get("backtest_result"), str):
+                        try:
+                            data["backtest_result"] = json.loads(data["backtest_result"])
+                        except (json.JSONDecodeError, TypeError):
+                            data["backtest_result"] = {}
+                    result.append(StockStrategy.from_dict(data))
+                return result
+            finally:
+                conn.close()
+        except Exception:
+            return []
+
+    def delete_stock_strategy(self, strategy_id: str) -> bool:
+        """删除个股AI策略"""
+        try:
+            import duckdb
+
+            if not self.db_path.exists():
+                return False
+
+            conn = duckdb.connect(str(self.db_path))
+            try:
+                self._ensure_stock_strategies_table(conn)
+                conn.execute(
+                    "DELETE FROM stock_strategies WHERE id = ?", [strategy_id]
+                )
+                return True
+            finally:
+                conn.close()
+        except Exception:
+            return False
+
+    def get_stock_codes_with_strategies(self) -> list[dict]:
+        """获取所有有策略的股票代码及其策略数量"""
+        try:
+            import duckdb
+
+            if not self.db_path.exists():
+                return []
+
+            conn = duckdb.connect(str(self.db_path), read_only=True)
+            try:
+                rows = conn.execute(
+                    "SELECT stock_code, stock_name, COUNT(*) as count "
+                    "FROM stock_strategies WHERE status = 'active' "
+                    "GROUP BY stock_code, stock_name ORDER BY stock_code"
+                ).fetchall()
+                return [
+                    {"stock_code": r[0], "stock_name": r[1], "count": r[2]}
+                    for r in rows
+                ]
+            finally:
+                conn.close()
+        except Exception:
+            return []
+
+
+    # ============================================================
+    #  策略健康度快照
+    # ============================================================
+
+    def _ensure_health_snapshots_table(self, conn):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS health_snapshots (
+                id VARCHAR PRIMARY KEY,
+                strategy_id VARCHAR,
+                stock_code VARCHAR,
+                stock_name VARCHAR,
+                strategy_name VARCHAR,
+                total_score DOUBLE,
+                entry_threshold DOUBLE,
+                triggered BOOLEAN,
+                factor_scores VARCHAR,
+                latest_close DOUBLE,
+                price_change_1d DOUBLE,
+                price_change_5d DOUBLE,
+                snapshot_date VARCHAR,
+                created_at TIMESTAMP
+            )
+        """)
+
+    def save_health_snapshot(self, snap: HealthSnapshot) -> bool:
+        """保存健康度快照（同 strategy+date 去重）"""
+        try:
+            import duckdb
+            from deeppulse import config
+
+            conn = duckdb.connect(str(config.DB_PATH))
+            try:
+                self._ensure_health_snapshots_table(conn)
+                # 删除同策略同日期的旧快照
+                conn.execute(
+                    "DELETE FROM health_snapshots WHERE strategy_id = $1 AND snapshot_date = $2",
+                    [snap.strategy_id, snap.snapshot_date],
+                )
+                conn.execute(
+                    """INSERT INTO health_snapshots
+                    (id, strategy_id, stock_code, stock_name, strategy_name,
+                     total_score, entry_threshold, triggered, factor_scores,
+                     latest_close, price_change_1d, price_change_5d,
+                     snapshot_date, created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+                    [
+                        snap.id, snap.strategy_id, snap.stock_code,
+                        snap.stock_name, snap.strategy_name,
+                        snap.total_score, snap.entry_threshold, snap.triggered,
+                        snap.factor_scores, snap.latest_close,
+                        snap.price_change_1d, snap.price_change_5d,
+                        snap.snapshot_date, snap.created_at,
+                    ],
+                )
+                return True
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"保存健康度快照失败: {e}")
+            return False
+
+    def get_latest_health(self) -> list[HealthSnapshot]:
+        """获取所有策略的最新健康度快照"""
+        try:
+            import duckdb
+            from deeppulse import config
+
+            if not config.DB_PATH.exists():
+                return []
+            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
+            try:
+                # 检查表是否存在
+                tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
+                if 'health_snapshots' not in tables:
+                    return []
+                rows = conn.execute("""
+                    SELECT * FROM health_snapshots
+                    WHERE id IN (
+                        SELECT id FROM (
+                            SELECT id, ROW_NUMBER() OVER (
+                                PARTITION BY strategy_id ORDER BY snapshot_date DESC
+                            ) as rn FROM health_snapshots
+                        ) WHERE rn = 1
+                    )
+                    ORDER BY stock_code
+                """).fetchall()
+                columns = [d[0] for d in conn.description]
+                result = []
+                for row in rows:
+                    data = dict(zip(columns, row))
+                    # 转换 datetime 为字符串
+                    if 'created_at' in data and data['created_at'] is not None:
+                        data['created_at'] = str(data['created_at'])
+                    result.append(HealthSnapshot(**data))
+                return result
+            finally:
+                conn.close()
+        except Exception:
+            return []
+
+    def get_health_trend(self, strategy_id: str, days: int = 30) -> list[HealthSnapshot]:
+        """获取某策略最近 N 天的健康度趋势"""
+        try:
+            import duckdb
+            from deeppulse import config
+
+            if not config.DB_PATH.exists():
+                return []
+            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
+            try:
+                # 检查表是否存在
+                tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
+                if 'health_snapshots' not in tables:
+                    return []
+                rows = conn.execute(
+                    """SELECT * FROM health_snapshots
+                    WHERE strategy_id = $1
+                    ORDER BY snapshot_date DESC LIMIT $2""",
+                    [strategy_id, days],
+                ).fetchall()
+                columns = [d[0] for d in conn.description]
+                result = []
+                for row in rows:
+                    data = dict(zip(columns, row))
+                    # 转换 datetime 为字符串
+                    if 'created_at' in data and data['created_at'] is not None:
+                        data['created_at'] = str(data['created_at'])
+                    result.append(HealthSnapshot(**data))
+                result.reverse()  # 按日期正序
+                return result
             finally:
                 conn.close()
         except Exception:

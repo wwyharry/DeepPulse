@@ -1,369 +1,214 @@
-"""绩效分析器 - 策略绩效分析和归因"""
+"""AI 策略分析器 - 用已保存的策略 + LLM 分析当前行情，预测买卖点
+
+核心方法 analyze_with_strategy() 接收一个已保存的个股策略 ID，加载
+StrategySpec，计算当前各因子得分，调用 LLM 综合分析并给出操作建议。
+"""
 
 import json
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 
-from deeppulse.strategy.models import BacktestResult, PerformanceMetrics, Strategy
+from deeppulse.strategy.models import StockStrategy
 from deeppulse.strategy.repository import get_repository
 
 
-class PerformanceAnalyzer:
-    """绩效分析器"""
+class AIAnalyzer:
+    """AI 策略分析器 - LLM 驱动的行情分析"""
 
     def __init__(self):
         self.repository = get_repository()
 
-    def analyze_strategy(self, strategy_id: str) -> dict:
-        """分析策略绩效"""
-        strategy = self.repository.get_strategy(strategy_id)
-        if not strategy:
+    def analyze_with_strategy(self, stock_strategy_id: str) -> dict:
+        """用已保存的策略 + LLM 分析当前行情，预测买卖点
+
+        流程：
+        1. 获取已保存的 StockStrategy
+        2. 加载最新 K 线数据 + 技术指标
+        3. 计算当前各因子得分
+        4. 构建行情画像
+        5. 调用 LLM 综合分析
+        """
+        ss = self.repository.get_stock_strategy(stock_strategy_id)
+        if not ss:
             return {"error": "策略不存在"}
 
-        # 获取历史回测结果
-        backtest_results = self._get_backtest_results(strategy_id)
-        if not backtest_results:
-            return {"error": "无回测数据"}
+        spec = ss.get_spec()
 
-        # 计算综合指标
-        metrics = self._compute_aggregate_metrics(backtest_results)
+        # 加载 K 线数据
+        df = self._load_kline(ss.stock_code, days=250)
+        if df is None or df.empty:
+            return {"error": f"股票 {ss.stock_code} 无K线数据"}
 
-        # 计算各股票表现
-        stock_performance = self._analyze_stock_performance(backtest_results)
+        from deeppulse.agent.indicators import TechnicalIndicators
 
-        # 计算时间序列分析
-        time_series = self._analyze_time_series(backtest_results)
+        df = TechnicalIndicators.add_all(df)
 
-        # 计算归因分析
-        attribution = self._analyze_attribution(strategy, backtest_results)
+        # 计算各因子得分
+        from deeppulse.strategy.spec import factor_scores_detail
+
+        detail = factor_scores_detail(spec, df)
+
+        # 构建行情画像
+        from deeppulse.strategy.llm_generator import build_kline_stats
+
+        kline_stats = build_kline_stats(df)
+
+        # 调用 LLM 分析
+        analysis = self._llm_analyze(ss, spec, detail, kline_stats, df)
 
         return {
-            "strategy_id": strategy_id,
-            "strategy_name": strategy.name,
-            "metrics": metrics,
-            "stock_performance": stock_performance,
-            "time_series": time_series,
-            "attribution": attribution,
-            "recommendation": self._generate_recommendation(metrics),
+            "stock_code": ss.stock_code,
+            "stock_name": ss.stock_name,
+            "strategy_name": ss.name,
+            "strategy_id": ss.id,
+            "factor_scores": detail,
+            "kline_stats": kline_stats,
+            "llm_analysis": analysis,
         }
 
-    def _get_backtest_results(self, strategy_id: str) -> list[dict]:
-        """获取回测结果"""
+    def _llm_analyze(
+        self,
+        ss: StockStrategy,
+        spec,
+        detail: dict,
+        kline_stats: dict,
+        df: pd.DataFrame,
+    ) -> dict:
+        """调用 LLM 基于策略因子分析当前行情"""
         try:
-            import duckdb
-            from deeppulse import config
+            from deeppulse.agent.client import LLMClient, load_setting
 
-            if not config.DB_PATH.exists():
-                return []
+            client = LLMClient(load_setting())
+        except Exception as e:
+            return {"error": f"LLM 客户端初始化失败: {e}"}
 
-            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
-            try:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM backtest_results
-                    WHERE strategy_id = ?
-                    ORDER BY created_at DESC
-                """,
-                    [strategy_id],
-                ).fetchall()
-
-                columns = [desc[0] for desc in conn.description]
-                return [dict(zip(columns, row)) for row in rows]
-            finally:
-                conn.close()
-        except Exception:
-            return []
-
-    def _compute_aggregate_metrics(self, results: list[dict]) -> dict:
-        """计算综合指标"""
-        if not results:
-            return {}
-
-        returns = [r.get("total_return", 0) for r in results]
-        win_rates = [r.get("win_rate", 0) for r in results]
-        drawdowns = [r.get("max_drawdown", 0) for r in results]
-        sharpe_ratios = [r.get("sharpe_ratio", 0) for r in results]
-
-        return {
-            "total_backtests": len(results),
-            "avg_return": round(float(np.mean(returns)), 4),
-            "median_return": round(float(np.median(returns)), 4),
-            "std_return": round(float(np.std(returns)), 4),
-            "avg_win_rate": round(float(np.mean(win_rates)), 4),
-            "avg_max_drawdown": round(float(np.mean(drawdowns)), 4),
-            "avg_sharpe_ratio": round(float(np.mean(sharpe_ratios)), 4),
-            "best_return": round(float(max(returns)), 4),
-            "worst_return": round(float(min(returns)), 4),
-            "positive_rate": round(sum(1 for r in returns if r > 0) / len(returns), 4),
-            "consistency": round(1 - float(np.std(returns)) / (abs(float(np.mean(returns))) + 0.001), 4),
-        }
-
-    def _analyze_stock_performance(self, results: list[dict]) -> list[dict]:
-        """分析各股票表现"""
-        stock_data = {}
-
-        for r in results:
-            code = r.get("stock_code", "")
-            if code not in stock_data:
-                stock_data[code] = {
-                    "code": code,
-                    "name": r.get("stock_name", ""),
-                    "backtest_count": 0,
-                    "total_return": 0,
-                    "win_rate": 0,
-                    "max_drawdown": 0,
-                }
-
-            stock_data[code]["backtest_count"] += 1
-            stock_data[code]["total_return"] += r.get("total_return", 0)
-            stock_data[code]["win_rate"] += r.get("win_rate", 0)
-            stock_data[code]["max_drawdown"] = min(
-                stock_data[code]["max_drawdown"], r.get("max_drawdown", 0)
-            )
-
-        # 计算平均值
-        for code, data in stock_data.items():
-            count = data["backtest_count"]
-            if count > 0:
-                data["total_return"] = round(data["total_return"] / count, 4)
-                data["win_rate"] = round(data["win_rate"] / count, 4)
-
-        # 按收益率排序
-        sorted_stocks = sorted(stock_data.values(), key=lambda x: x["total_return"], reverse=True)
-
-        return sorted_stocks[:20]  # 返回前20只
-
-    def _analyze_time_series(self, results: list[dict]) -> dict:
-        """时间序列分析"""
-        if not results:
-            return {}
-
-        # 按时间排序
-        sorted_results = sorted(results, key=lambda x: x.get("created_at", ""))
-
-        # 提取时间序列数据
-        dates = []
-        returns = []
-        for r in sorted_results:
-            created_at = r.get("created_at", "")
-            if created_at:
-                dates.append(created_at[:10])  # 只取日期部分
-                returns.append(r.get("total_return", 0))
-
-        if not dates:
-            return {}
-
-        # 计算移动平均
-        window = min(5, len(returns))
-        if window > 0:
-            ma_returns = np.convolve(returns, np.ones(window) / window, mode="valid")
-            ma_returns = ma_returns.tolist()
-        else:
-            ma_returns = returns
-
-        # 计算趋势
-        if len(returns) >= 2:
-            trend = "上升" if returns[-1] > returns[0] else "下降"
-            trend_strength = abs(returns[-1] - returns[0]) / (abs(returns[0]) + 0.001)
-        else:
-            trend = "平稳"
-            trend_strength = 0
-
-        return {
-            "dates": dates,
-            "returns": returns,
-            "ma_returns": ma_returns,
-            "trend": trend,
-            "trend_strength": round(trend_strength, 4),
-            "volatility": round(float(np.std(returns)), 4) if len(returns) > 1 else 0,
-        }
-
-    def _analyze_attribution(self, strategy: Strategy, results: list[dict]) -> dict:
-        """归因分析"""
-        attribution = {
-            "factors": [],
-            "insights": [],
-        }
-
-        if not results:
-            return attribution
-
-        # 分析哪些条件贡献收益
-        conditions = strategy.conditions or {}
-        keywords = conditions.get("keywords", [])
-
-        # 统计各关键词的出现频率和对应收益
-        keyword_returns = {}
-        for r in results:
-            trades = r.get("trades", [])
-            for trade in trades:
-                signal = trade.get("signal", "")
-                pnl = trade.get("pnl_pct", 0)
-
-                for keyword in keywords:
-                    if keyword in signal:
-                        if keyword not in keyword_returns:
-                            keyword_returns[keyword] = []
-                        keyword_returns[keyword].append(pnl)
-
-        # 计算各因子的贡献
-        for keyword, returns in keyword_returns.items():
-            avg_return = np.mean(returns)
-            attribution["factors"].append({
-                "factor": keyword,
-                "avg_return": round(float(avg_return), 4),
-                "count": len(returns),
-                "contribution": round(float(avg_return * len(returns)), 4),
+        # 构建因子描述
+        factor_desc = []
+        for f in spec.factors:
+            factor_desc.append({
+                "id": f.factor_id,
+                "weight": f.weight,
+                "direction": f.direction,
+                "params": f.params,
             })
 
-        # 排序
-        attribution["factors"].sort(key=lambda x: x["contribution"], reverse=True)
+        # 构建因子得分
+        factor_scores = []
+        for f in detail.get("factors", []):
+            factor_scores.append({
+                "factor_id": f["factor_id"],
+                "factor_name": f["factor_name"],
+                "score": f["score"],
+                "weighted_score": f["weighted_score"],
+            })
 
-        # 生成洞察
-        if attribution["factors"]:
-            best_factor = attribution["factors"][0]
-            worst_factor = attribution["factors"][-1]
+        # 最近 5 日 K 线
+        recent_kline = df.tail(5)[
+            ["trade_date", "open", "high", "low", "close", "volume"]
+        ].to_dict(orient="records")
 
-            attribution["insights"].append(
-                f"表现最好的因子是 '{best_factor['factor']}'，平均收益 {best_factor['avg_return']:.2%}"
-            )
+        prompt = f"""你是一位资深 A 股量化交易分析师。请基于以下信息分析当前行情并给出操作建议。
 
-            if worst_factor["avg_return"] < 0:
-                attribution["insights"].append(
-                    f"表现最差的因子是 '{worst_factor['factor']}'，平均收益 {worst_factor['avg_return']:.2%}，建议优化或移除"
-                )
+【股票】{ss.stock_code} {ss.stock_name}
+【策略】{ss.name}
+【策略因子组合】
+{json.dumps(factor_desc, ensure_ascii=False, indent=2)}
+入场阈值: {spec.entry_threshold}
+退出预设: {spec.exit_preset}
 
-        return attribution
+【当前各因子得分】
+{json.dumps(factor_scores, ensure_ascii=False, indent=2)}
+综合得分: {detail.get('total_score', 0)} / 阈值: {detail.get('entry_threshold', 0.6)}
+是否触发: {'是' if detail.get('triggered') else '否'}
 
-    def _generate_recommendation(self, metrics: dict) -> str:
-        """生成策略推荐"""
-        if not metrics:
-            return "数据不足，无法生成推荐"
+【近期行情画像】
+{kline_stats}
 
-        avg_return = metrics.get("avg_return", 0)
-        avg_win_rate = metrics.get("avg_win_rate", 0)
-        avg_sharpe = metrics.get("avg_sharpe_ratio", 0)
-        positive_rate = metrics.get("positive_rate", 0)
+【最近5日K线】
+{json.dumps(recent_kline, ensure_ascii=False, default=str)}
 
-        # 评分
-        score = 0
-        if avg_return > 0.1:
-            score += 3
-        elif avg_return > 0.05:
-            score += 2
-        elif avg_return > 0:
-            score += 1
+请分析：
+1. 当前各因子状态解读（哪些因子强/弱，为什么）
+2. 综合研判：当前是否适合买入/持有/卖出
+3. 关键价位：支撑位、压力位
+4. 风险提示：需要注意的风险因素
+5. 操作建议：具体的操作建议（买入/观望/止损/止盈）
 
-        if avg_win_rate > 0.6:
-            score += 2
-        elif avg_win_rate > 0.5:
-            score += 1
+严格输出 JSON：
+{{
+  "signal": "买入/观望/卖出",
+  "confidence": 0.0到1.0之间的数值,
+  "factor_analysis": [
+    {{"factor_id": "因子id", "factor_name": "因子名称", "status": "强/中/弱", "interpretation": "解读"}}
+  ],
+  "overall_assessment": "综合研判文字",
+  "key_levels": {{"support": 价格数值, "resistance": 价格数值}},
+  "risk_factors": ["风险1", "风险2"],
+  "action_advice": "具体操作建议",
+  "reasoning": "完整推理过程"
+}}"""
 
-        if avg_sharpe > 1:
-            score += 2
-        elif avg_sharpe > 0.5:
-            score += 1
-
-        if positive_rate > 0.7:
-            score += 1
-
-        # 生成推荐
-        if score >= 7:
-            return "强烈推荐 - 策略表现优秀，收益稳定，风险可控"
-        elif score >= 5:
-            return "推荐 - 策略表现良好，建议适当使用"
-        elif score >= 3:
-            return "中性 - 策略表现一般，需要进一步优化"
-        elif score >= 1:
-            return "谨慎 - 策略表现不佳，建议谨慎使用或重新设计"
-        else:
-            return "不推荐 - 策略表现差，建议重新设计"
-
-    def compare_strategies(self, strategy_ids: list[str]) -> dict:
-        """比较多个策略"""
-        comparisons = []
-
-        for strategy_id in strategy_ids:
-            analysis = self.analyze_strategy(strategy_id)
-            if "error" not in analysis:
-                comparisons.append({
-                    "strategy_id": strategy_id,
-                    "strategy_name": analysis.get("strategy_name", ""),
-                    "metrics": analysis.get("metrics", {}),
-                    "recommendation": analysis.get("recommendation", ""),
-                })
-
-        if not comparisons:
-            return {"error": "无可比较的策略"}
-
-        # 按平均收益排序
-        comparisons.sort(
-            key=lambda x: x["metrics"].get("avg_return", 0),
-            reverse=True,
-        )
-
-        # 添加排名
-        for i, comp in enumerate(comparisons):
-            comp["rank"] = i + 1
-
-        return {
-            "comparisons": comparisons,
-            "best_strategy": comparisons[0] if comparisons else None,
-            "worst_strategy": comparisons[-1] if comparisons else None,
-        }
-
-    def get_performance_summary(self) -> dict:
-        """获取所有策略的绩效摘要"""
         try:
-            import duckdb
-            from deeppulse import config
+            resp = client.chat([{"role": "user", "content": prompt}])
+            text = resp.get("content") or ""
 
-            if not config.DB_PATH.exists():
-                return {}
+            # 提取 JSON
+            import re
 
-            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
-            try:
-                # 策略总数
-                total_strategies = conn.execute("SELECT COUNT(*) FROM strategies").fetchone()[0]
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            candidate = m.group(1) if m else None
+            if candidate is None:
+                start, end = text.find("{"), text.rfind("}")
+                if start != -1 and end > start:
+                    candidate = text[start : end + 1]
+                else:
+                    return {
+                        "signal": "观望",
+                        "confidence": 0.5,
+                        "overall_assessment": text,
+                        "error": "LLM 输出格式异常",
+                    }
 
-                # 活跃策略数
-                active_strategies = conn.execute(
-                    "SELECT COUNT(*) FROM strategies WHERE status = 'active'"
-                ).fetchone()[0]
+            return json.loads(candidate)
 
-                # 回测总数
-                total_backtests = conn.execute("SELECT COUNT(*) FROM backtest_results").fetchone()[0]
+        except Exception as e:
+            return {
+                "signal": "观望",
+                "confidence": 0.5,
+                "overall_assessment": f"LLM 分析失败: {e}",
+                "error": str(e),
+            }
 
-                # 平均收益
-                avg_return = conn.execute(
-                    "SELECT AVG(total_return) FROM backtest_results"
-                ).fetchone()[0] or 0
+    def _load_kline(
+        self, stock_code: str, days: int = 250
+    ) -> Optional[pd.DataFrame]:
+        """加载K线数据"""
+        try:
+            from deeppulse.src.query import StockQuery
 
-                # 信号总数
-                total_signals = conn.execute("SELECT COUNT(*) FROM strategy_signals").fetchone()[0]
-
-                return {
-                    "total_strategies": total_strategies,
-                    "active_strategies": active_strategies,
-                    "total_backtests": total_backtests,
-                    "avg_return": round(float(avg_return), 4),
-                    "total_signals": total_signals,
-                }
-            finally:
-                conn.close()
+            query = StockQuery()
+            end = date.today()
+            start = end - timedelta(days=int(days * 1.6))
+            df = query.get_daily_kline(
+                stock_code, start_date=str(start), end_date=str(end)
+            )
+            if df is None or df.empty:
+                return None
+            return df.sort_values("trade_date").reset_index(drop=True)
         except Exception:
-            return {}
+            return None
 
 
 # 全局实例
 _analyzer = None
 
 
-def get_performance_analyzer() -> PerformanceAnalyzer:
-    """获取全局绩效分析器实例"""
+def get_ai_analyzer() -> AIAnalyzer:
+    """获取全局 AI 分析器实例"""
     global _analyzer
     if _analyzer is None:
-        _analyzer = PerformanceAnalyzer()
+        _analyzer = AIAnalyzer()
     return _analyzer

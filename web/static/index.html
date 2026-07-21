@@ -6,66 +6,14 @@
   <title>DeepPulse — A 股短线分析 AI Agent</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <style>
-    :root { --bg: #111827; --card: #1f2937; --border: #374151; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    .thinking-block { border-left: 2px solid #3b82f6; padding-left: 12px; color: #9ca3af; font-size: 0.875rem; white-space: pre-wrap; }
-    .tool-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #1f2937; border-radius: 6px; font-size: 0.75rem; font-family: monospace; margin: 2px; }
-    .tool-badge.done { color: #22c55e; }
-    .tool-badge.calling { color: #eab308; }
-    .cursor-blink { display: inline-block; width: 2px; height: 16px; background: #3b82f6; animation: blink 1s infinite; margin-left: 2px; vertical-align: text-bottom; }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-    .fade-in { animation: fadeIn 0.3s ease-in; }
-    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-
-    /* Markdown */
-    .markdown-body { line-height: 1.7; }
-    .markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #fff; }
-    .markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin: 0.8rem 0 0.4rem; color: #fff; }
-    .markdown-body h3 { font-size: 1.1rem; font-weight: 600; margin: 0.6rem 0 0.3rem; color: #e5e7eb; }
-    .markdown-body p { margin: 0.4rem 0; }
-    .markdown-body ul, .markdown-body ol { padding-left: 1.5rem; margin: 0.4rem 0; }
-    .markdown-body li { margin: 0.2rem 0; }
-    .markdown-body code { background: #374151; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; color: #fbbf24; }
-    .markdown-body pre { background: #0d1117; border-radius: 8px; padding: 12px; margin: 0.5rem 0; overflow-x: auto; }
-    .markdown-body pre code { background: none; padding: 0; color: #e5e7eb; }
-    .markdown-body blockquote { border-left: 3px solid #6b7280; padding-left: 12px; color: #9ca3af; margin: 0.5rem 0; }
-    .markdown-body table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.875rem; }
-    .markdown-body th, .markdown-body td { border: 1px solid #374151; padding: 6px 10px; text-align: left; }
-    .markdown-body th { background: #1f2937; font-weight: 600; }
-    .markdown-body strong { color: #fff; }
-    .markdown-body em { color: #9ca3af; }
-    .markdown-body a { color: #60a5fa; text-decoration: underline; }
-    .markdown-body hr { border: none; border-top: 1px solid #374151; margin: 1rem 0; }
-
-    /* 表格 */
-    .data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    .data-table th { background: #1f2937; padding: 8px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #374151; position: sticky; top: 0; z-index: 1; }
-    .data-table td { padding: 6px 12px; border-bottom: 1px solid #1a1f2e; }
-    .data-table tr:hover td { background: #1f2937; }
-    .text-up { color: #ef4444; }
-    .text-down { color: #22c55e; }
-    .text-flat { color: #6b7280; }
-
-    /* 卡片 */
-    .metric-card { background: #1f2937; border-radius: 10px; padding: 16px 20px; border: 1px solid #374151; }
-    .metric-label { font-size: 0.75rem; color: #9ca3af; margin-bottom: 4px; }
-    .metric-value { font-size: 1.5rem; font-weight: 700; }
-
-    /* K 线图 */
-    .kline-canvas { background: #0d1117; border-radius: 8px; }
-  </style>
+  <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body class="h-screen flex flex-col">
   <!-- 顶部导航 -->
-  <nav class="border-b border-gray-800 bg-[#1f2937] shrink-0">
+  <nav class="dp-glass-nav shrink-0 sticky top-0 z-50">
     <div class="max-w-full mx-auto flex items-center justify-between px-4 h-12">
       <div class="flex items-center gap-6">
-        <span class="text-blue-400 font-bold text-lg">DeepPulse</span>
+        <span class="dp-brand text-lg">DeepPulse</span>
         <div class="flex gap-1 text-sm">
           <button onclick="showPage('chat')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-white" data-page="chat">AI 对话</button>
           <button onclick="showPage('market')" class="nav-btn px-3 py-1.5 rounded hover:bg-gray-700 text-gray-400" data-page="market">行情</button>
@@ -567,12 +515,27 @@ function sendMessage() {
   const text = input.value.trim();
   if (!text || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
   lastUserMessage = text;  // 保存用户消息用于生成标题
+
+  // 完成上一轮回复（保留内容，移除光标动画，关闭推理过程）
+  finalizePreviousAssistant();
+
   fullThinking = ''; fullContent = '';
-  document.getElementById('current-assistant')?.remove();
   document.getElementById('tool-panel').innerHTML = '';
   appendMessage('user', text); input.value = '';
   isStreaming = true; document.getElementById('btn-send').classList.add('hidden'); document.getElementById('btn-stop').classList.remove('hidden'); setStatus('分析中...', '⏳');
   ws.send(JSON.stringify({ type: 'message', content: text, session_id: currentSessionId || undefined }));
+}
+
+function finalizePreviousAssistant() {
+  const prev = document.getElementById('current-assistant');
+  if (prev) {
+    // 移除光标动画
+    prev.querySelectorAll('.cursor-blink').forEach(el => el.remove());
+    // 关闭推理过程（收起）
+    prev.querySelectorAll('details[open]').forEach(el => el.removeAttribute('open'));
+    // 移除 id，使其成为普通的历史消息
+    prev.removeAttribute('id');
+  }
 }
 
 function stopStream() {
