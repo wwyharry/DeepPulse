@@ -5,8 +5,7 @@
 """
 
 import json
-from datetime import date, datetime
-from typing import Optional
+from datetime import date
 
 import pandas as pd
 
@@ -38,7 +37,7 @@ class HealthMonitor:
 
         return snapshots
 
-    def _evaluate_strategy(self, ss, snapshot_date: str) -> Optional[HealthSnapshot]:
+    def _evaluate_strategy(self, ss, snapshot_date: str) -> HealthSnapshot | None:
         """评估单个策略的健康度"""
         from deeppulse.strategy.spec import factor_scores_detail
 
@@ -47,6 +46,7 @@ class HealthMonitor:
             return None
 
         from deeppulse.agent.indicators import TechnicalIndicators
+
         df = TechnicalIndicators.add_all(df)
 
         spec = ss.get_spec()
@@ -57,19 +57,21 @@ class HealthMonitor:
         price_1d = 0.0
         price_5d = 0.0
         if len(df) >= 2:
-            price_1d = (latest_close / float(df.iloc[-2]["close"]) - 1)
+            price_1d = latest_close / float(df.iloc[-2]["close"]) - 1
         if len(df) >= 6:
-            price_5d = (latest_close / float(df.iloc[-6]["close"]) - 1)
+            price_5d = latest_close / float(df.iloc[-6]["close"]) - 1
 
         # 因子得分
         factor_list = []
         for f in detail.get("factors", []):
-            factor_list.append({
-                "factor_id": f["factor_id"],
-                "factor_name": f["factor_name"],
-                "score": round(f["score"], 4),
-                "weighted_score": round(f["weighted_score"], 4),
-            })
+            factor_list.append(
+                {
+                    "factor_id": f["factor_id"],
+                    "factor_name": f["factor_name"],
+                    "score": round(f["score"], 4),
+                    "weighted_score": round(f["weighted_score"], 4),
+                }
+            )
 
         return HealthSnapshot(
             strategy_id=ss.id,
@@ -110,10 +112,11 @@ class HealthMonitor:
             "snapshots": [s.to_dict() for s in snapshots],
         }
 
-    def _load_kline(self, stock_code: str, days: int = 120) -> Optional[pd.DataFrame]:
+    def _load_kline(self, stock_code: str, days: int = 120) -> pd.DataFrame | None:
         """加载K线数据"""
         try:
             from datetime import timedelta
+
             from deeppulse.src.query import StockQuery
 
             query = StockQuery()

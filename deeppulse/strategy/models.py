@@ -5,7 +5,6 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
 
 
 class StrategyStatus(str, Enum):
@@ -117,19 +116,36 @@ class Strategy:
         # 提取关键词
         keywords = set()
         tech_patterns = [
-            r"MA\d+", r"MACD", r"RSI", r"KDJ", r"BOLL", r"布林",
-            r"金叉", r"死叉", r"超买", r"超卖", r"放量", r"缩量",
-            r"突破", r"回踩", r"支撑", r"压力", r"均线", r"背离",
-            r"涨停", r"跌停", r"封板", r"炸板", r"换手",
+            r"MA\d+",
+            r"MACD",
+            r"RSI",
+            r"KDJ",
+            r"BOLL",
+            r"布林",
+            r"金叉",
+            r"死叉",
+            r"超买",
+            r"超卖",
+            r"放量",
+            r"缩量",
+            r"突破",
+            r"回踩",
+            r"支撑",
+            r"压力",
+            r"均线",
+            r"背离",
+            r"涨停",
+            r"跌停",
+            r"封板",
+            r"炸板",
+            r"换手",
         ]
         for pattern in tech_patterns:
             if re.search(pattern, content, re.IGNORECASE):
                 keywords.add(pattern)
 
         # 提取数值条件
-        numeric_conditions = re.findall(
-            r"(?:MA|RSI|KDJ|MACD|BOLL|J|K|D|DIF|DEA)\s*[<>]=?\s*[\d.]+", content
-        )
+        numeric_conditions = re.findall(r"(?:MA|RSI|KDJ|MACD|BOLL|J|K|D|DIF|DEA)\s*[<>]=?\s*[\d.]+", content)
         keywords.update(numeric_conditions[:10])
 
         # 推断风险等级

@@ -95,7 +95,9 @@ def _cross_down(a: pd.Series, b: pd.Series) -> pd.Series:
 
 def _rolling_rank(s: pd.Series, period: int) -> pd.Series:
     """滚动百分位排名 0~1"""
-    return s.rolling(period).apply(lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 1 else 0.5, raw=False)
+    return s.rolling(period).apply(
+        lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 1 else 0.5, raw=False
+    )
 
 
 def _ema(s: pd.Series, span: int) -> pd.Series:
@@ -131,7 +133,7 @@ def _ma_cross(df: pd.DataFrame, p: dict) -> pd.Series:
     crossed = _cross_up(ma_fast, ma_slow)
     hold = int(p["hold_days"])
     out = np.zeros(len(df))
-    last_cross = -10**9
+    last_cross = -(10**9)
     for i, v in enumerate(crossed.fillna(False).values):
         if v:
             last_cross = i
@@ -167,9 +169,8 @@ def _ma_compression(df: pd.DataFrame, p: dict) -> pd.Series:
     """均线收敛：多条均线收敛后即将发散"""
     close = _col(df, "close")
     ma5 = close.rolling(5).mean()
-    ma10 = close.rolling(10).mean()
     ma20 = close.rolling(20).mean()
-    spread = ((ma5 - ma20).abs() / ma20.replace(0, np.nan) * 100)
+    spread = (ma5 - ma20).abs() / ma20.replace(0, np.nan) * 100
     compressed = (spread < p["threshold"]).astype(float)
     turning = (spread > spread.shift(1)).astype(float)
     return compressed * 0.6 + turning * 0.4
@@ -190,7 +191,7 @@ def _price_ma_distance(df: pd.DataFrame, p: dict) -> pd.Series:
     period = int(p["period"])
     close = _col(df, "close")
     ma = close.rolling(period).mean()
-    dist = ((close - ma) / ma.replace(0, np.nan) * 100)
+    dist = (close - ma) / ma.replace(0, np.nan) * 100
     # 偏离适中得分高（不追高不抄底过深）
     ideal = p["ideal_dist"]
     score = (1 - (dist - ideal).abs() / p["max_dev"]).clip(0, 1)
@@ -228,7 +229,7 @@ def _macd_cross(df: pd.DataFrame, p: dict) -> pd.Series:
     crossed = _cross_up(dif, dea)
     hold = int(p["hold_days"])
     out = np.zeros(len(df))
-    last_cross = -10**9
+    last_cross = -(10**9)
     for i, v in enumerate(crossed.fillna(False).values):
         if v:
             last_cross = i
@@ -264,7 +265,7 @@ def _macd_zero_cross(df: pd.DataFrame, p: dict) -> pd.Series:
     crossed = _cross_up(dif, pd.Series(0, index=df.index))
     hold = int(p["hold_days"])
     out = np.zeros(len(df))
-    last_cross = -10**9
+    last_cross = -(10**9)
     for i, v in enumerate(crossed.fillna(False).values):
         if v:
             last_cross = i
@@ -324,7 +325,7 @@ def _rsi_bullish(df: pd.DataFrame, p: dict) -> pd.Series:
     crossing_50 = _cross_up(rsi, pd.Series(50, index=df.index))
     rising = rsi > rsi.shift(1)
     above_50 = rsi > 50
-    return (crossing_50.astype(float) * 0.5 + (rising & above_50).astype(float) * 0.5)
+    return crossing_50.astype(float) * 0.5 + (rising & above_50).astype(float) * 0.5
 
 
 def _rsi_divergence(df: pd.DataFrame, p: dict) -> pd.Series:
@@ -440,7 +441,7 @@ def _boll_squeeze(df: pd.DataFrame, p: dict) -> pd.Series:
     upper = _col(df, "boll_upper")
     lower = _col(df, "boll_lower")
     mid = _col(df, "boll_mid")
-    bandwidth = ((upper - lower) / mid.replace(0, np.nan) * 100)
+    bandwidth = (upper - lower) / mid.replace(0, np.nan) * 100
     squeezed = bandwidth < p["threshold"]
     close = _col(df, "close")
     breaking_up = close > mid
@@ -594,7 +595,7 @@ def _roc(df: pd.DataFrame, p: dict) -> pd.Series:
     """变化率ROC：价格变化率"""
     period = int(p["period"])
     close = _col(df, "close")
-    roc = ((close - close.shift(period)) / close.shift(period).replace(0, np.nan) * 100)
+    roc = (close - close.shift(period)) / close.shift(period).replace(0, np.nan) * 100
     return (roc / p["scale"]).clip(0, 1).fillna(0)
 
 
@@ -715,7 +716,7 @@ def _volatility_regime(df: pd.DataFrame, p: dict) -> pd.Series:
 def _boll_width(df: pd.DataFrame, p: dict) -> pd.Series:
     """布林带宽：带宽收窄"""
     upper, lower, mid = _col(df, "boll_upper"), _col(df, "boll_lower"), _col(df, "boll_mid")
-    width = ((upper - lower) / mid.replace(0, np.nan) * 100)
+    width = (upper - lower) / mid.replace(0, np.nan) * 100
     period = int(p["period"])
     width_ma = width.rolling(period).mean()
     narrowing = width < width_ma
@@ -900,7 +901,6 @@ def _hammer(df: pd.DataFrame, p: dict) -> pd.Series:
     body = (close - open_).abs()
     lower_shadow = pd.concat([open_, close], axis=1).min(axis=1) - low
     upper_shadow = high - pd.concat([open_, close], axis=1).max(axis=1)
-    total_range = (high - low).replace(0, np.nan)
     is_hammer = (lower_shadow > body * 2) & (upper_shadow < body * 0.5)
     return is_hammer.astype(float)
 
@@ -939,7 +939,7 @@ def _gap_up(df: pd.DataFrame, p: dict) -> pd.Series:
     """跳空高开：开盘价高于前一日最高价"""
     open_, high = _col(df, "open"), _col(df, "high")
     gap = open_ - high.shift(1)
-    gap_pct = (gap / high.shift(1).replace(0, np.nan) * 100)
+    gap_pct = gap / high.shift(1).replace(0, np.nan) * 100
     return (gap_pct > p["min_gap"]).astype(float) * (gap_pct / p["max_gap"]).clip(0, 1).fillna(0)
 
 
@@ -1219,7 +1219,7 @@ def _breakout_strength(df: pd.DataFrame, p: dict) -> pd.Series:
     vol_ratio = _col(df, "vol_ratio")
     breakout_pct = ((close - high_20.shift(1)) / high_20.shift(1) * 100).clip(0, 5) / 5
     vol_strength = ((vol_ratio - 1) / 2).clip(0, 1)
-    return (breakout_pct * 0.6 + vol_strength.fillna(0) * 0.4)
+    return breakout_pct * 0.6 + vol_strength.fillna(0) * 0.4
 
 
 # ============ 因子注册表 ============
@@ -1233,250 +1233,862 @@ def _register(factor: Factor) -> None:
 
 # ── 1. 均线类 ─────────────────────────────────
 
-_register(Factor(id="ma_trend", name="均线多头排列", description="短期均线在长期均线上方且向上发散",
-    params={"fast": FactorParam(5, 3, 20, 1), "slow": FactorParam(20, 10, 60, 5)}, compute=_ma_trend))
-_register(Factor(id="ma_cross", name="均线金叉", description="短期均线上穿长期均线",
-    params={"fast": FactorParam(5, 3, 15, 1), "slow": FactorParam(10, 10, 60, 5), "hold_days": FactorParam(5, 1, 15, 1)}, compute=_ma_cross))
-_register(Factor(id="ma_support", name="均线支撑", description="价格回踩均线不破",
-    params={"period": FactorParam(20, 5, 60, 5), "tolerance": FactorParam(2.0, 0.5, 5.0, 0.5)}, compute=_ma_support))
-_register(Factor(id="ma_slope", name="均线斜率", description="均线持续上升",
-    params={"period": FactorParam(20, 10, 60, 5), "slope_period": FactorParam(5, 2, 10, 1), "max_slope": FactorParam(5.0, 2.0, 10.0, 1.0)}, compute=_ma_slope))
-_register(Factor(id="ma_compression", name="均线收敛", description="多条均线收敛后即将发散",
-    params={"threshold": FactorParam(3.0, 1.0, 5.0, 0.5)}, compute=_ma_compression))
-_register(Factor(id="ema_trend", name="EMA趋势", description="价格在EMA上方",
-    params={"period": FactorParam(20, 10, 50, 5)}, compute=_ema_trend))
-_register(Factor(id="price_ma_dist", name="价格偏离均线", description="价格偏离均线的合理范围",
-    params={"period": FactorParam(20, 10, 60, 5), "ideal_dist": FactorParam(2.0, 0.0, 5.0, 0.5), "max_dev": FactorParam(10.0, 5.0, 20.0, 2.5)}, compute=_price_ma_distance))
-_register(Factor(id="double_ma", name="双均线确认", description="快慢均线同时向上",
-    params={"fast": FactorParam(5, 3, 15, 1), "slow": FactorParam(20, 10, 60, 5)}, compute=_double_ma_cross))
-_register(Factor(id="triple_ma", name="三均线确认", description="短>中>长且全部上升",
-    params={}, compute=_triple_ma))
+_register(
+    Factor(
+        id="ma_trend",
+        name="均线多头排列",
+        description="短期均线在长期均线上方且向上发散",
+        params={"fast": FactorParam(5, 3, 20, 1), "slow": FactorParam(20, 10, 60, 5)},
+        compute=_ma_trend,
+    )
+)
+_register(
+    Factor(
+        id="ma_cross",
+        name="均线金叉",
+        description="短期均线上穿长期均线",
+        params={
+            "fast": FactorParam(5, 3, 15, 1),
+            "slow": FactorParam(10, 10, 60, 5),
+            "hold_days": FactorParam(5, 1, 15, 1),
+        },
+        compute=_ma_cross,
+    )
+)
+_register(
+    Factor(
+        id="ma_support",
+        name="均线支撑",
+        description="价格回踩均线不破",
+        params={"period": FactorParam(20, 5, 60, 5), "tolerance": FactorParam(2.0, 0.5, 5.0, 0.5)},
+        compute=_ma_support,
+    )
+)
+_register(
+    Factor(
+        id="ma_slope",
+        name="均线斜率",
+        description="均线持续上升",
+        params={
+            "period": FactorParam(20, 10, 60, 5),
+            "slope_period": FactorParam(5, 2, 10, 1),
+            "max_slope": FactorParam(5.0, 2.0, 10.0, 1.0),
+        },
+        compute=_ma_slope,
+    )
+)
+_register(
+    Factor(
+        id="ma_compression",
+        name="均线收敛",
+        description="多条均线收敛后即将发散",
+        params={"threshold": FactorParam(3.0, 1.0, 5.0, 0.5)},
+        compute=_ma_compression,
+    )
+)
+_register(
+    Factor(
+        id="ema_trend",
+        name="EMA趋势",
+        description="价格在EMA上方",
+        params={"period": FactorParam(20, 10, 50, 5)},
+        compute=_ema_trend,
+    )
+)
+_register(
+    Factor(
+        id="price_ma_dist",
+        name="价格偏离均线",
+        description="价格偏离均线的合理范围",
+        params={
+            "period": FactorParam(20, 10, 60, 5),
+            "ideal_dist": FactorParam(2.0, 0.0, 5.0, 0.5),
+            "max_dev": FactorParam(10.0, 5.0, 20.0, 2.5),
+        },
+        compute=_price_ma_distance,
+    )
+)
+_register(
+    Factor(
+        id="double_ma",
+        name="双均线确认",
+        description="快慢均线同时向上",
+        params={"fast": FactorParam(5, 3, 15, 1), "slow": FactorParam(20, 10, 60, 5)},
+        compute=_double_ma_cross,
+    )
+)
+_register(Factor(id="triple_ma", name="三均线确认", description="短>中>长且全部上升", params={}, compute=_triple_ma))
 
 # ── 2. MACD 类 ────────────────────────────────
 
-_register(Factor(id="macd_cross", name="MACD金叉", description="DIF上穿DEA",
-    params={"hold_days": FactorParam(5, 1, 15, 1)}, compute=_macd_cross))
-_register(Factor(id="macd_trend", name="MACD趋势走强", description="DIF在DEA上方且柱体放大",
-    params={}, compute=_macd_trend))
-_register(Factor(id="macd_hist", name="MACD柱体", description="柱体由负转正或持续放大",
-    params={}, compute=_macd_histogram))
-_register(Factor(id="macd_zero", name="MACD零轴穿越", description="DIF上穿零轴",
-    params={"hold_days": FactorParam(5, 1, 15, 1)}, compute=_macd_zero_cross))
-_register(Factor(id="macd_div", name="MACD底背离", description="价格新低但MACD不创新低",
-    params={"period": FactorParam(20, 10, 40, 5), "tolerance": FactorParam(2.0, 0.5, 5.0, 0.5)}, compute=_macd_divergence))
-_register(Factor(id="macd_mom", name="MACD动量", description="DIF和DEA同向且差距扩大",
-    params={}, compute=_macd_momentum))
+_register(
+    Factor(
+        id="macd_cross",
+        name="MACD金叉",
+        description="DIF上穿DEA",
+        params={"hold_days": FactorParam(5, 1, 15, 1)},
+        compute=_macd_cross,
+    )
+)
+_register(
+    Factor(id="macd_trend", name="MACD趋势走强", description="DIF在DEA上方且柱体放大", params={}, compute=_macd_trend)
+)
+_register(
+    Factor(id="macd_hist", name="MACD柱体", description="柱体由负转正或持续放大", params={}, compute=_macd_histogram)
+)
+_register(
+    Factor(
+        id="macd_zero",
+        name="MACD零轴穿越",
+        description="DIF上穿零轴",
+        params={"hold_days": FactorParam(5, 1, 15, 1)},
+        compute=_macd_zero_cross,
+    )
+)
+_register(
+    Factor(
+        id="macd_div",
+        name="MACD底背离",
+        description="价格新低但MACD不创新低",
+        params={"period": FactorParam(20, 10, 40, 5), "tolerance": FactorParam(2.0, 0.5, 5.0, 0.5)},
+        compute=_macd_divergence,
+    )
+)
+_register(
+    Factor(id="macd_mom", name="MACD动量", description="DIF和DEA同向且差距扩大", params={}, compute=_macd_momentum)
+)
 
 # ── 3. RSI 类 ─────────────────────────────────
 
-_register(Factor(id="rsi_oversold", name="RSI超卖反转", description="RSI6从超卖区回升",
-    params={"threshold": FactorParam(30, 15, 40, 5)}, compute=_rsi_oversold))
-_register(Factor(id="rsi_momentum", name="RSI强势区", description="RSI14处于强势区但未超买",
-    params={"low": FactorParam(50, 40, 60, 5), "high": FactorParam(70, 60, 85, 5)}, compute=_rsi_momentum))
-_register(Factor(id="rsi_bullish", name="RSI看涨", description="RSI从低位上升且突破50",
-    params={}, compute=_rsi_bullish))
-_register(Factor(id="rsi_div", name="RSI底背离", description="价格新低但RSI不创新低",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_rsi_divergence))
-_register(Factor(id="rsi_range", name="RSI适中区间", description="RSI在中性偏强区间",
-    params={"low": FactorParam(40, 30, 50, 5), "high": FactorParam(65, 55, 75, 5)}, compute=_rsi_range))
-_register(Factor(id="rsi_trend", name="RSI趋势上升", description="RSI持续走高",
-    params={"period": FactorParam(10, 5, 20, 5)}, compute=_rsi_trend))
-_register(Factor(id="stoch_rsi", name="随机RSI", description="RSI的随机指标",
-    params={"period": FactorParam(14, 7, 28, 7), "threshold": FactorParam(0.2, 0.1, 0.4, 0.1)}, compute=_stoch_rsi))
+_register(
+    Factor(
+        id="rsi_oversold",
+        name="RSI超卖反转",
+        description="RSI6从超卖区回升",
+        params={"threshold": FactorParam(30, 15, 40, 5)},
+        compute=_rsi_oversold,
+    )
+)
+_register(
+    Factor(
+        id="rsi_momentum",
+        name="RSI强势区",
+        description="RSI14处于强势区但未超买",
+        params={"low": FactorParam(50, 40, 60, 5), "high": FactorParam(70, 60, 85, 5)},
+        compute=_rsi_momentum,
+    )
+)
+_register(
+    Factor(id="rsi_bullish", name="RSI看涨", description="RSI从低位上升且突破50", params={}, compute=_rsi_bullish)
+)
+_register(
+    Factor(
+        id="rsi_div",
+        name="RSI底背离",
+        description="价格新低但RSI不创新低",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_rsi_divergence,
+    )
+)
+_register(
+    Factor(
+        id="rsi_range",
+        name="RSI适中区间",
+        description="RSI在中性偏强区间",
+        params={"low": FactorParam(40, 30, 50, 5), "high": FactorParam(65, 55, 75, 5)},
+        compute=_rsi_range,
+    )
+)
+_register(
+    Factor(
+        id="rsi_trend",
+        name="RSI趋势上升",
+        description="RSI持续走高",
+        params={"period": FactorParam(10, 5, 20, 5)},
+        compute=_rsi_trend,
+    )
+)
+_register(
+    Factor(
+        id="stoch_rsi",
+        name="随机RSI",
+        description="RSI的随机指标",
+        params={"period": FactorParam(14, 7, 28, 7), "threshold": FactorParam(0.2, 0.1, 0.4, 0.1)},
+        compute=_stoch_rsi,
+    )
+)
 
 # ── 4. KDJ 类 ─────────────────────────────────
 
-_register(Factor(id="kdj_cross", name="KDJ金叉", description="K上穿D",
-    params={"low_level": FactorParam(50, 20, 60, 10)}, compute=_kdj_cross))
-_register(Factor(id="kdj_oversold", name="KDJ超卖", description="K和D都在低位",
-    params={"threshold": FactorParam(30, 15, 40, 5)}, compute=_kdj_oversold))
-_register(Factor(id="kdj_golden", name="KDJ低位金叉", description="J从极低位回升",
-    params={"threshold": FactorParam(10, 0, 30, 5)}, compute=_kdj_golden))
-_register(Factor(id="kdj_mom", name="KDJ动量", description="J值持续上升",
-    params={}, compute=_kdj_momentum))
-_register(Factor(id="kdj_bullish", name="KDJ看涨", description="K>D且J>D且全部上升",
-    params={}, compute=_kdj_bullish))
+_register(
+    Factor(
+        id="kdj_cross",
+        name="KDJ金叉",
+        description="K上穿D",
+        params={"low_level": FactorParam(50, 20, 60, 10)},
+        compute=_kdj_cross,
+    )
+)
+_register(
+    Factor(
+        id="kdj_oversold",
+        name="KDJ超卖",
+        description="K和D都在低位",
+        params={"threshold": FactorParam(30, 15, 40, 5)},
+        compute=_kdj_oversold,
+    )
+)
+_register(
+    Factor(
+        id="kdj_golden",
+        name="KDJ低位金叉",
+        description="J从极低位回升",
+        params={"threshold": FactorParam(10, 0, 30, 5)},
+        compute=_kdj_golden,
+    )
+)
+_register(Factor(id="kdj_mom", name="KDJ动量", description="J值持续上升", params={}, compute=_kdj_momentum))
+_register(Factor(id="kdj_bullish", name="KDJ看涨", description="K>D且J>D且全部上升", params={}, compute=_kdj_bullish))
 
 # ── 5. 布林带类 ───────────────────────────────
 
-_register(Factor(id="boll_breakout", name="布林上轨突破", description="放量突破布林上轨",
-    params={"vol_ratio": FactorParam(1.5, 1.0, 3.0, 0.5)}, compute=_boll_breakout))
-_register(Factor(id="boll_bounce", name="布林下轨反弹", description="触及布林下轨后收回",
-    params={"tolerance": FactorParam(1.0, 0.0, 3.0, 0.5)}, compute=_boll_bounce))
-_register(Factor(id="boll_squeeze", name="布林收窄", description="带宽收窄后即将突破",
-    params={"threshold": FactorParam(8.0, 4.0, 15.0, 1.0)}, compute=_boll_squeeze))
-_register(Factor(id="boll_position", name="布林位置", description="价格在布林带中的相对位置",
-    params={"ideal": FactorParam(0.5, 0.3, 0.7, 0.1)}, compute=_boll_position))
-_register(Factor(id="boll_mid_sup", name="布林中轨支撑", description="价格在中轨上方且中轨上升",
-    params={}, compute=_boll_mid_support))
+_register(
+    Factor(
+        id="boll_breakout",
+        name="布林上轨突破",
+        description="放量突破布林上轨",
+        params={"vol_ratio": FactorParam(1.5, 1.0, 3.0, 0.5)},
+        compute=_boll_breakout,
+    )
+)
+_register(
+    Factor(
+        id="boll_bounce",
+        name="布林下轨反弹",
+        description="触及布林下轨后收回",
+        params={"tolerance": FactorParam(1.0, 0.0, 3.0, 0.5)},
+        compute=_boll_bounce,
+    )
+)
+_register(
+    Factor(
+        id="boll_squeeze",
+        name="布林收窄",
+        description="带宽收窄后即将突破",
+        params={"threshold": FactorParam(8.0, 4.0, 15.0, 1.0)},
+        compute=_boll_squeeze,
+    )
+)
+_register(
+    Factor(
+        id="boll_position",
+        name="布林位置",
+        description="价格在布林带中的相对位置",
+        params={"ideal": FactorParam(0.5, 0.3, 0.7, 0.1)},
+        compute=_boll_position,
+    )
+)
+_register(
+    Factor(
+        id="boll_mid_sup",
+        name="布林中轨支撑",
+        description="价格在中轨上方且中轨上升",
+        params={},
+        compute=_boll_mid_support,
+    )
+)
 
 # ── 6. 量能类 ─────────────────────────────────
 
-_register(Factor(id="vol_breakout", name="放量上涨", description="量比放大且涨幅达标",
-    params={"vol_ratio": FactorParam(2.0, 1.2, 4.0, 0.4), "pct": FactorParam(3.0, 1.0, 6.0, 0.5)}, compute=_volume_breakout))
-_register(Factor(id="obv_trend", name="OBV量能上行", description="OBV在其均线上方且均线上行",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_obv_trend))
-_register(Factor(id="vol_trend", name="量能趋势", description="成交量持续放大",
-    params={"period": FactorParam(10, 5, 20, 5)}, compute=_volume_trend))
-_register(Factor(id="vol_price_confirm", name="量价配合", description="价涨量增、价跌量缩",
-    params={}, compute=_volume_price_confirm))
-_register(Factor(id="vol_shrink", name="缩量回调", description="价格回调但成交量萎缩",
-    params={"period": FactorParam(10, 5, 20, 5), "ratio": FactorParam(0.7, 0.3, 0.9, 0.1)}, compute=_volume_shrink))
-_register(Factor(id="mfi_signal", name="MFI资金流", description="MFI从超卖区回升",
-    params={"threshold": FactorParam(30, 15, 40, 5)}, compute=_mfi_signal))
-_register(Factor(id="mfi_div", name="MFI背离", description="价格下跌但MFI上升",
-    params={"period": FactorParam(10, 5, 20, 5)}, compute=_mfi_divergence))
-_register(Factor(id="vwap_support", name="VWAP支撑", description="价格在VWAP上方",
-    params={}, compute=_vwap_support))
-_register(Factor(id="vwap_bounce", name="VWAP回踩", description="价格回踩VWAP后反弹",
-    params={"tolerance": FactorParam(1.0, 0.3, 3.0, 0.3)}, compute=_vwap_bounce))
-_register(Factor(id="vol_spike", name="成交量异动", description="成交量突然放大",
-    params={"period": FactorParam(10, 5, 20, 5), "ratio": FactorParam(2.0, 1.5, 4.0, 0.5)}, compute=_volume_spike))
-_register(Factor(id="accumulation", name="吸筹信号", description="价格低位但量能持续",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_accumulation))
+_register(
+    Factor(
+        id="vol_breakout",
+        name="放量上涨",
+        description="量比放大且涨幅达标",
+        params={"vol_ratio": FactorParam(2.0, 1.2, 4.0, 0.4), "pct": FactorParam(3.0, 1.0, 6.0, 0.5)},
+        compute=_volume_breakout,
+    )
+)
+_register(
+    Factor(
+        id="obv_trend",
+        name="OBV量能上行",
+        description="OBV在其均线上方且均线上行",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_obv_trend,
+    )
+)
+_register(
+    Factor(
+        id="vol_trend",
+        name="量能趋势",
+        description="成交量持续放大",
+        params={"period": FactorParam(10, 5, 20, 5)},
+        compute=_volume_trend,
+    )
+)
+_register(
+    Factor(
+        id="vol_price_confirm",
+        name="量价配合",
+        description="价涨量增、价跌量缩",
+        params={},
+        compute=_volume_price_confirm,
+    )
+)
+_register(
+    Factor(
+        id="vol_shrink",
+        name="缩量回调",
+        description="价格回调但成交量萎缩",
+        params={"period": FactorParam(10, 5, 20, 5), "ratio": FactorParam(0.7, 0.3, 0.9, 0.1)},
+        compute=_volume_shrink,
+    )
+)
+_register(
+    Factor(
+        id="mfi_signal",
+        name="MFI资金流",
+        description="MFI从超卖区回升",
+        params={"threshold": FactorParam(30, 15, 40, 5)},
+        compute=_mfi_signal,
+    )
+)
+_register(
+    Factor(
+        id="mfi_div",
+        name="MFI背离",
+        description="价格下跌但MFI上升",
+        params={"period": FactorParam(10, 5, 20, 5)},
+        compute=_mfi_divergence,
+    )
+)
+_register(Factor(id="vwap_support", name="VWAP支撑", description="价格在VWAP上方", params={}, compute=_vwap_support))
+_register(
+    Factor(
+        id="vwap_bounce",
+        name="VWAP回踩",
+        description="价格回踩VWAP后反弹",
+        params={"tolerance": FactorParam(1.0, 0.3, 3.0, 0.3)},
+        compute=_vwap_bounce,
+    )
+)
+_register(
+    Factor(
+        id="vol_spike",
+        name="成交量异动",
+        description="成交量突然放大",
+        params={"period": FactorParam(10, 5, 20, 5), "ratio": FactorParam(2.0, 1.5, 4.0, 0.5)},
+        compute=_volume_spike,
+    )
+)
+_register(
+    Factor(
+        id="accumulation",
+        name="吸筹信号",
+        description="价格低位但量能持续",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_accumulation,
+    )
+)
 
 # ── 7. 动量类 ─────────────────────────────────
 
-_register(Factor(id="momentum", name="N日动量", description="区间涨幅归一化",
-    params={"period": FactorParam(20, 5, 60, 5), "scale": FactorParam(20.0, 10.0, 40.0, 5.0)}, compute=_momentum))
-_register(Factor(id="roc", name="变化率ROC", description="价格变化率",
-    params={"period": FactorParam(10, 5, 30, 5), "scale": FactorParam(15.0, 5.0, 30.0, 5.0)}, compute=_roc))
-_register(Factor(id="mom_accel", name="动量加速度", description="动量在加速",
-    params={"period": FactorParam(10, 5, 20, 5)}, compute=_momentum_acceleration))
-_register(Factor(id="multi_roc", name="多周期ROC", description="短期动量强于长期",
-    params={"short": FactorParam(5, 3, 10, 1), "long": FactorParam(20, 10, 40, 5)}, compute=_rate_of_change))
-_register(Factor(id="mom_reversal", name="动量反转", description="前期超跌后动量转正",
-    params={"period": FactorParam(10, 5, 20, 5), "threshold": FactorParam(10.0, 5.0, 20.0, 5.0)}, compute=_momentum_reversal))
-_register(Factor(id="williams_r", name="威廉指标", description="%R从超卖区回升",
-    params={"threshold": FactorParam(-80, -95, -65, 5)}, compute=_williams_r))
-_register(Factor(id="cci_signal", name="CCI信号", description="CCI从超卖区回升",
-    params={"threshold": FactorParam(-100, -200, -50, 25)}, compute=_cci_signal))
-_register(Factor(id="cci_trend", name="CCI趋势", description="CCI在强势区间",
-    params={"low": FactorParam(0, -100, 50, 25), "high": FactorParam(200, 100, 300, 50)}, compute=_cci_trend))
-_register(Factor(id="mom_consist", name="动量一致性", description="连续多日上涨",
-    params={"period": FactorParam(5, 3, 10, 1)}, compute=_momentum_consistency))
+_register(
+    Factor(
+        id="momentum",
+        name="N日动量",
+        description="区间涨幅归一化",
+        params={"period": FactorParam(20, 5, 60, 5), "scale": FactorParam(20.0, 10.0, 40.0, 5.0)},
+        compute=_momentum,
+    )
+)
+_register(
+    Factor(
+        id="roc",
+        name="变化率ROC",
+        description="价格变化率",
+        params={"period": FactorParam(10, 5, 30, 5), "scale": FactorParam(15.0, 5.0, 30.0, 5.0)},
+        compute=_roc,
+    )
+)
+_register(
+    Factor(
+        id="mom_accel",
+        name="动量加速度",
+        description="动量在加速",
+        params={"period": FactorParam(10, 5, 20, 5)},
+        compute=_momentum_acceleration,
+    )
+)
+_register(
+    Factor(
+        id="multi_roc",
+        name="多周期ROC",
+        description="短期动量强于长期",
+        params={"short": FactorParam(5, 3, 10, 1), "long": FactorParam(20, 10, 40, 5)},
+        compute=_rate_of_change,
+    )
+)
+_register(
+    Factor(
+        id="mom_reversal",
+        name="动量反转",
+        description="前期超跌后动量转正",
+        params={"period": FactorParam(10, 5, 20, 5), "threshold": FactorParam(10.0, 5.0, 20.0, 5.0)},
+        compute=_momentum_reversal,
+    )
+)
+_register(
+    Factor(
+        id="williams_r",
+        name="威廉指标",
+        description="%R从超卖区回升",
+        params={"threshold": FactorParam(-80, -95, -65, 5)},
+        compute=_williams_r,
+    )
+)
+_register(
+    Factor(
+        id="cci_signal",
+        name="CCI信号",
+        description="CCI从超卖区回升",
+        params={"threshold": FactorParam(-100, -200, -50, 25)},
+        compute=_cci_signal,
+    )
+)
+_register(
+    Factor(
+        id="cci_trend",
+        name="CCI趋势",
+        description="CCI在强势区间",
+        params={"low": FactorParam(0, -100, 50, 25), "high": FactorParam(200, 100, 300, 50)},
+        compute=_cci_trend,
+    )
+)
+_register(
+    Factor(
+        id="mom_consist",
+        name="动量一致性",
+        description="连续多日上涨",
+        params={"period": FactorParam(5, 3, 10, 1)},
+        compute=_momentum_consistency,
+    )
+)
 
 # ── 8. 波动类 ─────────────────────────────────
 
-_register(Factor(id="atr_vol", name="低波动优选", description="ATR占价格比越低得分越高",
-    params={"max_ratio": FactorParam(5.0, 2.0, 8.0, 1.0)}, compute=_atr_volatility))
-_register(Factor(id="atr_expand", name="ATR扩张", description="波动率开始放大",
-    params={"period": FactorParam(20, 10, 40, 5), "ratio": FactorParam(1.2, 1.0, 2.0, 0.1)}, compute=_atr_expansion))
-_register(Factor(id="vol_contract", name="波动收缩", description="波动率持续收缩后即将爆发",
-    params={"period": FactorParam(20, 10, 40, 5), "ratio": FactorParam(0.8, 0.5, 0.95, 0.05)}, compute=_volatility_contraction))
-_register(Factor(id="realized_vol", name="实际波动率", description="近期波动率适中",
-    params={"period": FactorParam(20, 10, 40, 5), "ideal": FactorParam(20.0, 10.0, 40.0, 5.0), "max_dev": FactorParam(20.0, 10.0, 40.0, 5.0)}, compute=_realized_vol))
-_register(Factor(id="vol_regime", name="波动率状态", description="低波动环境",
-    params={"short": FactorParam(10, 5, 20, 5), "long": FactorParam(30, 20, 60, 10)}, compute=_volatility_regime))
-_register(Factor(id="boll_width", name="布林带宽", description="带宽收窄",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_boll_width))
-_register(Factor(id="keltner_pos", name="Keltner通道位置", description="价格在通道中轨上方",
-    params={"period": FactorParam(20, 10, 40, 5), "mult": FactorParam(2.0, 1.0, 3.0, 0.5)}, compute=_keltner_position))
+_register(
+    Factor(
+        id="atr_vol",
+        name="低波动优选",
+        description="ATR占价格比越低得分越高",
+        params={"max_ratio": FactorParam(5.0, 2.0, 8.0, 1.0)},
+        compute=_atr_volatility,
+    )
+)
+_register(
+    Factor(
+        id="atr_expand",
+        name="ATR扩张",
+        description="波动率开始放大",
+        params={"period": FactorParam(20, 10, 40, 5), "ratio": FactorParam(1.2, 1.0, 2.0, 0.1)},
+        compute=_atr_expansion,
+    )
+)
+_register(
+    Factor(
+        id="vol_contract",
+        name="波动收缩",
+        description="波动率持续收缩后即将爆发",
+        params={"period": FactorParam(20, 10, 40, 5), "ratio": FactorParam(0.8, 0.5, 0.95, 0.05)},
+        compute=_volatility_contraction,
+    )
+)
+_register(
+    Factor(
+        id="realized_vol",
+        name="实际波动率",
+        description="近期波动率适中",
+        params={
+            "period": FactorParam(20, 10, 40, 5),
+            "ideal": FactorParam(20.0, 10.0, 40.0, 5.0),
+            "max_dev": FactorParam(20.0, 10.0, 40.0, 5.0),
+        },
+        compute=_realized_vol,
+    )
+)
+_register(
+    Factor(
+        id="vol_regime",
+        name="波动率状态",
+        description="低波动环境",
+        params={"short": FactorParam(10, 5, 20, 5), "long": FactorParam(30, 20, 60, 10)},
+        compute=_volatility_regime,
+    )
+)
+_register(
+    Factor(
+        id="boll_width",
+        name="布林带宽",
+        description="带宽收窄",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_boll_width,
+    )
+)
+_register(
+    Factor(
+        id="keltner_pos",
+        name="Keltner通道位置",
+        description="价格在通道中轨上方",
+        params={"period": FactorParam(20, 10, 40, 5), "mult": FactorParam(2.0, 1.0, 3.0, 0.5)},
+        compute=_keltner_position,
+    )
+)
 
 # ── 9. 趋势强度类 ─────────────────────────────
 
-_register(Factor(id="adx_trend", name="ADX趋势强度", description="ADX上升且方向正确",
-    params={"threshold": FactorParam(20, 15, 35, 5)}, compute=_adx_trend))
-_register(Factor(id="adx_strength", name="ADX强度分级", description="ADX在不同区间",
-    params={"level": FactorParam(25, 15, 45, 10)}, compute=_adx_strength))
-_register(Factor(id="trend_persist", name="趋势持续性", description="连续N日在均线上方",
-    params={"period": FactorParam(20, 10, 60, 5), "days": FactorParam(5, 3, 10, 1)}, compute=_trend_persistence))
-_register(Factor(id="trend_strength", name="趋势强度", description="价格相对均线的偏离程度",
-    params={"period": FactorParam(20, 10, 60, 5), "max_dev": FactorParam(10.0, 5.0, 20.0, 2.5)}, compute=_trend_strength))
-_register(Factor(id="higher_highs", name="更高高点", description="价格创近期新高",
-    params={"period": FactorParam(20, 10, 60, 5), "tolerance": FactorParam(1.0, 0.0, 3.0, 0.5)}, compute=_higher_highs))
-_register(Factor(id="higher_lows", name="更高低点", description="低点逐步抬升",
-    params={"period": FactorParam(10, 5, 30, 5)}, compute=_higher_lows))
+_register(
+    Factor(
+        id="adx_trend",
+        name="ADX趋势强度",
+        description="ADX上升且方向正确",
+        params={"threshold": FactorParam(20, 15, 35, 5)},
+        compute=_adx_trend,
+    )
+)
+_register(
+    Factor(
+        id="adx_strength",
+        name="ADX强度分级",
+        description="ADX在不同区间",
+        params={"level": FactorParam(25, 15, 45, 10)},
+        compute=_adx_strength,
+    )
+)
+_register(
+    Factor(
+        id="trend_persist",
+        name="趋势持续性",
+        description="连续N日在均线上方",
+        params={"period": FactorParam(20, 10, 60, 5), "days": FactorParam(5, 3, 10, 1)},
+        compute=_trend_persistence,
+    )
+)
+_register(
+    Factor(
+        id="trend_strength",
+        name="趋势强度",
+        description="价格相对均线的偏离程度",
+        params={"period": FactorParam(20, 10, 60, 5), "max_dev": FactorParam(10.0, 5.0, 20.0, 2.5)},
+        compute=_trend_strength,
+    )
+)
+_register(
+    Factor(
+        id="higher_highs",
+        name="更高高点",
+        description="价格创近期新高",
+        params={"period": FactorParam(20, 10, 60, 5), "tolerance": FactorParam(1.0, 0.0, 3.0, 0.5)},
+        compute=_higher_highs,
+    )
+)
+_register(
+    Factor(
+        id="higher_lows",
+        name="更高低点",
+        description="低点逐步抬升",
+        params={"period": FactorParam(10, 5, 30, 5)},
+        compute=_higher_lows,
+    )
+)
 
 # ── 10. 价格位置类 ────────────────────────────
 
-_register(Factor(id="price_position", name="区间低位", description="收盘价处于N日价格区间的相对低位",
-    params={"period": FactorParam(60, 20, 120, 10), "target": FactorParam(0.3, 0.1, 0.5, 0.1)}, compute=_price_position))
-_register(Factor(id="high_52w", name="逼近区间新高", description="距离N日最高点越近得分越高",
-    params={"period": FactorParam(250, 60, 250, 10), "max_dist": FactorParam(10.0, 3.0, 20.0, 1.0)}, compute=_high_52w))
-_register(Factor(id="support_bounce", name="支撑位反弹", description="价格触及支撑位后反弹",
-    params={"period": FactorParam(20, 10, 40, 5), "tolerance": FactorParam(2.0, 0.5, 5.0, 0.5)}, compute=_support_bounce))
-_register(Factor(id="resist_break", name="阻力位突破", description="价格突破前期高点",
-    params={"period": FactorParam(20, 10, 60, 5), "vol_ratio": FactorParam(1.5, 1.0, 3.0, 0.5)}, compute=_resistance_break))
-_register(Factor(id="range_expand", name="区间扩张", description="价格波动区间开始扩张",
-    params={"period": FactorParam(10, 5, 20, 5), "ratio": FactorParam(1.5, 1.0, 2.5, 0.5)}, compute=_range_expansion))
-_register(Factor(id="fibonacci", name="斐波那契回撤", description="价格在关键回撤位附近",
-    params={"period": FactorParam(60, 20, 120, 10), "tolerance": FactorParam(3.0, 1.0, 5.0, 1.0)}, compute=_fibonacci_retracement))
-_register(Factor(id="pivot_support", name="枢轴点支撑", description="价格在枢轴点上方",
-    params={}, compute=_pivot_support))
+_register(
+    Factor(
+        id="price_position",
+        name="区间低位",
+        description="收盘价处于N日价格区间的相对低位",
+        params={"period": FactorParam(60, 20, 120, 10), "target": FactorParam(0.3, 0.1, 0.5, 0.1)},
+        compute=_price_position,
+    )
+)
+_register(
+    Factor(
+        id="high_52w",
+        name="逼近区间新高",
+        description="距离N日最高点越近得分越高",
+        params={"period": FactorParam(250, 60, 250, 10), "max_dist": FactorParam(10.0, 3.0, 20.0, 1.0)},
+        compute=_high_52w,
+    )
+)
+_register(
+    Factor(
+        id="support_bounce",
+        name="支撑位反弹",
+        description="价格触及支撑位后反弹",
+        params={"period": FactorParam(20, 10, 40, 5), "tolerance": FactorParam(2.0, 0.5, 5.0, 0.5)},
+        compute=_support_bounce,
+    )
+)
+_register(
+    Factor(
+        id="resist_break",
+        name="阻力位突破",
+        description="价格突破前期高点",
+        params={"period": FactorParam(20, 10, 60, 5), "vol_ratio": FactorParam(1.5, 1.0, 3.0, 0.5)},
+        compute=_resistance_break,
+    )
+)
+_register(
+    Factor(
+        id="range_expand",
+        name="区间扩张",
+        description="价格波动区间开始扩张",
+        params={"period": FactorParam(10, 5, 20, 5), "ratio": FactorParam(1.5, 1.0, 2.5, 0.5)},
+        compute=_range_expansion,
+    )
+)
+_register(
+    Factor(
+        id="fibonacci",
+        name="斐波那契回撤",
+        description="价格在关键回撤位附近",
+        params={"period": FactorParam(60, 20, 120, 10), "tolerance": FactorParam(3.0, 1.0, 5.0, 1.0)},
+        compute=_fibonacci_retracement,
+    )
+)
+_register(
+    Factor(id="pivot_support", name="枢轴点支撑", description="价格在枢轴点上方", params={}, compute=_pivot_support)
+)
 
 # ── 11. 形态类 ────────────────────────────────
 
-_register(Factor(id="bull_engulf", name="看涨吞没", description="阳线完全吞没前一根阴线",
-    params={}, compute=_bullish_engulfing))
-_register(Factor(id="hammer", name="锤子线", description="下影线长、实体小",
-    params={}, compute=_hammer))
-_register(Factor(id="morning_star", name="晨星", description="三根K线反转形态",
-    params={}, compute=_morning_star))
-_register(Factor(id="three_white", name="三白兵", description="连续三根阳线且逐步走高",
-    params={}, compute=_three_white_soldiers))
-_register(Factor(id="doji", name="十字星", description="开盘价接近收盘价",
-    params={}, compute=_doji))
-_register(Factor(id="gap_up", name="跳空高开", description="开盘价高于前一日最高价",
-    params={"min_gap": FactorParam(1.0, 0.5, 3.0, 0.5), "max_gap": FactorParam(5.0, 3.0, 10.0, 1.0)}, compute=_gap_up))
-_register(Factor(id="inside_bar", name="内包线", description="当前K线完全在前一根K线内部",
-    params={}, compute=_inside_bar))
-_register(Factor(id="outside_bull", name="外包阳线", description="当前K线完全包含前一根且收阳",
-    params={}, compute=_outside_bar_bullish))
+_register(
+    Factor(
+        id="bull_engulf", name="看涨吞没", description="阳线完全吞没前一根阴线", params={}, compute=_bullish_engulfing
+    )
+)
+_register(Factor(id="hammer", name="锤子线", description="下影线长、实体小", params={}, compute=_hammer))
+_register(Factor(id="morning_star", name="晨星", description="三根K线反转形态", params={}, compute=_morning_star))
+_register(
+    Factor(
+        id="three_white", name="三白兵", description="连续三根阳线且逐步走高", params={}, compute=_three_white_soldiers
+    )
+)
+_register(Factor(id="doji", name="十字星", description="开盘价接近收盘价", params={}, compute=_doji))
+_register(
+    Factor(
+        id="gap_up",
+        name="跳空高开",
+        description="开盘价高于前一日最高价",
+        params={"min_gap": FactorParam(1.0, 0.5, 3.0, 0.5), "max_gap": FactorParam(5.0, 3.0, 10.0, 1.0)},
+        compute=_gap_up,
+    )
+)
+_register(
+    Factor(id="inside_bar", name="内包线", description="当前K线完全在前一根K线内部", params={}, compute=_inside_bar)
+)
+_register(
+    Factor(
+        id="outside_bull",
+        name="外包阳线",
+        description="当前K线完全包含前一根且收阳",
+        params={},
+        compute=_outside_bar_bullish,
+    )
+)
 
 # ── 12. 统计类 ────────────────────────────────
 
-_register(Factor(id="zscore", name="Z分数", description="价格偏离均值的标准差数",
-    params={"period": FactorParam(20, 10, 40, 5), "threshold": FactorParam(1.5, 0.5, 3.0, 0.5)}, compute=_zscore))
-_register(Factor(id="pct_rank", name="百分位排名", description="当前价格在历史区间中的位置",
-    params={"period": FactorParam(60, 20, 120, 10)}, compute=_percentile_rank))
-_register(Factor(id="mean_revert", name="均值回归", description="价格偏离均线后有回归趋势",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_mean_reversion))
-_register(Factor(id="skewness", name="偏度", description="收益率分布偏度",
-    params={"period": FactorParam(20, 10, 40, 5), "max_skew": FactorParam(1.0, 0.5, 2.0, 0.5)}, compute=_skewness))
-_register(Factor(id="kurtosis", name="峰度", description="收益率分布峰度",
-    params={"period": FactorParam(20, 10, 40, 5), "max_kurt": FactorParam(5.0, 2.0, 10.0, 1.0)}, compute=_kurtosis))
-_register(Factor(id="trend_quality", name="趋势质量", description="上涨日占比",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_trend_quality))
-_register(Factor(id="autocorr", name="自相关", description="收益率自相关性",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_autocorrelation))
+_register(
+    Factor(
+        id="zscore",
+        name="Z分数",
+        description="价格偏离均值的标准差数",
+        params={"period": FactorParam(20, 10, 40, 5), "threshold": FactorParam(1.5, 0.5, 3.0, 0.5)},
+        compute=_zscore,
+    )
+)
+_register(
+    Factor(
+        id="pct_rank",
+        name="百分位排名",
+        description="当前价格在历史区间中的位置",
+        params={"period": FactorParam(60, 20, 120, 10)},
+        compute=_percentile_rank,
+    )
+)
+_register(
+    Factor(
+        id="mean_revert",
+        name="均值回归",
+        description="价格偏离均线后有回归趋势",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_mean_reversion,
+    )
+)
+_register(
+    Factor(
+        id="skewness",
+        name="偏度",
+        description="收益率分布偏度",
+        params={"period": FactorParam(20, 10, 40, 5), "max_skew": FactorParam(1.0, 0.5, 2.0, 0.5)},
+        compute=_skewness,
+    )
+)
+_register(
+    Factor(
+        id="kurtosis",
+        name="峰度",
+        description="收益率分布峰度",
+        params={"period": FactorParam(20, 10, 40, 5), "max_kurt": FactorParam(5.0, 2.0, 10.0, 1.0)},
+        compute=_kurtosis,
+    )
+)
+_register(
+    Factor(
+        id="trend_quality",
+        name="趋势质量",
+        description="上涨日占比",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_trend_quality,
+    )
+)
+_register(
+    Factor(
+        id="autocorr",
+        name="自相关",
+        description="收益率自相关性",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_autocorrelation,
+    )
+)
 
 # ── 13. 复合类 ────────────────────────────────
 
-_register(Factor(id="trend_follow", name="趋势跟随", description="均线+MACD+ADX综合确认",
-    params={}, compute=_trend_follow))
-_register(Factor(id="oversold_bounce", name="超跌反弹", description="RSI+KDJ+BOLL综合超卖",
-    params={}, compute=_oversold_bounce))
-_register(Factor(id="vol_price_trend", name="量价趋势", description="量能+价格+动量综合",
-    params={}, compute=_volume_price_trend))
-_register(Factor(id="breakout_confirm", name="突破确认", description="价格+量能+指标三重确认",
-    params={}, compute=_breakout_confirm))
-_register(Factor(id="mom_quality", name="动量质量", description="动量+趋势+量能综合",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_momentum_quality))
-_register(Factor(id="smart_money", name="聪明资金", description="MFI+OBV+量比综合",
-    params={}, compute=_smart_money))
-_register(Factor(id="low_risk_entry", name="低风险入场", description="波动低+位置好+趋势稳",
-    params={"atr_threshold": FactorParam(3.0, 1.5, 5.0, 0.5)}, compute=_low_risk_entry))
-_register(Factor(id="consecutive_up", name="连涨天数", description="连续上涨天数",
-    params={"period": FactorParam(5, 3, 10, 1)}, compute=_consecutive_up))
-_register(Factor(id="consecutive_down", name="连跌反弹", description="连续下跌后反弹概率",
-    params={"period": FactorParam(5, 3, 10, 1)}, compute=_consecutive_down))
-_register(Factor(id="price_accel", name="价格加速度", description="价格变化的二阶导数",
-    params={"period": FactorParam(5, 3, 10, 1)}, compute=_price_acceleration))
-_register(Factor(id="vol_price_corr", name="量价相关性", description="价格和成交量的滚动相关",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_volume_price_correlation))
-_register(Factor(id="rsi_kdj_combo", name="RSI+KDJ组合", description="两个指标同时发出信号",
-    params={}, compute=_rsi_kdj_combined))
-_register(Factor(id="macd_rsi_div", name="MACD+RSI双背离", description="两个指标同时背离",
-    params={"period": FactorParam(20, 10, 40, 5)}, compute=_macd_rsi_divergence))
-_register(Factor(id="multi_tf_mom", name="多周期动量", description="短期和中期动量同向",
-    params={"short": FactorParam(5, 3, 10, 1), "long": FactorParam(20, 10, 40, 5)}, compute=_multi_timeframe_momentum))
-_register(Factor(id="vol_break_confirm", name="量能突破确认", description="成交量突破均线且价格配合",
-    params={"period": FactorParam(20, 10, 40, 5), "ratio": FactorParam(1.5, 1.0, 3.0, 0.5)}, compute=_volume_breakout_confirm))
-_register(Factor(id="trend_reversal", name="趋势反转", description="趋势指标显示可能反转",
-    params={}, compute=_trend_reversal))
-_register(Factor(id="breakout_strength", name="突破强度", description="突破幅度和量能的综合",
-    params={}, compute=_breakout_strength))
+_register(
+    Factor(id="trend_follow", name="趋势跟随", description="均线+MACD+ADX综合确认", params={}, compute=_trend_follow)
+)
+_register(
+    Factor(
+        id="oversold_bounce", name="超跌反弹", description="RSI+KDJ+BOLL综合超卖", params={}, compute=_oversold_bounce
+    )
+)
+_register(
+    Factor(
+        id="vol_price_trend", name="量价趋势", description="量能+价格+动量综合", params={}, compute=_volume_price_trend
+    )
+)
+_register(
+    Factor(
+        id="breakout_confirm",
+        name="突破确认",
+        description="价格+量能+指标三重确认",
+        params={},
+        compute=_breakout_confirm,
+    )
+)
+_register(
+    Factor(
+        id="mom_quality",
+        name="动量质量",
+        description="动量+趋势+量能综合",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_momentum_quality,
+    )
+)
+_register(Factor(id="smart_money", name="聪明资金", description="MFI+OBV+量比综合", params={}, compute=_smart_money))
+_register(
+    Factor(
+        id="low_risk_entry",
+        name="低风险入场",
+        description="波动低+位置好+趋势稳",
+        params={"atr_threshold": FactorParam(3.0, 1.5, 5.0, 0.5)},
+        compute=_low_risk_entry,
+    )
+)
+_register(
+    Factor(
+        id="consecutive_up",
+        name="连涨天数",
+        description="连续上涨天数",
+        params={"period": FactorParam(5, 3, 10, 1)},
+        compute=_consecutive_up,
+    )
+)
+_register(
+    Factor(
+        id="consecutive_down",
+        name="连跌反弹",
+        description="连续下跌后反弹概率",
+        params={"period": FactorParam(5, 3, 10, 1)},
+        compute=_consecutive_down,
+    )
+)
+_register(
+    Factor(
+        id="price_accel",
+        name="价格加速度",
+        description="价格变化的二阶导数",
+        params={"period": FactorParam(5, 3, 10, 1)},
+        compute=_price_acceleration,
+    )
+)
+_register(
+    Factor(
+        id="vol_price_corr",
+        name="量价相关性",
+        description="价格和成交量的滚动相关",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_volume_price_correlation,
+    )
+)
+_register(
+    Factor(
+        id="rsi_kdj_combo", name="RSI+KDJ组合", description="两个指标同时发出信号", params={}, compute=_rsi_kdj_combined
+    )
+)
+_register(
+    Factor(
+        id="macd_rsi_div",
+        name="MACD+RSI双背离",
+        description="两个指标同时背离",
+        params={"period": FactorParam(20, 10, 40, 5)},
+        compute=_macd_rsi_divergence,
+    )
+)
+_register(
+    Factor(
+        id="multi_tf_mom",
+        name="多周期动量",
+        description="短期和中期动量同向",
+        params={"short": FactorParam(5, 3, 10, 1), "long": FactorParam(20, 10, 40, 5)},
+        compute=_multi_timeframe_momentum,
+    )
+)
+_register(
+    Factor(
+        id="vol_break_confirm",
+        name="量能突破确认",
+        description="成交量突破均线且价格配合",
+        params={"period": FactorParam(20, 10, 40, 5), "ratio": FactorParam(1.5, 1.0, 3.0, 0.5)},
+        compute=_volume_breakout_confirm,
+    )
+)
+_register(
+    Factor(id="trend_reversal", name="趋势反转", description="趋势指标显示可能反转", params={}, compute=_trend_reversal)
+)
+_register(
+    Factor(
+        id="breakout_strength",
+        name="突破强度",
+        description="突破幅度和量能的综合",
+        params={},
+        compute=_breakout_strength,
+    )
+)
 
 
 # ============ 公共 API ============

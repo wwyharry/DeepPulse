@@ -59,12 +59,7 @@ class OptimizeReport:
 
 def compute_score(result: BacktestResult) -> float:
     """综合评分：收益×0.4 + 夏普×0.03 + 胜率×0.2 − 回撤×0.1"""
-    return (
-        result.total_return * 0.4
-        + result.sharpe_ratio * 0.03
-        + result.win_rate * 0.2
-        - result.max_drawdown * 0.1
-    )
+    return result.total_return * 0.4 + result.sharpe_ratio * 0.03 + result.win_rate * 0.2 - result.max_drawdown * 0.1
 
 
 class AutoOptimizer:
@@ -153,11 +148,9 @@ class AutoOptimizer:
 
         # ---- 初始策略 ----
         spec = default_spec()
-        init_comment = "使用内置默认策略"
         if kline_stats is not None:
             try:
                 spec = self.generator.generate(code, kline_stats, hint=hint)
-                init_comment = spec.llm_rationale or "LLM 生成初始策略"
             except Exception:
                 pass  # LLM 失败 → 兜底默认策略
 
@@ -176,11 +169,16 @@ class AutoOptimizer:
             try:
                 result, score = self._run_backtest(code, spec, days)
             except Exception as e:
-                history.append({
-                    "iteration": iteration, "spec": spec.to_dict(), "score": None,
-                    "metrics": {}, "llm_comment": f"回测失败: {e}",
-                    "phase": "base" if iteration <= base_training_rounds else "llm",
-                })
+                history.append(
+                    {
+                        "iteration": iteration,
+                        "spec": spec.to_dict(),
+                        "score": None,
+                        "metrics": {},
+                        "llm_comment": f"回测失败: {e}",
+                        "phase": "base" if iteration <= base_training_rounds else "llm",
+                    }
+                )
                 break
 
             # ============================================================
@@ -192,9 +190,7 @@ class AutoOptimizer:
 
             if phase == "base":
                 # ---- 基础训练阶段：简单参数微调 ----
-                tuned_spec, tuned_result, tuned_score = self._grid_search_params(
-                    code, spec, days, score
-                )
+                tuned_spec, tuned_result, tuned_score = self._grid_search_params(code, spec, days, score)
                 if tuned_result is not None and tuned_score > score:
                     spec, result, score = tuned_spec, tuned_result, tuned_score
                     llm_comment = f"基础调参：评分提升至 {score:.4f}"
@@ -217,7 +213,7 @@ class AutoOptimizer:
                             spec, result, score = next_spec, new_result, new_score
                             llm_comment += f" [调优成功] 评分提升至 {score:.4f}"
                         else:
-                            llm_comment += f" [调优无效] 保持当前策略"
+                            llm_comment += " [调优无效] 保持当前策略"
                             next_spec = spec
                     except Exception:
                         llm_comment += " [调优回测失败] 保持当前策略"
@@ -243,22 +239,24 @@ class AutoOptimizer:
             # ============================================================
             #  d) 记录历史
             # ============================================================
-            history.append({
-                "iteration": iteration,
-                "phase": phase,
-                "spec": spec.to_dict(),
-                "score": round(score, 4),
-                "metrics": {
-                    "total_return": result.total_return,
-                    "annual_return": result.annual_return,
-                    "max_drawdown": result.max_drawdown,
-                    "win_rate": result.win_rate,
-                    "sharpe_ratio": result.sharpe_ratio,
-                    "total_trades": result.total_trades,
-                },
-                "llm_comment": llm_comment,
-                "rolled_back": rolled_back,
-            })
+            history.append(
+                {
+                    "iteration": iteration,
+                    "phase": phase,
+                    "spec": spec.to_dict(),
+                    "score": round(score, 4),
+                    "metrics": {
+                        "total_return": result.total_return,
+                        "annual_return": result.annual_return,
+                        "max_drawdown": result.max_drawdown,
+                        "win_rate": result.win_rate,
+                        "sharpe_ratio": result.sharpe_ratio,
+                        "total_trades": result.total_trades,
+                    },
+                    "llm_comment": llm_comment,
+                    "rolled_back": rolled_back,
+                }
+            )
 
             # 更新最佳策略
             if score > best_score:
@@ -272,7 +270,7 @@ class AutoOptimizer:
             if len(score_history) >= TREND_WINDOW:
                 recent_avg = sum(score_history[-TREND_WINDOW:]) / TREND_WINDOW
                 if len(score_history) > TREND_WINDOW:
-                    prev_avg = sum(score_history[-(TREND_WINDOW+1):-1]) / TREND_WINDOW
+                    prev_avg = sum(score_history[-(TREND_WINDOW + 1) : -1]) / TREND_WINDOW
                     improvement = (recent_avg - prev_avg) / abs(prev_avg) if prev_avg != 0 else 0
                 else:
                     improvement = float("inf")

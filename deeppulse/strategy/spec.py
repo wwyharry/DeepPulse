@@ -99,9 +99,7 @@ class StrategySpec:
                     continue
                 fp = factor.params[pname]
                 if not (fp.min - 1e-9 <= float(pvalue) <= fp.max + 1e-9):
-                    errors.append(
-                        f"因子 {f.factor_id} 参数 {pname}={pvalue} 越界 [{fp.min}, {fp.max}]"
-                    )
+                    errors.append(f"因子 {f.factor_id} 参数 {pname}={pvalue} 越界 [{fp.min}, {fp.max}]")
         if self.factors and total_weight <= 0:
             errors.append("因子权重总和必须大于 0")
         if not (0.0 < self.entry_threshold <= 1.0):
@@ -128,9 +126,7 @@ def compile_signal_func(spec: StrategySpec) -> Callable[[pd.DataFrame], pd.Serie
             s = factor.score(df, fspec.params)
             score = score + s * (fspec.weight * fspec.direction)
         normalized = (score / total_weight).clip(0.0, 1.0)
-        return pd.Series(
-            np.where(normalized >= spec.entry_threshold, 1, 0), index=df.index, dtype=int
-        )
+        return pd.Series(np.where(normalized >= spec.entry_threshold, 1, 0), index=df.index, dtype=int)
 
     return signal_func
 
@@ -146,14 +142,16 @@ def factor_scores_detail(spec: StrategySpec, df: pd.DataFrame) -> dict:
         latest = float(s.iloc[-1]) if len(s) else 0.0
         weighted = latest * fspec.weight * fspec.direction
         total += weighted
-        details.append({
-            "factor_id": fspec.factor_id,
-            "factor_name": factor.name,
-            "score": round(latest, 4),
-            "weight": fspec.weight,
-            "direction": fspec.direction,
-            "weighted_score": round(weighted, 4),
-        })
+        details.append(
+            {
+                "factor_id": fspec.factor_id,
+                "factor_name": factor.name,
+                "score": round(latest, 4),
+                "weight": fspec.weight,
+                "direction": fspec.direction,
+                "weighted_score": round(weighted, 4),
+            }
+        )
     normalized = max(0.0, min(1.0, total / total_weight))
     return {
         "factors": details,

@@ -41,16 +41,19 @@ class FakeLLMClient:
         return {"content": self.content, "tool_calls": None, "stop_reason": "stop"}
 
 
-VALID_SPEC_JSON = json.dumps({
-    "name": "测试策略",
-    "factors": [
-        {"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, "weight": 1.0, "direction": 1},
-        {"factor_id": "macd_trend", "params": {}, "weight": 0.8, "direction": 1},
-    ],
-    "entry_threshold": 0.6,
-    "exit_preset": "balanced",
-    "llm_rationale": "趋势共振",
-}, ensure_ascii=False)
+VALID_SPEC_JSON = json.dumps(
+    {
+        "name": "测试策略",
+        "factors": [
+            {"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, "weight": 1.0, "direction": 1},
+            {"factor_id": "macd_trend", "params": {}, "weight": 0.8, "direction": 1},
+        ],
+        "entry_threshold": 0.6,
+        "exit_preset": "balanced",
+        "llm_rationale": "趋势共振",
+    },
+    ensure_ascii=False,
+)
 
 
 # ============ 因子库 ============
@@ -166,10 +169,12 @@ class TestLLMStrategyGenerator:
             gen.generate("600519", {})
 
     def test_analyze_backtest_success(self):
-        payload = json.dumps({
-            "comment": "交易次数偏少，建议降低阈值",
-            "actions": [{"type": "adjust_threshold", "value": 0.5}],
-        })
+        payload = json.dumps(
+            {
+                "comment": "交易次数偏少，建议降低阈值",
+                "actions": [{"type": "adjust_threshold", "value": 0.5}],
+            }
+        )
         gen = LLMStrategyGenerator(llm_client=FakeLLMClient(payload))
         result = gen.analyze_backtest(default_spec(), {"total_return": 0.1}, [])
         assert result["comment"]

@@ -13,7 +13,7 @@
 | **📊 因子库** | **104 个量化因子，覆盖均线、动量、量能、形态等 13 个大类，可视化展示** |
 | **🖥️ TUI 全屏界面** | **暗色金融主题，三栏布局，命令系统和快捷键** |
 | **⌨️ CLI 命令行** | **快速单次分析或交互式对话** |
-| 自然语言交互 | 中文提问，Agent 自动调度 65 个工具完成分析 |
+| 自然语言交互 | 中文提问，Agent 自动调度 64 个工具完成分析 |
 | **⚖️ 评判Agent** | **自适应评测：根据问题类型评分 1-10，快速给出改进建议** |
 | 技术指标 | MA / MACD / RSI / KDJ / 布林带 / ATR / OBV / ADX / CCI / MFI / VWAP |
 | K 线形态 | 十字星、锤子线、吞没、早晨之星等经典形态自动识别 |
@@ -43,7 +43,7 @@ graph TB
     subgraph Agent 核心
         REACT[ReAct 推理引擎]
         CLIENT[LLM 客户端<br/>OpenAI / Anthropic]
-        TOOLS[65 个工具]
+        TOOLS[64 个工具]
         MEMORY[长期记忆系统]
         JUDGE[评判 Agent]
     end
@@ -102,7 +102,7 @@ DeepPulse 基于 ReAct（Reasoning + Acting）范式构建。LLM 在每一轮对
 → 输出: 综合分析结论 + 操作建议
 ```
 
-内置 **65 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、回测验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
+内置 **64 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、回测验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
 
 ### 动态推理链
 
@@ -467,7 +467,7 @@ class TushareSource(BaseDataSource):
 ## 工具一览
 
 <details>
-<summary>点击展开全部 65 个工具</summary>
+<summary>点击展开全部 64 个工具</summary>
 
 ### 数据更新
 | 工具 | 说明 |
@@ -598,7 +598,7 @@ class TushareSource(BaseDataSource):
 | 盘口时段 | 集合竞价、尾盘套利、分时攻击波、分时背离 |
 | 高阶逻辑 | 分歧转一致、换手板、空仓战法 |
 
-在 `agent/strategies/` 下创建 `.md` 文件即可添加自定义战法。
+在 `deeppulse/strategy/strategies/` 下创建 `.md` 文件即可添加自定义战法。
 
 ## 记忆类型
 
@@ -621,12 +621,11 @@ DeepPulse/
 │   ├── agent/                 # Agent 核心
 │   │   ├── agent.py           # ReAct 循环引擎
 │   │   ├── client.py          # LLM 客户端（OpenAI/Anthropic）
-│   │   ├── tools/             # 65 个工具定义
+│   │   ├── tools/             # 64 个工具定义
 │   │   ├── memory/            # 长期记忆系统
 │   │   ├── prompts.py         # System Prompt
 │   │   ├── judge_agent.py     # 评判Agent（自适应评分）
 │   │   ├── indicators.py      # 统一技术指标引擎
-│   │   ├── strategies/        # 40 个短线战法（Markdown）
 │   │   └── ...
 │   ├── strategy/              # 策略平台核心
 │   │   ├── models.py          # 数据模型
@@ -636,7 +635,8 @@ DeepPulse/
 │   │   ├── spec.py            # 策略规格
 │   │   ├── llm_generator.py   # LLM 策略生成
 │   │   ├── optimizer.py       # 自动调优循环
-│   │   └── repository.py      # 策略仓库
+│   │   ├── repository.py      # 策略仓库
+│   │   └── strategies/        # 40 个短线战法（Markdown，Agent 与策略平台共享）
 │   └── src/                   # 数据层
 │       ├── database.py        # DuckDB 表操作
 │       ├── query.py           # 数据查询接口
@@ -669,7 +669,7 @@ DeepPulse/
 | 语义搜索 | sentence-transformers（本地 768 维） + BM25 |
 | 新闻爬虫 | curl_cffi + BeautifulSoup |
 | 语言/运行时 | Python 3.10+ |
-| 图表 | mplfinance（K 线图） |
+| 图表 | mplfinance / matplotlib（静态）+ ECharts（HTML 交互式 K 线） |
 
 ## 注意事项
 

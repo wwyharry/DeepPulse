@@ -1,12 +1,12 @@
-"""短线战法加载器 - 从 strategies/ 目录加载 Markdown 战法文件，支持关键词检索"""
+"""短线战法加载器 - 从 deeppulse/strategy/strategies/ 加载 Markdown 战法文件，支持关键词检索"""
 
 import json
 import re
 import time
 from pathlib import Path
 
-# 战法目录
-STRATEGIES_DIR = Path(__file__).parent / "strategies"
+# 战法目录（与策略平台共享同一份战法库）
+STRATEGIES_DIR = Path(__file__).parent.parent / "strategy" / "strategies"
 # 缓存文件
 CACHE_DIR = Path(__file__).parent.parent / ".cache"
 CACHE_FILE = CACHE_DIR / "strategy_summary.json"

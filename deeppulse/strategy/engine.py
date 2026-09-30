@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -70,9 +70,21 @@ class StrategyEngine:
         # 提取关键词
         keywords = set()
         tech_patterns = [
-            r"金叉", r"死叉", r"超买", r"超卖", r"放量", r"缩量",
-            r"突破", r"回踩", r"支撑", r"压力", r"背离",
-            r"涨停", r"跌停", r"封板", r"换手",
+            r"金叉",
+            r"死叉",
+            r"超买",
+            r"超卖",
+            r"放量",
+            r"缩量",
+            r"突破",
+            r"回踩",
+            r"支撑",
+            r"压力",
+            r"背离",
+            r"涨停",
+            r"跌停",
+            r"封板",
+            r"换手",
         ]
         for pattern in tech_patterns:
             if re.search(pattern, content):
@@ -202,8 +214,7 @@ class StrategyEngine:
 
         # 获取当前指标值
         indicators = {}
-        indicator_cols = ["ma5", "ma10", "ma20", "ma60", "rsi6", "rsi12", "rsi24",
-                         "dif", "dea", "macd", "k", "d", "j"]
+        indicator_cols = ["ma5", "ma10", "ma20", "ma60", "rsi6", "rsi12", "rsi24", "dif", "dea", "macd", "k", "d", "j"]
         for col in indicator_cols:
             if col in df.columns:
                 indicators[col] = float(latest[col])
@@ -411,8 +422,8 @@ class StrategyEngine:
     def _get_signal_function(self, strategy: Strategy):
         """根据策略内容获取信号函数"""
         from deeppulse.strategy.backtest import (
-            signal_macd_cross,
             signal_ma_cross,
+            signal_macd_cross,
             signal_rsi_oversold,
             signal_volume_breakout,
         )

@@ -600,7 +600,7 @@ class DeepPulseTUI(App):
             else:
                 strategies = loader.list_strategies()
                 if not strategies:
-                    self.chat_log.add_system_message("📚 暂无战法。请将 .md 文件放入 agent/strategies/")
+                    self.chat_log.add_system_message("📚 暂无战法。请将 .md 文件放入 deeppulse/strategy/strategies/")
                 else:
                     lines = [f"📚 共 {len(strategies)} 个战法:\n"]
                     for s in strategies[:15]:

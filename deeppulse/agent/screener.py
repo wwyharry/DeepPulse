@@ -11,11 +11,7 @@ def screen_stocks(conditions: str, limit: int = 20) -> str:
             支持: "MA5>MA10", "RSI6<20", "成交量>5日均量*1.5", "MACD金叉", "涨跌幅>3%"
         limit: 最多返回数量
     """
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    import config
+    from deeppulse import config
     from deeppulse.src.database import get_connection
 
     conn = get_connection(config.DB_PATH)

@@ -1,11 +1,10 @@
 """策略组合管理 - 多策略组合、资金分配、风险预算"""
 
 import json
-from typing import Optional
 
 import numpy as np
 
-from deeppulse.strategy.models import Portfolio, Strategy
+from deeppulse.strategy.models import Portfolio
 from deeppulse.strategy.repository import get_repository
 
 
@@ -37,10 +36,11 @@ class PortfolioManager:
         self._save_portfolio(portfolio)
         return portfolio
 
-    def get_portfolio(self, portfolio_id: str) -> Optional[Portfolio]:
+    def get_portfolio(self, portfolio_id: str) -> Portfolio | None:
         """获取组合"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -57,7 +57,7 @@ class PortfolioManager:
                     return None
 
                 columns = [desc[0] for desc in conn.description]
-                data = dict(zip(columns, row))
+                data = dict(zip(columns, row, strict=True))
 
                 # 解析JSON字段
                 if "strategies" in data and isinstance(data["strategies"], str):
@@ -73,6 +73,7 @@ class PortfolioManager:
         """列出所有组合"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -85,7 +86,7 @@ class PortfolioManager:
                 columns = [desc[0] for desc in conn.description]
                 portfolios = []
                 for row in rows:
-                    data = dict(zip(columns, row))
+                    data = dict(zip(columns, row, strict=True))
                     if "strategies" in data and isinstance(data["strategies"], str):
                         data["strategies"] = json.loads(data["strategies"])
                     portfolios.append(data)
@@ -96,7 +97,7 @@ class PortfolioManager:
         except Exception:
             return []
 
-    def update_portfolio(self, portfolio_id: str, **kwargs) -> Optional[Portfolio]:
+    def update_portfolio(self, portfolio_id: str, **kwargs) -> Portfolio | None:
         """更新组合"""
         portfolio = self.get_portfolio(portfolio_id)
         if not portfolio:
@@ -114,6 +115,7 @@ class PortfolioManager:
         """删除组合"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -132,6 +134,7 @@ class PortfolioManager:
         """保存组合"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -197,11 +200,13 @@ class PortfolioManager:
                 return False
 
         # 添加策略
-        portfolio.strategies.append({
-            "strategy_id": strategy_id,
-            "weight": weight,
-            "params": params or {},
-        })
+        portfolio.strategies.append(
+            {
+                "strategy_id": strategy_id,
+                "weight": weight,
+                "params": params or {},
+            }
+        )
 
         # 重新平衡权重
         self._rebalance_weights(portfolio)
@@ -216,9 +221,7 @@ class PortfolioManager:
             return False
 
         # 移除策略
-        portfolio.strategies = [
-            s for s in portfolio.strategies if s.get("strategy_id") != strategy_id
-        ]
+        portfolio.strategies = [s for s in portfolio.strategies if s.get("strategy_id") != strategy_id]
 
         # 重新平衡权重
         self._rebalance_weights(portfolio)
@@ -249,30 +252,32 @@ class PortfolioManager:
             strategy_id = s.get("strategy_id")
             analysis = self._get_strategy_performance(strategy_id)
             if analysis:
-                strategy_performance.append({
-                    "strategy_id": strategy_id,
-                    "weight": s.get("weight", 0),
-                    "performance": analysis,
-                })
+                strategy_performance.append(
+                    {
+                        "strategy_id": strategy_id,
+                        "weight": s.get("weight", 0),
+                        "performance": analysis,
+                    }
+                )
 
         if not strategy_performance:
             return {"error": "无策略绩效数据"}
 
         # 计算最优权重（简化版：按夏普比率加权）
-        total_sharpe = sum(
-            sp["performance"].get("sharpe_ratio", 0) for sp in strategy_performance
-        )
+        total_sharpe = sum(sp["performance"].get("sharpe_ratio", 0) for sp in strategy_performance)
 
         optimized_weights = []
         for sp in strategy_performance:
             sharpe = sp["performance"].get("sharpe_ratio", 0)
             optimal_weight = sharpe / total_sharpe if total_sharpe > 0 else 1 / len(strategy_performance)
-            optimized_weights.append({
-                "strategy_id": sp["strategy_id"],
-                "current_weight": sp["weight"],
-                "optimal_weight": round(optimal_weight, 4),
-                "sharpe_ratio": sharpe,
-            })
+            optimized_weights.append(
+                {
+                    "strategy_id": sp["strategy_id"],
+                    "current_weight": sp["weight"],
+                    "optimal_weight": round(optimal_weight, 4),
+                    "sharpe_ratio": sharpe,
+                }
+            )
 
         return {
             "portfolio_id": portfolio_id,
@@ -284,6 +289,7 @@ class PortfolioManager:
         """获取策略绩效"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -343,22 +349,20 @@ class PortfolioManager:
                 total_weighted_return += weight * avg_return
                 total_weighted_risk += weight * abs(avg_drawdown)
 
-                strategy_performances.append({
-                    "strategy_id": strategy_id,
-                    "weight": weight,
-                    "performance": performance,
-                })
+                strategy_performances.append(
+                    {
+                        "strategy_id": strategy_id,
+                        "weight": weight,
+                        "performance": performance,
+                    }
+                )
 
         # 计算组合指标
         portfolio_metrics = {
             "expected_return": round(total_weighted_return, 4),
             "expected_risk": round(total_weighted_risk, 4),
-            "risk_adjusted_return": round(
-                total_weighted_return / (total_weighted_risk + 0.001), 4
-            ),
-            "diversification_score": round(
-                1 - sum(s.get("weight", 0) ** 2 for s in portfolio.strategies), 4
-            ),
+            "risk_adjusted_return": round(total_weighted_return / (total_weighted_risk + 0.001), 4),
+            "diversification_score": round(1 - sum(s.get("weight", 0) ** 2 for s in portfolio.strategies), 4),
         }
 
         return {
@@ -383,12 +387,14 @@ class PortfolioManager:
             weight = s.get("weight", 0)
             allocated_capital = portfolio.total_capital * weight
 
-            positions.append({
-                "strategy_id": strategy_id,
-                "weight": weight,
-                "allocated_capital": round(allocated_capital, 2),
-                "risk_budget": round(allocated_capital * portfolio.risk_budget, 2),
-            })
+            positions.append(
+                {
+                    "strategy_id": strategy_id,
+                    "weight": weight,
+                    "allocated_capital": round(allocated_capital, 2),
+                    "risk_budget": round(allocated_capital * portfolio.risk_budget, 2),
+                }
+            )
 
         return {
             "portfolio_id": portfolio_id,

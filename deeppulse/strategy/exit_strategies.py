@@ -7,7 +7,7 @@
 - 分批退出: 降低单次决策风险
 """
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -140,7 +140,6 @@ class ExitScoreCalculator:
                 "details": list[str]
             }
         """
-        score = 0
         technical_score = 0
         trend_score = 0
         momentum_score = 0
@@ -321,9 +320,7 @@ class DynamicExitEngine:
 
         # 4. 检查技术退出（"没有问题就不止盈"）
         if self.exit_strategy.technical_exit_enabled:
-            exit_score = self.exit_calculator.calculate_exit_score(
-                row, df_history, entry_price, self.highest_price
-            )
+            exit_score = self.exit_calculator.calculate_exit_score(row, df_history, entry_price, self.highest_price)
 
             total_score = exit_score["total_score"]
 

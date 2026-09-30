@@ -1,7 +1,5 @@
 """策略回测引擎 - 增强版回测，支持滑点、手续费、参数优化、动态退出策略"""
 
-import json
-from dataclasses import asdict
 from itertools import product
 
 import numpy as np
@@ -9,13 +7,13 @@ import pandas as pd
 
 from deeppulse.agent.indicators import TechnicalIndicators
 from deeppulse.src.query import StockQuery
-from deeppulse.strategy.models import BacktestResult, Trade
 from deeppulse.strategy.exit_strategies import (
+    PRESET_EXIT_STRATEGIES,
     DynamicExitEngine,
     ExitStrategy,
-    PRESET_EXIT_STRATEGIES,
     get_preset_strategy,
 )
+from deeppulse.strategy.models import BacktestResult, Trade
 
 # ============ 技术指标计算（委托统一引擎） ============
 
@@ -278,8 +276,13 @@ class BacktestEngine:
             position = 0
 
         return self._compute_metrics(
-            trades, equity_curve, strategy_name, code, name,
-            str(df["trade_date"].iloc[0]), str(df["trade_date"].iloc[-1])
+            trades,
+            equity_curve,
+            strategy_name,
+            code,
+            name,
+            str(df["trade_date"].iloc[0]),
+            str(df["trade_date"].iloc[-1]),
         )
 
     def _recalc_capital(self, capital, shares, entry_price, sell_price):
@@ -287,8 +290,7 @@ class BacktestEngine:
         return capital + shares * sell_price * (1 - self.commission)
 
     def _compute_metrics(
-        self, trades: list, equity_curve: list, strategy_name: str,
-        code: str, name: str, start_date: str, end_date: str
+        self, trades: list, equity_curve: list, strategy_name: str, code: str, name: str, start_date: str, end_date: str
     ) -> BacktestResult:
         """计算回测绩效指标"""
         result = BacktestResult(
@@ -500,7 +502,7 @@ class DynamicBacktestEngine(BacktestEngine):
             # 持仓中：检查动态退出条件
             if position > 0:
                 hold_days = i - entry_idx
-                df_history = df.iloc[max(0, i - 20):i + 1] if i >= 20 else df.iloc[:i + 1]
+                df_history = df.iloc[max(0, i - 20) : i + 1] if i >= 20 else df.iloc[: i + 1]
 
                 should_exit, exit_reason, exit_ratio = exit_engine.should_exit(
                     row_dict, entry_price, hold_days, df_history
@@ -598,15 +600,20 @@ class DynamicBacktestEngine(BacktestEngine):
             position = 0
 
         # 计算退出原因平均收益
-        for reason, analysis in exit_analysis.items():
+        for analysis in exit_analysis.values():
             if analysis["count"] > 0:
                 analysis["avg_return"] = analysis["total_return"] / analysis["count"]
             else:
                 analysis["avg_return"] = 0
 
         result = self._compute_metrics(
-            trades, equity_curve, strategy_name, code, name,
-            str(df["trade_date"].iloc[0]), str(df["trade_date"].iloc[-1])
+            trades,
+            equity_curve,
+            strategy_name,
+            code,
+            name,
+            str(df["trade_date"].iloc[0]),
+            str(df["trade_date"].iloc[-1]),
         )
 
         # 添加退出策略信息
@@ -863,10 +870,7 @@ def optimize_strategy(
     # 按综合评分排序
     for r in results:
         r["score"] = (
-            r["total_return"] * 0.4
-            + r["sharpe_ratio"] * 0.03
-            + r["win_rate"] * 0.2
-            - abs(r["max_drawdown"]) * 0.1
+            r["total_return"] * 0.4 + r["sharpe_ratio"] * 0.03 + r["win_rate"] * 0.2 - abs(r["max_drawdown"]) * 0.1
         )
     results.sort(key=lambda x: x["score"], reverse=True)
 

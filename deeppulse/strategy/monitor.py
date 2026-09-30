@@ -2,8 +2,8 @@
 
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Optional
 
 from deeppulse.strategy.models import Signal, SignalStatus
 from deeppulse.strategy.repository import get_repository
@@ -17,10 +17,10 @@ class SignalMonitor:
         self.repository = get_repository()
         self.signal_generator = get_signal_generator()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._callbacks: list[Callable] = []
         self._scan_interval = 300  # 5分钟扫描一次
-        self._last_scan_time: Optional[datetime] = None
+        self._last_scan_time: datetime | None = None
         self._scan_count = 0
         self._signal_count = 0
 
@@ -122,6 +122,7 @@ class SignalMonitor:
         """确认信号"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -143,6 +144,7 @@ class SignalMonitor:
         """过期信号"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -164,6 +166,7 @@ class SignalMonitor:
         """获取信号统计"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -175,17 +178,13 @@ class SignalMonitor:
                 total = conn.execute("SELECT COUNT(*) FROM strategy_signals").fetchone()[0]
 
                 # 各状态信号数
-                pending = conn.execute(
-                    "SELECT COUNT(*) FROM strategy_signals WHERE status = 'pending'"
-                ).fetchone()[0]
+                pending = conn.execute("SELECT COUNT(*) FROM strategy_signals WHERE status = 'pending'").fetchone()[0]
 
-                confirmed = conn.execute(
-                    "SELECT COUNT(*) FROM strategy_signals WHERE status = 'confirmed'"
-                ).fetchone()[0]
+                confirmed = conn.execute("SELECT COUNT(*) FROM strategy_signals WHERE status = 'confirmed'").fetchone()[
+                    0
+                ]
 
-                expired = conn.execute(
-                    "SELECT COUNT(*) FROM strategy_signals WHERE status = 'expired'"
-                ).fetchone()[0]
+                expired = conn.execute("SELECT COUNT(*) FROM strategy_signals WHERE status = 'expired'").fetchone()[0]
 
                 # 各类型信号数
                 buy_signals = conn.execute(
@@ -197,9 +196,7 @@ class SignalMonitor:
                 ).fetchone()[0]
 
                 # 平均置信度
-                avg_confidence = conn.execute(
-                    "SELECT AVG(confidence) FROM strategy_signals"
-                ).fetchone()[0] or 0
+                avg_confidence = conn.execute("SELECT AVG(confidence) FROM strategy_signals").fetchone()[0] or 0
 
                 return {
                     "total": total,

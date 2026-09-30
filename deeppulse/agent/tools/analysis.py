@@ -104,18 +104,6 @@ def backtest_multi_stock(strategy: str = "macd_cross", codes: str = "", days: in
 
 def generate_chart(code: str, days: int = 120, show_macd: bool = True, show_rsi: bool = False) -> str:
     """生成K线图（带均线、MACD等技术指标），保存到本地文件。"""
-    # Web 模式下跳过图表生成，前端已有交互式图表
-    import os
-
-    if os.environ.get("DEEPPULSE_WEB_MODE"):
-        return json.dumps(
-            {
-                "status": "skipped",
-                "message": f"K线图已在前端交互式展示，无需生成静态文件。请使用「分析」页面查看 {code} 的K线图。",
-            },
-            ensure_ascii=False,
-        )
-
     from deeppulse.agent.charts import generate_kline_chart
 
     try:
@@ -127,14 +115,6 @@ def generate_chart(code: str, days: int = 120, show_macd: bool = True, show_rsi:
 
 def compare_stocks_chart(codes: str, days: int = 60) -> str:
     """生成多只股票涨幅对比图（归一化），保存到本地文件。"""
-    # Web 模式下跳过图表生成
-    import os
-
-    if os.environ.get("DEEPPULSE_WEB_MODE"):
-        return json.dumps(
-            {"status": "skipped", "message": "对比图已在前端交互式展示，无需生成静态文件。"}, ensure_ascii=False
-        )
-
     from deeppulse.agent.charts import generate_comparison_chart
 
     try:

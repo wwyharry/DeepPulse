@@ -214,8 +214,8 @@ def _handle_strategy_command(cmd: str):
     # 列出所有战法
     strategies = loader.list_strategies()
     if not strategies:
-        print(f"{TOOL_COLOR}  暂无战法。请将 .md 文件放入 agent/strategies/ 目录{RESET}")
-        print(f"{TOOL_COLOR}  参考 agent/strategies/README.md 了解格式{RESET}")
+        print(f"{TOOL_COLOR}  暂无战法。请将 .md 文件放入 deeppulse/strategy/strategies/ 目录{RESET}")
+        print(f"{TOOL_COLOR}  参考 deeppulse/strategy/strategies/README.md 了解格式{RESET}")
     else:
         print(f"{TOOL_COLOR}  共 {len(strategies)} 个战法:{RESET}")
         for s in strategies:

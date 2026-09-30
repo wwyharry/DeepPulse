@@ -167,52 +167,6 @@ class StockAgent:
 
         yield ("done", "")
 
-    async def chat_stream_json(self, user_input: str):
-        """Web 端专用：异步流式输出 JSON 事件，适配 WebSocket 协议。
-
-        yield 格式：
-            {"type": "thinking", "delta": "..."}
-            {"type": "content", "delta": "..."}
-            {"type": "tool_call", "name": "...", "args": {...}}
-            {"type": "tool_result", "name": "...", "data": "..."}
-            {"type": "done", "rounds": N, "tools": M}
-        """
-        self._prepare_user_input(user_input)
-        total_tools = 0
-
-        for round_num in range(self.max_rounds):
-            if self.verbose:
-                print(f"\n[Round {round_num + 1}] 调用 LLM...")
-
-            async for chunk in self.client.chat_stream_async(self.messages, tools=TOOL_DEFINITIONS):
-                if chunk.type == "thinking":
-                    yield {"type": "thinking", "delta": chunk.text}
-                elif chunk.type == "content":
-                    yield {"type": "content", "delta": chunk.text}
-
-            response = self.client.last_stream_response
-            is_done = self._process_stream_response(response)
-
-            if is_done:
-                yield {"type": "done", "rounds": round_num + 1, "tools": total_tools}
-                return
-
-            for tc in response["tool_calls"]:
-                json.dumps(tc["arguments"], ensure_ascii=False)
-                yield {"type": "tool_call", "name": tc["name"], "args": tc["arguments"]}
-
-                result = await asyncio.to_thread(self._run_tool, tc["name"], tc["arguments"])
-                self._track_tool_result(tc["name"], tc["arguments"], result)
-                self.messages.append(self.client.format_tool_result_message(tc["id"], tc["name"], result))
-                total_tools += 1
-
-                tool_result_preview = result[:500] if len(result) > 500 else result
-                yield {"type": "tool_result", "name": tc["name"], "data": tool_result_preview}
-
-            self._append_pending_system_notes()
-
-        yield {"type": "done", "rounds": self.max_rounds, "tools": total_tools}
-
     def _run_tool(self, tool_name: str, tool_args: dict) -> str:
         """执行单个工具，结果超长时智能截断以防上下文溢出"""
         if tool_name in TOOL_DISPATCH:

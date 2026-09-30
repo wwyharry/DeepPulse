@@ -4,7 +4,6 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Optional
 
 from deeppulse.strategy.models import (
     BacktestResult,
@@ -79,13 +78,11 @@ class StrategyRepository:
                 table_names = [t[0] for t in tables]
 
                 if "strategies" in table_names:
-                    rows = conn.execute(
-                        "SELECT * FROM strategies WHERE status != 'archived'"
-                    ).fetchall()
+                    rows = conn.execute("SELECT * FROM strategies WHERE status != 'archived'").fetchall()
                     columns = [desc[0] for desc in conn.description]
 
                     for row in rows:
-                        data = dict(zip(columns, row))
+                        data = dict(zip(columns, row, strict=True))
                         strategy = Strategy.from_dict(data)
                         strategy.source = "user"  # DuckDB中的都是用户创建的
                         if strategy.id not in self._strategies:
@@ -95,13 +92,13 @@ class StrategyRepository:
         except Exception:
             pass  # DuckDB不可用时忽略
 
-    def get_strategy(self, strategy_id: str) -> Optional[Strategy]:
+    def get_strategy(self, strategy_id: str) -> Strategy | None:
         """获取策略"""
         if not self._loaded:
             self.load_all()
         return self._strategies.get(strategy_id)
 
-    def get_strategy_by_filename(self, filename: str) -> Optional[Strategy]:
+    def get_strategy_by_filename(self, filename: str) -> Strategy | None:
         """根据文件名获取策略"""
         if not self._loaded:
             self.load_all()
@@ -123,10 +120,26 @@ class StrategyRepository:
 
         # 技术指标
         for pattern in [
-            r"MA\d+", r"MACD", r"RSI", r"KDJ", r"BOLL", r"布林",
-            r"金叉", r"死叉", r"超买", r"超卖", r"放量", r"缩量",
-            r"突破", r"回踩", r"支撑", r"压力", r"均线", r"背离",
-            r"涨停", r"跌停",
+            r"MA\d+",
+            r"MACD",
+            r"RSI",
+            r"KDJ",
+            r"BOLL",
+            r"布林",
+            r"金叉",
+            r"死叉",
+            r"超买",
+            r"超卖",
+            r"放量",
+            r"缩量",
+            r"突破",
+            r"回踩",
+            r"支撑",
+            r"压力",
+            r"均线",
+            r"背离",
+            r"涨停",
+            r"跌停",
         ]:
             if re.search(pattern, query, re.IGNORECASE):
                 query_terms.add(pattern)
@@ -336,7 +349,7 @@ class StrategyRepository:
         self.save_strategy(strategy)
         return strategy
 
-    def update_strategy(self, strategy_id: str, **kwargs) -> Optional[Strategy]:
+    def update_strategy(self, strategy_id: str, **kwargs) -> Strategy | None:
         """更新策略"""
         strategy = self.get_strategy(strategy_id)
         if not strategy:
@@ -429,7 +442,7 @@ class StrategyRepository:
                 ).fetchall()
 
                 columns = [desc[0] for desc in conn.description]
-                return [StrategyVersion(**dict(zip(columns, row))) for row in rows]
+                return [StrategyVersion(**dict(zip(columns, row, strict=True))) for row in rows]
             finally:
                 conn.close()
         except Exception:
@@ -591,7 +604,7 @@ class StrategyRepository:
                     ).fetchall()
 
                 columns = [desc[0] for desc in conn.description]
-                return [Signal(**dict(zip(columns, row))) for row in rows]
+                return [Signal(**dict(zip(columns, row, strict=True))) for row in rows]
             finally:
                 conn.close()
         except Exception:
@@ -617,10 +630,7 @@ class StrategyRepository:
         """)
         # 创建索引（如果不存在）
         try:
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_stock_strategies_code "
-                "ON stock_strategies(stock_code)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_strategies_code ON stock_strategies(stock_code)")
         except Exception:
             pass  # 索引可能已存在
 
@@ -662,7 +672,7 @@ class StrategyRepository:
             print(f"保存个股策略失败: {e}")
             return False
 
-    def get_stock_strategy(self, strategy_id: str) -> Optional[StockStrategy]:
+    def get_stock_strategy(self, strategy_id: str) -> StockStrategy | None:
         """按 ID 获取个股AI策略"""
         try:
             import duckdb
@@ -672,13 +682,11 @@ class StrategyRepository:
 
             conn = duckdb.connect(str(self.db_path), read_only=True)
             try:
-                rows = conn.execute(
-                    "SELECT * FROM stock_strategies WHERE id = ?", [strategy_id]
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM stock_strategies WHERE id = ?", [strategy_id]).fetchall()
                 if not rows:
                     return None
                 columns = [desc[0] for desc in conn.description]
-                data = dict(zip(columns, rows[0]))
+                data = dict(zip(columns, rows[0], strict=True))
                 # 反序列化 backtest_result
                 if isinstance(data.get("backtest_result"), str):
                     try:
@@ -691,9 +699,7 @@ class StrategyRepository:
         except Exception:
             return None
 
-    def list_stock_strategies(
-        self, stock_code: str = None, status: str = "active"
-    ) -> list[StockStrategy]:
+    def list_stock_strategies(self, stock_code: str = None, status: str = "active") -> list[StockStrategy]:
         """列出个股AI策略，可按 stock_code 筛选"""
         try:
             import duckdb
@@ -705,22 +711,19 @@ class StrategyRepository:
             try:
                 if stock_code:
                     rows = conn.execute(
-                        "SELECT * FROM stock_strategies "
-                        "WHERE stock_code = ? AND status = ? "
-                        "ORDER BY created_at DESC",
+                        "SELECT * FROM stock_strategies WHERE stock_code = ? AND status = ? ORDER BY created_at DESC",
                         [stock_code, status],
                     ).fetchall()
                 else:
                     rows = conn.execute(
-                        "SELECT * FROM stock_strategies "
-                        "WHERE status = ? ORDER BY stock_code, created_at DESC",
+                        "SELECT * FROM stock_strategies WHERE status = ? ORDER BY stock_code, created_at DESC",
                         [status],
                     ).fetchall()
 
                 columns = [desc[0] for desc in conn.description]
                 result = []
                 for row in rows:
-                    data = dict(zip(columns, row))
+                    data = dict(zip(columns, row, strict=True))
                     if isinstance(data.get("backtest_result"), str):
                         try:
                             data["backtest_result"] = json.loads(data["backtest_result"])
@@ -744,9 +747,7 @@ class StrategyRepository:
             conn = duckdb.connect(str(self.db_path))
             try:
                 self._ensure_stock_strategies_table(conn)
-                conn.execute(
-                    "DELETE FROM stock_strategies WHERE id = ?", [strategy_id]
-                )
+                conn.execute("DELETE FROM stock_strategies WHERE id = ?", [strategy_id])
                 return True
             finally:
                 conn.close()
@@ -768,15 +769,11 @@ class StrategyRepository:
                     "FROM stock_strategies WHERE status = 'active' "
                     "GROUP BY stock_code, stock_name ORDER BY stock_code"
                 ).fetchall()
-                return [
-                    {"stock_code": r[0], "stock_name": r[1], "count": r[2]}
-                    for r in rows
-                ]
+                return [{"stock_code": r[0], "stock_name": r[1], "count": r[2]} for r in rows]
             finally:
                 conn.close()
         except Exception:
             return []
-
 
     # ============================================================
     #  策略健康度快照
@@ -806,6 +803,7 @@ class StrategyRepository:
         """保存健康度快照（同 strategy+date 去重）"""
         try:
             import duckdb
+
             from deeppulse import config
 
             conn = duckdb.connect(str(config.DB_PATH))
@@ -824,12 +822,20 @@ class StrategyRepository:
                      snapshot_date, created_at)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
                     [
-                        snap.id, snap.strategy_id, snap.stock_code,
-                        snap.stock_name, snap.strategy_name,
-                        snap.total_score, snap.entry_threshold, snap.triggered,
-                        snap.factor_scores, snap.latest_close,
-                        snap.price_change_1d, snap.price_change_5d,
-                        snap.snapshot_date, snap.created_at,
+                        snap.id,
+                        snap.strategy_id,
+                        snap.stock_code,
+                        snap.stock_name,
+                        snap.strategy_name,
+                        snap.total_score,
+                        snap.entry_threshold,
+                        snap.triggered,
+                        snap.factor_scores,
+                        snap.latest_close,
+                        snap.price_change_1d,
+                        snap.price_change_5d,
+                        snap.snapshot_date,
+                        snap.created_at,
                     ],
                 )
                 return True
@@ -843,6 +849,7 @@ class StrategyRepository:
         """获取所有策略的最新健康度快照"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -851,7 +858,7 @@ class StrategyRepository:
             try:
                 # 检查表是否存在
                 tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
-                if 'health_snapshots' not in tables:
+                if "health_snapshots" not in tables:
                     return []
                 rows = conn.execute("""
                     SELECT * FROM health_snapshots
@@ -867,10 +874,10 @@ class StrategyRepository:
                 columns = [d[0] for d in conn.description]
                 result = []
                 for row in rows:
-                    data = dict(zip(columns, row))
+                    data = dict(zip(columns, row, strict=True))
                     # 转换 datetime 为字符串
-                    if 'created_at' in data and data['created_at'] is not None:
-                        data['created_at'] = str(data['created_at'])
+                    if "created_at" in data and data["created_at"] is not None:
+                        data["created_at"] = str(data["created_at"])
                     result.append(HealthSnapshot(**data))
                 return result
             finally:
@@ -882,6 +889,7 @@ class StrategyRepository:
         """获取某策略最近 N 天的健康度趋势"""
         try:
             import duckdb
+
             from deeppulse import config
 
             if not config.DB_PATH.exists():
@@ -890,7 +898,7 @@ class StrategyRepository:
             try:
                 # 检查表是否存在
                 tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
-                if 'health_snapshots' not in tables:
+                if "health_snapshots" not in tables:
                     return []
                 rows = conn.execute(
                     """SELECT * FROM health_snapshots
@@ -901,10 +909,10 @@ class StrategyRepository:
                 columns = [d[0] for d in conn.description]
                 result = []
                 for row in rows:
-                    data = dict(zip(columns, row))
+                    data = dict(zip(columns, row, strict=True))
                     # 转换 datetime 为字符串
-                    if 'created_at' in data and data['created_at'] is not None:
-                        data['created_at'] = str(data['created_at'])
+                    if "created_at" in data and data["created_at"] is not None:
+                        data["created_at"] = str(data["created_at"])
                     result.append(HealthSnapshot(**data))
                 result.reverse()  # 按日期正序
                 return result

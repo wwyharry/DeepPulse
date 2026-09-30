@@ -36,6 +36,8 @@ venv/
 .ruff_cache/
 .pytest_cache/
 .coverage
+coverage.xml
+htmlcov/
 .cache/
 
 # Claude Code

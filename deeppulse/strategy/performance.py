@@ -6,9 +6,7 @@ StrategySpec，计算当前各因子得分，调用 LLM 综合分析并给出操
 
 import json
 from datetime import date, timedelta
-from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from deeppulse.strategy.models import StockStrategy
@@ -88,27 +86,29 @@ class AIAnalyzer:
         # 构建因子描述
         factor_desc = []
         for f in spec.factors:
-            factor_desc.append({
-                "id": f.factor_id,
-                "weight": f.weight,
-                "direction": f.direction,
-                "params": f.params,
-            })
+            factor_desc.append(
+                {
+                    "id": f.factor_id,
+                    "weight": f.weight,
+                    "direction": f.direction,
+                    "params": f.params,
+                }
+            )
 
         # 构建因子得分
         factor_scores = []
         for f in detail.get("factors", []):
-            factor_scores.append({
-                "factor_id": f["factor_id"],
-                "factor_name": f["factor_name"],
-                "score": f["score"],
-                "weighted_score": f["weighted_score"],
-            })
+            factor_scores.append(
+                {
+                    "factor_id": f["factor_id"],
+                    "factor_name": f["factor_name"],
+                    "score": f["score"],
+                    "weighted_score": f["weighted_score"],
+                }
+            )
 
         # 最近 5 日 K 线
-        recent_kline = df.tail(5)[
-            ["trade_date", "open", "high", "low", "close", "volume"]
-        ].to_dict(orient="records")
+        recent_kline = df.tail(5)[["trade_date", "open", "high", "low", "close", "volume"]].to_dict(orient="records")
 
         prompt = f"""你是一位资深 A 股量化交易分析师。请基于以下信息分析当前行情并给出操作建议。
 
@@ -121,8 +121,8 @@ class AIAnalyzer:
 
 【当前各因子得分】
 {json.dumps(factor_scores, ensure_ascii=False, indent=2)}
-综合得分: {detail.get('total_score', 0)} / 阈值: {detail.get('entry_threshold', 0.6)}
-是否触发: {'是' if detail.get('triggered') else '否'}
+综合得分: {detail.get("total_score", 0)} / 阈值: {detail.get("entry_threshold", 0.6)}
+是否触发: {"是" if detail.get("triggered") else "否"}
 
 【近期行情画像】
 {kline_stats}
@@ -182,9 +182,7 @@ class AIAnalyzer:
                 "error": str(e),
             }
 
-    def _load_kline(
-        self, stock_code: str, days: int = 250
-    ) -> Optional[pd.DataFrame]:
+    def _load_kline(self, stock_code: str, days: int = 250) -> pd.DataFrame | None:
         """加载K线数据"""
         try:
             from deeppulse.src.query import StockQuery
@@ -192,9 +190,7 @@ class AIAnalyzer:
             query = StockQuery()
             end = date.today()
             start = end - timedelta(days=int(days * 1.6))
-            df = query.get_daily_kline(
-                stock_code, start_date=str(start), end_date=str(end)
-            )
+            df = query.get_daily_kline(stock_code, start_date=str(start), end_date=str(end))
             if df is None or df.empty:
                 return None
             return df.sort_values("trade_date").reset_index(drop=True)

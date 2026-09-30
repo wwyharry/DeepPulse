@@ -39,8 +39,25 @@ def build_kline_stats(df: pd.DataFrame) -> dict:
     # 最新指标快照
     last = df.iloc[-1]
     snapshot = {}
-    for col in ["ma5", "ma10", "ma20", "ma60", "dif", "dea", "macd", "rsi6", "rsi14",
-                "k", "d", "j", "boll_upper", "boll_mid", "boll_lower", "atr14", "vol_ratio"]:
+    for col in [
+        "ma5",
+        "ma10",
+        "ma20",
+        "ma60",
+        "dif",
+        "dea",
+        "macd",
+        "rsi6",
+        "rsi14",
+        "k",
+        "d",
+        "j",
+        "boll_upper",
+        "boll_mid",
+        "boll_lower",
+        "atr14",
+        "vol_ratio",
+    ]:
         if col in df.columns and pd.notna(last.get(col)):
             snapshot[col] = round(float(last[col]), 4)
     stats["indicator_snapshot"] = snapshot
@@ -51,9 +68,7 @@ def _factor_catalog_prompt() -> str:
     """生成因子库目录文本（供 prompt 注入）"""
     lines = []
     for f in list_factors():
-        params = ", ".join(
-            f"{k}(默认{v.default}, 范围{v.min}~{v.max})" for k, v in f.params.items()
-        ) or "无参数"
+        params = ", ".join(f"{k}(默认{v.default}, 范围{v.min}~{v.max})" for k, v in f.params.items()) or "无参数"
         lines.append(f"- {f.id}【{f.name}】: {f.description}；参数: {params}")
     return "\n".join(lines)
 
@@ -148,12 +163,23 @@ class LLMStrategyGenerator:
         """
         metrics = {
             k: result.get(k)
-            for k in ["total_return", "annual_return", "max_drawdown", "win_rate",
-                      "sharpe_ratio", "profit_factor", "total_trades", "avg_hold_days"]
+            for k in [
+                "total_return",
+                "annual_return",
+                "max_drawdown",
+                "win_rate",
+                "sharpe_ratio",
+                "profit_factor",
+                "total_trades",
+                "avg_hold_days",
+            ]
         }
         history_brief = [
-            {"iteration": h.get("iteration"), "score": h.get("score"),
-             "total_return": (h.get("metrics") or {}).get("total_return")}
+            {
+                "iteration": h.get("iteration"),
+                "score": h.get("score"),
+                "total_return": (h.get("metrics") or {}).get("total_return"),
+            }
             for h in history[-5:]
         ]
         prompt = f"""你是一位资深量化策略调优专家。以下是一个多因子策略的回测结果，请分析并给出调整动作。
@@ -197,10 +223,7 @@ actions 可以为空数组（表示当前结构合理，仅依赖参数网格搜
         except (ValueError, KeyError, json.JSONDecodeError, TypeError) as e:
             return {"comment": f"LLM 分析失败: {e}", "actions": []}
 
-    def analyze_final_strategy(
-        self, code: str, history: list[dict],
-        best_spec: dict, best_result: dict
-    ) -> dict:
+    def analyze_final_strategy(self, code: str, history: list[dict], best_spec: dict, best_result: dict) -> dict:
         """最终分析：LLM 综合所有轮次结果，选出最优策略并给出原因
 
         Returns:
@@ -210,23 +233,24 @@ actions 可以为空数组（表示当前结构合理，仅依赖参数网格搜
         history_summary = []
         for h in history:
             m = h.get("metrics", {})
-            history_summary.append({
-                "iteration": h.get("iteration"),
-                "phase": h.get("phase", "unknown"),
-                "score": h.get("score"),
-                "total_return": m.get("total_return"),
-                "win_rate": m.get("win_rate"),
-                "max_drawdown": m.get("max_drawdown"),
-                "sharpe_ratio": m.get("sharpe_ratio"),
-                "total_trades": m.get("total_trades"),
-                "comment": (h.get("llm_comment") or "")[:100],  # 截断
-            })
+            history_summary.append(
+                {
+                    "iteration": h.get("iteration"),
+                    "phase": h.get("phase", "unknown"),
+                    "score": h.get("score"),
+                    "total_return": m.get("total_return"),
+                    "win_rate": m.get("win_rate"),
+                    "max_drawdown": m.get("max_drawdown"),
+                    "sharpe_ratio": m.get("sharpe_ratio"),
+                    "total_trades": m.get("total_trades"),
+                    "comment": (h.get("llm_comment") or "")[:100],  # 截断
+                }
+            )
 
         # 最佳策略指标
         best_metrics = {
             k: best_result.get(k)
-            for k in ["total_return", "annual_return", "max_drawdown", "win_rate",
-                      "sharpe_ratio", "total_trades"]
+            for k in ["total_return", "annual_return", "max_drawdown", "win_rate", "sharpe_ratio", "total_trades"]
         }
 
         prompt = f"""你是一位资深量化策略评审专家。以下是股票 {code} 的策略优化全过程，请综合分析并给出最终建议。
@@ -280,12 +304,14 @@ def apply_actions(spec: StrategySpec, actions: list[dict]) -> StrategySpec:
             elif atype == "adjust_threshold":
                 new_spec.entry_threshold = min(0.8, max(0.3, float(action["value"])))
             elif atype == "add_factor" and fid and fid not in by_id:
-                new_spec.factors.append(FactorSpec(
-                    factor_id=fid,
-                    params=action.get("params") or {},
-                    weight=float(action.get("weight", 1.0)),
-                    direction=int(action.get("direction", 1)),
-                ))
+                new_spec.factors.append(
+                    FactorSpec(
+                        factor_id=fid,
+                        params=action.get("params") or {},
+                        weight=float(action.get("weight", 1.0)),
+                        direction=int(action.get("direction", 1)),
+                    )
+                )
                 by_id[fid] = new_spec.factors[-1]
             elif atype == "remove_factor" and fid in by_id and len(new_spec.factors) > 1:
                 new_spec.factors = [f for f in new_spec.factors if f.factor_id != fid]

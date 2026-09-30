@@ -6,7 +6,6 @@
 """
 
 from datetime import date, timedelta
-from typing import Optional
 
 import pandas as pd
 
@@ -64,11 +63,7 @@ class SignalGenerator:
                             signal_price=float(df.iloc[i]["close"]),
                             signal_time=str(df.iloc[i]["trade_date"]),
                             confidence=round(detail["total_score"], 4),
-                            matched_conditions=[
-                                f["factor_name"]
-                                for f in detail["factors"]
-                                if f["score"] > 0.5
-                            ],
+                            matched_conditions=[f["factor_name"] for f in detail["factors"] if f["score"] > 0.5],
                         )
                     )
 
@@ -77,9 +72,7 @@ class SignalGenerator:
 
         return signals
 
-    def scan_all_stock_strategies(
-        self, stock_codes: list[str] = None
-    ) -> list[Signal]:
+    def scan_all_stock_strategies(self, stock_codes: list[str] = None) -> list[Signal]:
         """扫描所有已保存的个股策略，生成信号"""
         from deeppulse.strategy.repository import get_repository
 
@@ -105,7 +98,7 @@ class SignalGenerator:
 
         return all_signals
 
-    def _load_kline(self, stock_code: str, days: int) -> Optional[pd.DataFrame]:
+    def _load_kline(self, stock_code: str, days: int) -> pd.DataFrame | None:
         """加载K线数据"""
         try:
             from deeppulse.src.query import StockQuery
