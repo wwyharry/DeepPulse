@@ -26,6 +26,12 @@ def _body(row):
     return abs(float(row["close"]) - float(row["open"]))
 
 
+def _recent_closes_before_last(df) -> list:
+    """取最后一根之前最多 4 根的收盘价（安全窗口，短序列越界不抛异常）"""
+    start = max(0, len(df) - 5)
+    return [float(df.iloc[i]["close"]) for i in range(start, len(df) - 1)]
+
+
 def _upper_shadow(row):
     """上影线长度"""
     return float(row["high"]) - max(float(row["close"]), float(row["open"]))
@@ -82,7 +88,7 @@ def _single_candle_patterns(df):
 
     # 锤子线（下影线长，实体小，在下跌末端）
     if lower > body * 2 and upper < body * 0.5 and body > 0:
-        recent_close = [float(df.iloc[i]["close"]) for i in range(-5, -1)]
+        recent_close = _recent_closes_before_last(df)
         if len(recent_close) >= 3 and recent_close[-1] < recent_close[0]:
             patterns.append(
                 {
@@ -95,7 +101,7 @@ def _single_candle_patterns(df):
 
     # 倒锤子线（上影线长，实体小，在下跌末端）
     if upper > body * 2 and lower < body * 0.5 and body > 0:
-        recent_close = [float(df.iloc[i]["close"]) for i in range(-5, -1)]
+        recent_close = _recent_closes_before_last(df)
         if len(recent_close) >= 3 and recent_close[-1] < recent_close[0]:
             patterns.append(
                 {
@@ -108,7 +114,7 @@ def _single_candle_patterns(df):
 
     # 射击之星（上影线长，实体小，在上涨末端）
     if upper > body * 2 and lower < body * 0.5 and body > 0:
-        recent_close = [float(df.iloc[i]["close"]) for i in range(-5, -1)]
+        recent_close = _recent_closes_before_last(df)
         if len(recent_close) >= 3 and recent_close[-1] > recent_close[0]:
             patterns.append(
                 {

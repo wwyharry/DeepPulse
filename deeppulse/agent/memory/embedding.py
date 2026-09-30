@@ -72,6 +72,8 @@ class EmbeddingIndex:
 
     @property
     def is_ready(self) -> bool:
+        # 触发懒加载，否则调用方在首次 encode 之前永远看到 False
+        self._ensure_initialized()
         return self._ready
 
     def encode(self, texts: list[str]) -> list[list[float]]:

@@ -90,6 +90,8 @@ class StockScreener:
     def _build_screening_sql(self, conditions: list[dict], limit: int) -> str:
         """构建选股 SQL"""
         # 基础查询：获取每只股票最新数据并计算指标
+        # RSI14 用窗口函数按 Cutler RSI 计算（avg_loss=0 → 100，全平 → 50），
+        # 不能用当日涨跌幅近似——那会让超卖选股变成涨幅榜
         base_sql = """
         WITH latest_data AS (
             SELECT
@@ -112,6 +114,17 @@ class StockScreener:
             JOIN stock_info si ON k.code = si.code
             WHERE k.trade_date >= CURRENT_DATE - INTERVAL '120 days'
         ),
+        chg AS (
+            SELECT *, (close - prev_close) AS chg FROM latest_data
+        ),
+        gains AS (
+            SELECT *,
+                AVG(CASE WHEN chg > 0 THEN chg ELSE 0 END)
+                    OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS avg_gain14,
+                AVG(CASE WHEN chg < 0 THEN -chg ELSE 0 END)
+                    OVER (PARTITION BY code ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS avg_loss14
+            FROM chg
+        ),
         indicators AS (
             SELECT
                 code,
@@ -129,8 +142,12 @@ class StockScreener:
                 ma60,
                 vol_ma5,
                 (close - prev_close) / prev_close * 100 as pct_change,
-                volume / NULLIF(vol_ma5, 0) as vol_ratio
-            FROM latest_data
+                volume / NULLIF(vol_ma5, 0) as vol_ratio,
+                CASE
+                    WHEN avg_loss14 = 0 THEN CASE WHEN avg_gain14 = 0 THEN 50 ELSE 100 END
+                    ELSE 100 - 100.0 / (1 + avg_gain14 / avg_loss14)
+                END AS rsi14
+            FROM gains
             WHERE rn = 1
         )
         """
@@ -151,8 +168,7 @@ class StockScreener:
                 where_clauses.append("ma5 > ma10 AND ma10 > ma20 AND ma20 > ma60")
 
             elif ind == "rsi":
-                # 简化 RSI 计算（基于涨跌幅近似）
-                where_clauses.append(f"pct_change {op} {value}")
+                where_clauses.append(f"rsi14 {op} {value}")
 
             elif ind == "volume_ratio":
                 where_clauses.append(f"vol_ratio {op} {value}")
@@ -174,7 +190,7 @@ class StockScreener:
 
         return f"""
         {base_sql}
-        SELECT code, name, close, pct_change, vol_ratio, volume, amount, ma5, ma10, ma20
+        SELECT code, name, close, pct_change, vol_ratio, volume, amount, ma5, ma10, ma20, rsi14
         FROM indicators
         WHERE {where_sql}
         ORDER BY pct_change DESC
@@ -190,10 +206,11 @@ class StockScreener:
         descriptions = {
             "ma_cross": f"MA{cond.get('params', {}).get('fast', 5)} > MA{cond.get('params', {}).get('slow', 10)}",
             "ma_alignment": "多头排列 (MA5>MA10>MA20>MA60)",
-            "rsi": f"RSI {op} {value}",
+            "rsi": f"RSI14 {op} {value}",
             "volume_ratio": f"量比 {op} {value}",
             "pct_change": f"涨跌幅 {op} {value}%",
-            "macd": f"MACD {cond.get('type', '')}",
+            # MACD 暂以 MA5/MA10 交叉代理，如实标注避免标签失实
+            "macd": f"MA5>MA10（MACD 代理）{cond.get('type', '')}",
             "price_above_ma": f"价格在 MA{cond.get('params', {}).get('period', 20)} 上方",
         }
         return descriptions.get(ind, f"{ind} {op} {value}")

@@ -86,8 +86,10 @@ def get_stock_fund_flow(code: str) -> dict:
                 "date": str(latest.get("trade_date", "")),
                 "volume_change": round(vol_change * 100, 2),
                 "price_change": round(price_change * 100, 2),
-                "volume": int(latest["volume"]),
-                "amount": round(float(latest.get("amount", 0)) / 1e8, 2),
+                "volume": int(latest["volume"]) // 100,
+                "volume_unit": "手",
+                "amount": round(float(latest.get("amount", 0)), 2),
+                "amount_unit": "元",
                 "trend": trend,
             }
     except Exception:

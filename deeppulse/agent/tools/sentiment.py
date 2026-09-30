@@ -2,20 +2,66 @@
 
 import json
 
+from deeppulse.agent.market import get_failed_limit_up as _get_failed_limit_up
+from deeppulse.agent.market import get_limit_down_pool as _get_limit_down_pool
 from deeppulse.agent.market import get_limit_up_pool as _get_limit_up_pool
 from deeppulse.agent.market import get_market_sentiment as _get_market_sentiment
 from deeppulse.agent.market import get_sector_ranking as _get_sector_ranking
+from deeppulse.agent.tools._shared import norm_trade_date
 
 
 def market_sentiment(trade_date: str = None) -> str:
     """获取市场情绪综合分析"""
-    result = _get_market_sentiment(trade_date)
+    nd = norm_trade_date(trade_date)
+    if nd is None:
+        return json.dumps(
+            {
+                "error": f"trade_date 格式错误: {trade_date!r}，应为 YYYYMMDD（如 20260930），也支持 2026-09-30 等常见写法"
+            },
+            ensure_ascii=False,
+        )
+
+    # 先取三个数据源并检查错误：get_market_sentiment 会把子调用的 {"error"} 吞成 0 计数，
+    # 直接聚合会把取数失败包装成"冰点期/空仓等待"的极端看空建议。
+    zt = _get_limit_up_pool(nd)
+    dt = _get_limit_down_pool(nd)
+    zb = _get_failed_limit_up(nd)
+    for name, part in (("涨停", zt), ("跌停", dt), ("炸板", zb)):
+        if isinstance(part, dict) and part.get("error"):
+            return json.dumps(
+                {"date": nd, "error": f"{name}数据获取失败，无法评估市场情绪: {part['error']}"}, ensure_ascii=False
+            )
+
+    if not (zt.get("count") or dt.get("count") or zb.get("count")):
+        message = zt.get("message") or "无涨跌停数据（非交易日或数据未更新）"
+        return json.dumps(
+            {
+                "date": nd,
+                "涨停数": 0,
+                "跌停数": 0,
+                "炸板数": 0,
+                "情绪评级": "⚪ 数据不足/非交易日",
+                "操作建议": "无涨跌停数据，无法评估情绪，请确认交易日或稍后重试",
+                "message": message,
+            },
+            ensure_ascii=False,
+        )
+
+    result = _get_market_sentiment(nd)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
 def limit_up_pool(trade_date: str = None) -> str:
     """获取涨停股池"""
-    result = _get_limit_up_pool(trade_date)
+    nd = norm_trade_date(trade_date)
+    if nd is None:
+        return json.dumps(
+            {
+                "error": f"trade_date 格式错误: {trade_date!r}，应为 YYYYMMDD（如 20260930），也支持 2026-09-30 等常见写法"
+            },
+            ensure_ascii=False,
+        )
+    result = _get_limit_up_pool(nd)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 

@@ -229,13 +229,15 @@ class StrategyLoader:
 
     def get_all_content_summary(self, max_chars: int = 3000) -> str:
         """获取所有战法的摘要，用于注入 system prompt（支持缓存）"""
-        if not self.strategies:
-            return ""
-
         # 检查缓存
         cached_summary = self._load_summary_cache(max_chars)
         if cached_summary:
             return cached_summary
+
+        # 缓存未命中：先从磁盘重载，保证摘要与文件集一致（避免旧内存写入过期缓存）
+        self._load_all()
+        if not self.strategies:
+            return ""
 
         # 生成摘要
         lines = []
@@ -256,29 +258,33 @@ class StrategyLoader:
 
         return summary
 
+    def _files_fingerprint(self) -> list:
+        """当前战法文件集指纹（文件名 + mtime_ns），覆盖新增/删除/修改
+
+        返回 list[list]（JSON 原生形态），保证与缓存文件回读后的类型可直接比较。
+        """
+        if not self.dir.exists():
+            return []
+        files = sorted((f for f in self.dir.glob("*.md") if f.name != "README.md"), key=lambda f: f.name)
+        return [[f.name, f.stat().st_mtime_ns] for f in files]
+
     def _load_summary_cache(self, max_chars: int) -> str:
-        """加载缓存的摘要"""
+        """加载缓存的摘要（指纹不一致/条数不符/长度不符均视为过期）"""
         try:
             if not CACHE_FILE.exists():
                 return ""
 
-            # 检查缓存是否过期
-            cache_mtime = CACHE_FILE.stat().st_mtime
-            if self.dir.exists():
-                strategy_files = list(self.dir.glob("*.md"))
-                if strategy_files:
-                    latest_strategy_mtime = max(f.stat().st_mtime for f in strategy_files)
-                    if cache_mtime < latest_strategy_mtime:
-                        # 缓存过期
-                        return ""
-
-            # 读取缓存
             with open(CACHE_FILE, encoding="utf-8") as f:
                 cache_data = json.load(f)
 
-            # 检查max_chars是否匹配
-            if cache_data.get("max_chars") == max_chars:
-                return cache_data.get("summary", "")
+            # 文件集合指纹：增/删/改任一发生即失效（旧缓存无 files 键也会自动重建一次）
+            if cache_data.get("files") != self._files_fingerprint():
+                return ""
+            if cache_data.get("strategy_count") != len(self.strategies):
+                return ""
+            if cache_data.get("max_chars") != max_chars:
+                return ""
+            return cache_data.get("summary", "")
 
         except Exception:
             pass
@@ -294,6 +300,7 @@ class StrategyLoader:
                 "max_chars": max_chars,
                 "generated_at": time.time(),
                 "strategy_count": len(self.strategies),
+                "files": self._files_fingerprint(),
             }
             with open(CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
@@ -316,5 +323,6 @@ def get_strategy_loader() -> StrategyLoader:
 def reload_strategies():
     """重新加载战法文件（新增/修改后调用）"""
     global _loader
+    CACHE_FILE.unlink(missing_ok=True)
     _loader = StrategyLoader()
     return _loader

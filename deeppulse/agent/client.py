@@ -6,24 +6,43 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _is_placeholder_api_key(key_val) -> bool:
+    """明显占位 key 判定（与 setup_config.py 口径一致）。
+
+    占位 = 空值/纯空白 / "${}" 空占位（dollar+花括号）/ "sk-your" 示例前缀。
+    未展开的环境变量形式（dollar+花括号+变量名，如 "${ENV_VAR}"）不算占位，
+    保留视为已配置，交给 load_setting 的环境变量展开逻辑解析。
+    """
+    if key_val is None:
+        return True
+    s = str(key_val)
+    if not s.strip():
+        return True
+    if s.startswith("${") and s.endswith("}") and not s[2:-1].strip():
+        return True
+    return s.startswith("sk-your")
+
+
 def load_setting() -> dict:
     """加载 setting.json 配置"""
     setting_path = Path(__file__).parent.parent.parent / "setting.json"
     with open(setting_path, encoding="utf-8") as f:
         setting = json.load(f)
 
-    # 解析 api_key: 支持 ${ENV_VAR} 引用环境变量，或直接写 key
     llm = setting["llm"]
     key_val = llm["api_key"]
+    # 载入时拒绝明显占位 key（空/空白/"${}"/"sk-your" 示例值），提示配置 setting.json
+    if _is_placeholder_api_key(key_val):
+        raise ValueError(
+            'API Key 未配置（空值/空白/"${}"占位/"sk-your"示例值）。请编辑 setting.json:\n'
+            '  1. 直接填入 API Key: "api_key": "sk-..."（真实 key）\n'
+            '  2. 或引用环境变量: "api_key": "${YOUR_ENV_VAR}"'
+        )
+
+    # 解析 api_key: 支持 ${ENV_VAR} 引用环境变量，或直接写 key
+    key_val = str(key_val)
     if key_val.startswith("${") and key_val.endswith("}"):
         inner = key_val[2:-1].strip()
-        # 如果内容为空，提示用户配置
-        if not inner:
-            raise ValueError(
-                "API Key 未配置。请编辑 setting.json:\n"
-                '  1. 直接填入 API Key: "api_key": "sk-your-key"\n'
-                '  2. 或引用环境变量: "api_key": "${YOUR_ENV_VAR}"'
-            )
         # 先尝试作为环境变量名查找
         env_val = os.environ.get(inner)
         if env_val:
@@ -35,8 +54,14 @@ def load_setting() -> dict:
             raise ValueError(
                 f"环境变量 {inner} 未设置。请:\n"
                 f"  1. 设置环境变量: set {inner}=your-key (Windows) 或 export {inner}=your-key (Linux/Mac)\n"
-                f'  2. 或直接在 setting.json 中填入 API Key: "api_key": "sk-your-key"'
+                f'  2. 或直接在 setting.json 中填入 API Key: "api_key": "sk-..."（真实 key）'
             )
+
+    # 展开后再次拦截占位值（如环境变量里存了示例 key）
+    if _is_placeholder_api_key(llm["api_key"]):
+        raise ValueError(
+            'API Key 解析后仍为占位值（空值/空白/"${}"占位/"sk-your"示例值）。请编辑 setting.json 配置真实 API Key'
+        )
 
     return setting
 
@@ -48,6 +73,28 @@ class StreamChunk:
     type: str  # "thinking" / "content" / "tool_calls" / "done"
     text: str = ""
     tool_calls: list = field(default_factory=list)
+
+
+def _parse_tool_arguments(raw) -> dict:
+    """解析工具调用参数。
+
+    空/None/纯空白视为零参调用，返回 {}；
+    非法 JSON 或非对象时返回带 __parse_error__ 标记的 dict，
+    由上层拦截提示重试，而不是抛异常崩溃或静默替换成 {}。
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, str):
+        raw = str(raw)
+    if not raw.strip():
+        return {}
+    try:
+        args = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        return {"__parse_error__": f"工具参数 JSON 不完整/非法: {e}", "__raw__": raw[-200:]}
+    if not isinstance(args, dict):
+        return {"__parse_error__": "tool arguments must be object", "__raw__": raw[-200:]}
+    return args
 
 
 class LLMClient:
@@ -105,16 +152,19 @@ class LLMClient:
             else self._stream_anthropic(messages, tools)
         )
         # 手动消费生成器，捕获 return 值
-        while True:
-            try:
-                chunk = next(gen)
-                yield chunk
-            except StopIteration as e:
-                # 内部生成器通过 self.last_stream_response 设置结果，
-                # 仅在内部生成器显式 return 了值时才覆盖
-                if e.value is not None:
-                    self.last_stream_response = e.value
-                break
+        try:
+            while True:
+                try:
+                    chunk = next(gen)
+                    yield chunk
+                except StopIteration as e:
+                    # 内部生成器通过 self.last_stream_response 设置结果，
+                    # 仅在内部生成器显式 return 了值时才覆盖
+                    if e.value is not None:
+                        self.last_stream_response = e.value
+                    break
+        finally:
+            gen.close()
 
     async def chat_stream_async(self, messages: list, tools: list = None):
         """异步流式对话，yield StreamChunk。完成后 self.last_stream_response 包含完整结果。"""
@@ -168,7 +218,7 @@ class LLMClient:
                     {
                         "id": tc.id,
                         "name": tc.function.name,
-                        "arguments": json.loads(tc.function.arguments),
+                        "arguments": _parse_tool_arguments(tc.function.arguments),
                     }
                 )
             result["stop_reason"] = "tool_calls"
@@ -176,12 +226,13 @@ class LLMClient:
         return result
 
     def _chat_anthropic(self, messages, tools) -> dict:
-        # Anthropic 协议转换
-        system_msg = ""
+        # Anthropic 协议转换：按序合并全部 system 消息（主提示在前，中途注释在后），
+        # 不能只保留最后一条，否则工具报错等中途注释会顶掉整个系统提示词
+        system_parts = []
         api_messages = []
         for m in messages:
             if m["role"] == "system":
-                system_msg = m["content"]
+                system_parts.append(m["content"])
             else:
                 api_messages.append(m)
 
@@ -191,8 +242,8 @@ class LLMClient:
             "max_tokens": self.llm_config["max_tokens"],
             "temperature": self.llm_config["temperature"],
         }
-        if system_msg:
-            kwargs["system"] = system_msg
+        if system_parts:
+            kwargs["system"] = "\n\n".join(system_parts)
         if tools:
             kwargs["tools"] = self._convert_tools_to_anthropic(tools)
 
@@ -236,21 +287,21 @@ class LLMClient:
         return kwargs
 
     def _process_openai_chunk(self, chunk, state: dict):
-        """处理单个 OpenAI 流式 chunk，更新 state，返回 StreamChunk 或 None"""
+        """处理单个 OpenAI 流式 chunk，更新 state，返回 list[StreamChunk]（可能为空）"""
         if not chunk.choices:
-            return None
+            return []
         delta = chunk.choices[0].delta
         finish = chunk.choices[0].finish_reason
 
-        result_chunk = None
+        chunks = []
         rc = getattr(delta, "reasoning_content", None)
         if rc:
             state["reasoning_buf"] += rc
-            result_chunk = StreamChunk(type="thinking", text=rc)
+            chunks.append(StreamChunk(type="thinking", text=rc))
 
         if delta.content:
             state["content_buf"] += delta.content
-            result_chunk = StreamChunk(type="content", text=delta.content)
+            chunks.append(StreamChunk(type="content", text=delta.content))
 
         if delta.tool_calls:
             for tc in delta.tool_calls:
@@ -270,7 +321,7 @@ class LLMClient:
                     state["tool_calls_buf"][idx]["arguments"] += tc.function.arguments
 
         state["done"] = finish in ("stop", "tool_calls")
-        return result_chunk
+        return chunks
 
     def _build_openai_result(self, state: dict) -> dict:
         """从累积 state 构造 OpenAI 最终结果"""
@@ -285,11 +336,9 @@ class LLMClient:
             result["stop_reason"] = "tool_calls"
             for idx in sorted(state["tool_calls_buf"].keys()):
                 tc = state["tool_calls_buf"][idx]
-                try:
-                    args = json.loads(tc["arguments"])
-                except json.JSONDecodeError:
-                    args = {}
-                result["tool_calls"].append({"id": tc["id"], "name": tc["name"], "arguments": args})
+                result["tool_calls"].append(
+                    {"id": tc["id"], "name": tc["name"], "arguments": _parse_tool_arguments(tc["arguments"])}
+                )
         return result
 
     def _stream_openai(self, messages, tools):
@@ -298,12 +347,14 @@ class LLMClient:
         stream = self.client.chat.completions.create(**kwargs)
         state = {"reasoning_buf": "", "content_buf": "", "tool_calls_buf": {}, "done": False}
 
-        for chunk in stream:
-            sc = self._process_openai_chunk(chunk, state)
-            if sc:
-                yield sc
-            if state["done"]:
-                break
+        try:
+            for chunk in stream:
+                yield from self._process_openai_chunk(chunk, state)
+                if state["done"]:
+                    break
+        finally:
+            # 提前终止/异常时释放 HTTP 连接（close 幂等）
+            stream.close()
 
         result = self._build_openai_result(state)
         self.last_stream_response = result
@@ -315,12 +366,15 @@ class LLMClient:
         stream = await self.async_client.chat.completions.create(**kwargs)
         state = {"reasoning_buf": "", "content_buf": "", "tool_calls_buf": {}, "done": False}
 
-        async for chunk in stream:
-            sc = self._process_openai_chunk(chunk, state)
-            if sc:
-                yield sc
-            if state["done"]:
-                break
+        try:
+            async for chunk in stream:
+                for sc in self._process_openai_chunk(chunk, state):
+                    yield sc
+                if state["done"]:
+                    break
+        finally:
+            # finally 中只可 await、不可再 yield
+            await stream.close()
 
         result = self._build_openai_result(state)
         self.last_stream_response = result
@@ -331,13 +385,15 @@ class LLMClient:
 
         yield StreamChunk(type="done")
 
-    def _build_anthropic_stream_kwargs(self, messages, tools) -> tuple:
-        """构造 Anthropic 流式调用参数，返回 (kwargs, api_messages)"""
-        system_msg = ""
+    def _build_anthropic_stream_kwargs(self, messages, tools) -> dict:
+        """构造 Anthropic 流式调用参数"""
+        # 按序合并全部 system 消息（主提示在前，中途注释在后），
+        # 不能只保留最后一条，否则中途注释会顶掉整个系统提示词
+        system_parts = []
         api_messages = []
         for m in messages:
             if m["role"] == "system":
-                system_msg = m["content"]
+                system_parts.append(m["content"])
             else:
                 api_messages.append(m)
 
@@ -347,8 +403,8 @@ class LLMClient:
             "max_tokens": self.llm_config["max_tokens"],
             "temperature": self.llm_config["temperature"],
         }
-        if system_msg:
-            kwargs["system"] = system_msg
+        if system_parts:
+            kwargs["system"] = "\n\n".join(system_parts)
         if tools:
             kwargs["tools"] = self._convert_tools_to_anthropic(tools)
         return kwargs
@@ -389,11 +445,9 @@ class LLMClient:
             result["tool_calls"] = []
             result["stop_reason"] = "tool_calls"
             for tc in state["tool_calls_buf"]:
-                try:
-                    args = json.loads(tc["arguments"])
-                except json.JSONDecodeError:
-                    args = {}
-                result["tool_calls"].append({"id": tc["id"], "name": tc["name"], "arguments": args})
+                result["tool_calls"].append(
+                    {"id": tc["id"], "name": tc["name"], "arguments": _parse_tool_arguments(tc["arguments"])}
+                )
         return result
 
     def _stream_anthropic(self, messages, tools):

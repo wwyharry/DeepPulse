@@ -51,7 +51,10 @@ class BM25Index:
                 return []
 
             scores = self._bm25.get_scores(tokens)
-            results = [(self._doc_ids[i], float(scores[i])) for i in range(len(scores))]
+            # 过滤零分（及负分）文档：与查询零重叠的文档不应作为命中返回
+            results = [(self._doc_ids[i], float(scores[i])) for i in range(len(scores)) if scores[i] > 0]
+            if not results:
+                return []
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:top_k]
         except Exception:

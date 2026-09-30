@@ -40,13 +40,13 @@ def detect_support_resistance(df: pd.DataFrame) -> dict:
     for h in highs:
         if h > current:
             resistance.append({"price": round(h, 2), "type": "前高", "strength": 3, "source": "pivot"})
-        elif h < current * 1.02:
+        elif h > current * 0.98:  # 仅现价下方 2% 内的前高视为转支撑
             support.append({"price": round(h, 2), "type": "前高转支撑", "strength": 2, "source": "pivot"})
 
     for l in lows:
         if l < current:
             support.append({"price": round(l, 2), "type": "前低", "strength": 3, "source": "pivot"})
-        elif l > current * 0.98:
+        elif l < current * 1.02:  # 仅现价上方 2% 内的前低视为转压力
             resistance.append({"price": round(l, 2), "type": "前低转压力", "strength": 2, "source": "pivot"})
 
     # 2. 均线位置
@@ -160,4 +160,4 @@ def _assess_position(current: float, resistance: list, support: list) -> str:
     elif res_dist < sup_dist:
         return f"偏向上方压力位 {nearest_res}（距离 {res_dist:.1%}）"
     else:
-        return f"偏向上方支撑位 {nearest_sup}（距离 {sup_dist:.1%}）"
+        return f"偏向下方支撑位 {nearest_sup}（距离 {sup_dist:.1%}）"

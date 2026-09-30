@@ -11,6 +11,7 @@ import pandas as pd
 from deeppulse import config
 from deeppulse.src.database import (
     get_connection,
+    get_earliest_kline_date,
     get_latest_kline_date,
     get_stock_list,
     init_tables,
@@ -101,30 +102,47 @@ def fetch_and_store_stock_list() -> int:
 
 
 def fetch_kline_for_stock(code: str, source, start: date, end: date, conn) -> int:
-    """为单只股票采集日K数据（带验证）"""
-    # 断点续传：以真实K线最新交易日为准，避免空成功日志导致跳过缺口
+    """为单只股票采集日K数据（带验证、按端点覆盖分段续传）
+
+    断点续传不只看 MAX(trade_date)：库中已有近期数据时，调用方请求更早
+    区间补历史不能被静默跳过。按已有数据的 [min, max] 端点把请求区间切成
+    至多两段——前缀补历史 (start, min-1) 与后缀增量 (max(start, last+1), end)。
+    注意：MIN/MAX 分段不会填补 [min, max] 内部的空洞。
+    """
+    first_date = get_earliest_kline_date(conn, code, source.name)
     last_date = get_latest_kline_date(conn, code, source.name)
-    actual_start = start
-    if last_date:
+
+    segments: list[tuple[date, date]] = []
+    if not first_date or not last_date:
+        segments.append((start, end))
+    else:
+        first = date.fromisoformat(first_date)
         last = date.fromisoformat(last_date)
-        if last >= end:
-            return 0  # 已经采集完毕
-        actual_start = last + timedelta(days=1)
+        if start < first:
+            segments.append((start, first - timedelta(days=1)))
+        if last < end:
+            segments.append((max(start, last + timedelta(days=1)), end))
 
-    df = fetch_kline_with_timeout(source, code, actual_start, end)
+    if not segments:
+        return 0  # 请求区间已被已有数据完整覆盖
 
-    # 数据验证
-    if not df.empty and config.DATA_VALIDATION_ENABLED:
-        df = validate_kline_df(df, code)
+    total = 0
+    for seg_start, seg_end in segments:
+        df = fetch_kline_with_timeout(source, code, seg_start, seg_end)
 
-    if df.empty:
-        log_fetch(conn, code, source.name, actual_start, end, 0, "success")
-        return 0
+        # 数据验证
+        if not df.empty and config.DATA_VALIDATION_ENABLED:
+            df = validate_kline_df(df, code)
 
-    records = df.to_dict("records")
-    count = insert_daily_kline(conn, records)
-    log_fetch(conn, code, source.name, actual_start, end, count, "success")
-    return count
+        if df.empty:
+            log_fetch(conn, code, source.name, seg_start, seg_end, 0, "success")
+            continue
+
+        records = df.to_dict("records")
+        count = insert_daily_kline(conn, records)
+        log_fetch(conn, code, source.name, seg_start, seg_end, count, "success")
+        total += count
+    return total
 
 
 def fetch_all_kline(
@@ -192,8 +210,13 @@ def fetch_all_kline(
                     consecutive_failures += 1
                     log_fetch(conn, code, source.name, start, end, 0, "timeout", str(e))
                     logger.warning(f"  [{source.name}] {code} 超时: {e}")
-                    # 超时后立即重连
-                    source.cleanup()
+                    # 超时后尝试重连；残留采集线程仍在会话上时跳过 logout，避免竞态
+                    try_cleanup = getattr(source, "try_cleanup", None)
+                    if callable(try_cleanup):
+                        if not try_cleanup():
+                            logger.warning(f"  [{source.name}] 残留采集线程仍在使用会话，跳过 logout")
+                    else:
+                        source.cleanup()
                     time.sleep(2)
                 except (ConnectionError, ConnectionResetError, OSError) as e:
                     stats["failed"] += 1

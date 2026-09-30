@@ -11,9 +11,9 @@ from deeppulse import config
 logger = logging.getLogger(__name__)
 
 
-def get_connection(db_path: Path = None) -> duckdb.DuckDBPyConnection:
-    """获取DuckDB连接"""
-    path = db_path or config.DB_PATH
+def get_connection(db_path: Path | str = None) -> duckdb.DuckDBPyConnection:
+    """获取DuckDB连接（db_path 接受 Path 或 str）"""
+    path = Path(db_path) if db_path is not None else config.DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     return duckdb.connect(str(path))
 
@@ -179,6 +179,18 @@ def get_last_fetch_date(conn: duckdb.DuckDBPyConnection, code: str, data_source:
 def get_latest_kline_date(conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None) -> str | None:
     """获取某股票已有K线的真实最新交易日，用于增量更新断点。"""
     sql = "SELECT MAX(trade_date) FROM daily_kline WHERE code = ?"
+    params = [code]
+    if data_source:
+        sql += " AND data_source = ?"
+        params.append(data_source)
+
+    result = conn.execute(sql, params).fetchone()
+    return str(result[0]) if result and result[0] else None
+
+
+def get_earliest_kline_date(conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None) -> str | None:
+    """获取某股票已有K线的真实最早交易日，用于向前补历史的分段续传。"""
+    sql = "SELECT MIN(trade_date) FROM daily_kline WHERE code = ?"
     params = [code]
     if data_source:
         sql += " AND data_source = ?"

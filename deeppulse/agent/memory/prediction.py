@@ -151,26 +151,51 @@ class PredictionTracker:
             days_held = (datetime.now() - created_at).days
 
             # 判断结果
-            if actual_return_pct is None and target_price and target_price > 0:
-                # 用目标价估算收益
-                actual_return_pct = 0  # 需要外部提供
+            has_target = target_price is not None and target_price > 0
+            has_stop = stop_loss is not None and stop_loss > 0
 
-            if direction == "bullish":
-                if actual_return_pct and actual_return_pct > 3:
-                    outcome = "correct"
-                elif actual_return_pct and actual_return_pct < -3:
-                    outcome = "wrong"
-                else:
-                    outcome = "partial"
-            elif direction == "bearish":
-                if actual_return_pct and actual_return_pct < -3:
-                    outcome = "correct"
-                elif actual_return_pct and actual_return_pct > 3:
-                    outcome = "wrong"
+            if actual_return_pct is None:
+                # 无收益率时用目标价/止损价与实际价格判定（禁止伪造 0 收益）
+                if not (has_target or has_stop):
+                    return json.dumps(
+                        {
+                            "error": "缺少 actual_return_pct 且预测未设置目标价/止损价，无法判定结果，请提供 actual_return_pct"
+                        },
+                        ensure_ascii=False,
+                    )
+                if direction == "bullish":
+                    if has_target and actual_price >= target_price:
+                        outcome = "correct"
+                    elif has_stop and actual_price <= stop_loss:
+                        outcome = "wrong"
+                    else:
+                        outcome = "partial"
+                elif direction == "bearish":
+                    if has_target and actual_price <= target_price:
+                        outcome = "correct"
+                    elif has_stop and actual_price >= stop_loss:
+                        outcome = "wrong"
+                    else:
+                        outcome = "partial"
                 else:
                     outcome = "partial"
             else:
-                outcome = "partial"
+                if direction == "bullish":
+                    if actual_return_pct is not None and actual_return_pct > 3:
+                        outcome = "correct"
+                    elif actual_return_pct is not None and actual_return_pct < -3:
+                        outcome = "wrong"
+                    else:
+                        outcome = "partial"
+                elif direction == "bearish":
+                    if actual_return_pct is not None and actual_return_pct < -3:
+                        outcome = "correct"
+                    elif actual_return_pct is not None and actual_return_pct > 3:
+                        outcome = "wrong"
+                    else:
+                        outcome = "partial"
+                else:
+                    outcome = "partial"
 
             now = datetime.now()
             conn.execute(
@@ -195,7 +220,7 @@ class PredictionTracker:
                     conn.execute(
                         """
                         UPDATE long_term_memories
-                        SET importance = MIN(1.0, MAX(0.0, importance + ?)),
+                        SET importance = LEAST(1.0, GREATEST(0.0, importance + ?)),
                             updated_at = ?
                         WHERE id = ?
                     """,

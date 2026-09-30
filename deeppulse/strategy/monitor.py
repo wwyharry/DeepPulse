@@ -1,7 +1,6 @@
 """信号监控器 - 基于已保存的个股AI策略实时扫描信号"""
 
 import threading
-import time
 from collections.abc import Callable
 from datetime import datetime
 
@@ -23,12 +22,17 @@ class SignalMonitor:
         self._last_scan_time: datetime | None = None
         self._scan_count = 0
         self._signal_count = 0
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
 
     def start(self, interval: int = 300):
         """启动监控"""
         if self._running:
             return
+        if self._thread and self._thread.is_alive():
+            return  # 旧循环仍存活（如 scan 中），拒绝并发启动
 
+        self._stop_event.clear()  # 必须：否则上一轮 stop() 置位会导致新循环立即退出
         self._running = True
         self._scan_interval = interval
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
@@ -37,27 +41,32 @@ class SignalMonitor:
     def stop(self):
         """停止监控"""
         self._running = False
+        self._stop_event.set()  # 立即唤醒 wait(interval)
         if self._thread:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=5)  # 事件唤醒后通常立即返回
 
     def add_callback(self, callback: Callable):
         """添加信号回调"""
-        self._callbacks.append(callback)
+        with self._lock:
+            self._callbacks.append(callback)
 
     def remove_callback(self, callback: Callable):
         """移除信号回调"""
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
+        with self._lock:
+            if callback in self._callbacks:
+                self._callbacks.remove(callback)
 
     def _monitor_loop(self):
         """监控主循环"""
-        while self._running:
+        while not self._stop_event.is_set():
             try:
                 self._scan_once()
-                time.sleep(self._scan_interval)
+                if self._stop_event.wait(self._scan_interval):  # 可被 stop() 立即打断
+                    break
             except Exception as e:
                 print(f"监控循环异常: {e}")
-                time.sleep(60)
+                if self._stop_event.wait(60):
+                    break
 
     def _scan_once(self):
         """执行一次扫描 - 扫描所有已保存的个股AI策略"""
@@ -65,10 +74,11 @@ class SignalMonitor:
             # 扫描所有已保存的个股策略
             signals = self.signal_generator.scan_all_stock_strategies()
 
-            # 更新统计
-            self._last_scan_time = datetime.now()
-            self._scan_count += 1
-            self._signal_count += len(signals)
+            # 更新统计（加锁避免并发累加丢失）
+            with self._lock:
+                self._last_scan_time = datetime.now()
+                self._scan_count += 1
+                self._signal_count += len(signals)
 
             # 触发回调
             for signal in signals:
@@ -89,7 +99,7 @@ class SignalMonitor:
 
     def _notify_callbacks(self, signal: Signal):
         """通知所有回调"""
-        for callback in self._callbacks:
+        for callback in list(self._callbacks):  # 快照迭代，避免并发 remove 崩溃/跳过
             try:
                 callback(signal)
             except Exception as e:
@@ -111,9 +121,10 @@ class SignalMonitor:
         signals = []
         try:
             signals = self.signal_generator.scan_all_stock_strategies()
-            self._last_scan_time = datetime.now()
-            self._scan_count += 1
-            self._signal_count += len(signals)
+            with self._lock:
+                self._last_scan_time = datetime.now()
+                self._scan_count += 1
+                self._signal_count += len(signals)
         except Exception as e:
             print(f"立即扫描失败: {e}")
         return signals
@@ -123,12 +134,10 @@ class SignalMonitor:
         try:
             import duckdb
 
-            from deeppulse import config
-
-            if not config.DB_PATH.exists():
+            if not self.repository.db_path.exists():
                 return False
 
-            conn = duckdb.connect(str(config.DB_PATH))
+            conn = duckdb.connect(str(self.repository.db_path))
             try:
                 conn.execute(
                     "UPDATE strategy_signals SET status = ? WHERE id = ?",
@@ -145,12 +154,10 @@ class SignalMonitor:
         try:
             import duckdb
 
-            from deeppulse import config
-
-            if not config.DB_PATH.exists():
+            if not self.repository.db_path.exists():
                 return False
 
-            conn = duckdb.connect(str(config.DB_PATH))
+            conn = duckdb.connect(str(self.repository.db_path))
             try:
                 conn.execute(
                     "UPDATE strategy_signals SET status = ? WHERE id = ?",
@@ -167,12 +174,10 @@ class SignalMonitor:
         try:
             import duckdb
 
-            from deeppulse import config
-
-            if not config.DB_PATH.exists():
+            if not self.repository.db_path.exists():
                 return {}
 
-            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
+            conn = duckdb.connect(str(self.repository.db_path), read_only=True)
             try:
                 # 总信号数
                 total = conn.execute("SELECT COUNT(*) FROM strategy_signals").fetchone()[0]

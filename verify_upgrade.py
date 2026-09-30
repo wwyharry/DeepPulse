@@ -66,20 +66,22 @@ def check_files():
     """检查新增文件是否存在"""
     print("\n🔍 检查新增文件...")
 
+    # 以脚本所在目录为基准，避免从其他目录运行时误报缺失
+    base = Path(__file__).parent
     files = [
-        "agent/judge_agent.py",
-        "agent/tui_cli.py",
-        "agent/tui/__init__.py",
-        "agent/tui/app.py",
-        "agent/tui/widgets.py",
-        "agent/tui/styles.tcss",
+        "deeppulse/agent/judge_agent.py",
+        "deeppulse/agent/tui_cli.py",
+        "deeppulse/agent/tui/__init__.py",
+        "deeppulse/agent/tui/app.py",
+        "deeppulse/agent/tui/widgets.py",
+        "deeppulse/agent/tui/styles.tcss",
         "TUI_GUIDE.md",
         "CHANGELOG.md",
     ]
 
     all_exist = True
     for file in files:
-        path = Path(file)
+        path = base / file
         if path.exists():
             print(f"  ✅ {file}")
         else:
@@ -99,11 +101,11 @@ def check_imports():
     print("\n🔍 检查模块导入...")
 
     imports = [
-        ("agent.judge_agent", "JudgeAgent"),
-        ("agent.tui.app", "DeepPulseTUI"),
-        ("agent.tui.widgets", "ChatLog"),
-        ("agent.client", "LLMClient"),
-        ("agent.agent", "StockAgent"),
+        ("deeppulse.agent.judge_agent", "JudgeAgent"),
+        ("deeppulse.agent.tui.app", "DeepPulseTUI"),
+        ("deeppulse.agent.tui.widgets", "ChatLog"),
+        ("deeppulse.agent.client", "LLMClient"),
+        ("deeppulse.agent.agent", "StockAgent"),
     ]
 
     all_ok = True
@@ -158,7 +160,8 @@ def check_setting():
     """检查配置文件"""
     print("\n🔍 检查配置文件...")
 
-    setting_path = Path("setting.json")
+    # 与 check_files 一致：以脚本所在目录为基准，与调用位置无关
+    setting_path = Path(__file__).parent / "setting.json"
 
     if not setting_path.exists():
         print("  ⚠️ setting.json 不存在")
@@ -212,9 +215,10 @@ def main():
     if all_passed:
         print("🎉 升级验证通过！")
         print("\n下一步:")
-        print("  1. 启动TUI模式: python -m agent.tui_cli")
-        print("  2. 查看快速入门: cat TUI_GUIDE.md")
-        print("  3. 查看更新日志: cat CHANGELOG.md")
+        print("  1. 启动TUI模式: python -m tui")
+        print("  2. 启动CLI模式: python -m cli")
+        print("  3. 查看快速入门: cat TUI_GUIDE.md")
+        print("  4. 查看更新日志: cat CHANGELOG.md")
     else:
         print("❌ 升级验证未通过，请检查上述错误")
         print("\n常见解决方案:")

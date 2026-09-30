@@ -136,32 +136,71 @@ class CircuitBreaker:
         self._success_count = 0
         self._last_failure_time = 0.0
         self._half_open_calls = 0
+        self._half_open_entered_at = 0.0
         self._lock = threading.Lock()
+
+    def _open_to_half_open(self, now: float) -> None:
+        """OPEN → HALF_OPEN 迁移（调用方必须已持有 self._lock）"""
+        self._state = CircuitState.HALF_OPEN
+        self._half_open_calls = 0
+        self._success_count = 0
+        self._half_open_entered_at = now
+        logger.info("[熔断器] 恢复超时，进入半开状态")
+
+    def _half_open_to_open(self, now: float) -> None:
+        """HALF_OPEN 试探超时未闭环 → 重新熔断（调用方必须已持有 self._lock）
+
+        必须刷新 _last_failure_time，否则 OPEN 会因旧时间戳立刻又转
+        HALF_OPEN，恢复周期形同虚设。
+        """
+        self._state = CircuitState.OPEN
+        self._half_open_calls = 0
+        self._success_count = 0
+        self._last_failure_time = now
+        logger.warning(f"[熔断器] 半开试探超时未闭环，重新熔断 {self.recovery_timeout}秒")
 
     @property
     def state(self) -> CircuitState:
         """获取当前状态（自动检查 OPEN → HALF_OPEN 转换）"""
         with self._lock:
+            now = time.time()
             if self._state == CircuitState.OPEN:
-                if time.time() - self._last_failure_time >= self.recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
-                    self._half_open_calls = 0
-                    self._success_count = 0
-                    logger.info("[熔断器] 恢复超时，进入半开状态")
+                if now - self._last_failure_time >= self.recovery_timeout:
+                    self._open_to_half_open(now)
+            elif self._state == CircuitState.HALF_OPEN:
+                if (
+                    self._success_count < self.half_open_max_calls
+                    and now - self._half_open_entered_at >= self.recovery_timeout
+                ):
+                    self._half_open_to_open(now)
             return self._state
 
     def can_execute(self) -> bool:
-        """是否允许执行请求"""
-        state = self.state  # 触发自动转换检查
-        if state == CircuitState.CLOSED:
-            return True
-        if state == CircuitState.HALF_OPEN:
-            with self._lock:
+        """是否允许执行请求
+
+        状态检查、OPEN → HALF_OPEN 迁移与半开名额扣减在同一临界区内完成，
+        杜绝基于过期状态放行（TOCTOU）。
+        """
+        with self._lock:
+            now = time.time()
+            if self._state == CircuitState.OPEN:
+                if now - self._last_failure_time >= self.recovery_timeout:
+                    self._open_to_half_open(now)
+                else:
+                    return False
+            if self._state == CircuitState.HALF_OPEN:
+                # 半开试探超时未闭环（名额被未记账调用吞掉等），重新熔断
+                if (
+                    self._success_count < self.half_open_max_calls
+                    and now - self._half_open_entered_at >= self.recovery_timeout
+                ):
+                    self._half_open_to_open(now)
+                    return False
                 if self._half_open_calls < self.half_open_max_calls:
                     self._half_open_calls += 1
                     return True
                 return False
-        return False  # OPEN
+            return True  # CLOSED
 
     def record_success(self):
         """记录成功"""

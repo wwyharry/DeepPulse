@@ -33,6 +33,8 @@ class PortfolioManager:
             rebalance_frequency=rebalance_frequency,
         )
 
+        # 落库前统一重平衡，堵住直接传 strategies 列表绕过归一化的旁路
+        self._rebalance_weights(portfolio)
         self._save_portfolio(portfolio)
         return portfolio
 
@@ -107,6 +109,10 @@ class PortfolioManager:
         for key, value in kwargs.items():
             if hasattr(portfolio, key):
                 setattr(portfolio, key, value)
+
+        # 权重相关字段变更后统一重平衡，保证权重和为 1 且无负权重
+        if "strategies" in kwargs or "weight" in kwargs:
+            self._rebalance_weights(portfolio)
 
         self._save_portfolio(portfolio)
         return portfolio
@@ -190,6 +196,9 @@ class PortfolioManager:
         params: dict = None,
     ) -> bool:
         """添加策略到组合"""
+        if weight < 0:
+            return False  # 拒绝负权重（0 表示不参与分配，允许）
+
         portfolio = self.get_portfolio(portfolio_id)
         if not portfolio:
             return False
@@ -230,15 +239,22 @@ class PortfolioManager:
         return True
 
     def _rebalance_weights(self, portfolio: Portfolio):
-        """重新平衡权重"""
+        """重新平衡权重：负权重钳到 0，归一化保证权重和为 1（全零时等权）"""
         if not portfolio.strategies:
             return
 
-        # 平均分配权重
-        total_weight = sum(s.get("weight", 0) for s in portfolio.strategies)
+        # 先夹取非负，覆盖混合符号与全零场景
+        for s in portfolio.strategies:
+            s["weight"] = max(0.0, float(s.get("weight", 0) or 0.0))
+
+        total_weight = sum(s["weight"] for s in portfolio.strategies)
         if total_weight > 0:
             for s in portfolio.strategies:
-                s["weight"] = s.get("weight", 0) / total_weight
+                s["weight"] = s["weight"] / total_weight
+        else:
+            n = len(portfolio.strategies)
+            for s in portfolio.strategies:
+                s["weight"] = 1.0 / n
 
     def optimize_portfolio(self, portfolio_id: str) -> dict:
         """优化组合配置"""
@@ -263,13 +279,15 @@ class PortfolioManager:
         if not strategy_performance:
             return {"error": "无策略绩效数据"}
 
-        # 计算最优权重（简化版：按夏普比率加权）
-        total_sharpe = sum(sp["performance"].get("sharpe_ratio", 0) for sp in strategy_performance)
+        # 计算最优权重（按非负夏普得分加权，避免负权重/权重和>1）
+        scores = [max(sp["performance"].get("sharpe_ratio", 0), 0.0) for sp in strategy_performance]
+        score_sum = sum(scores)
 
         optimized_weights = []
-        for sp in strategy_performance:
+        for sp, score in zip(strategy_performance, scores, strict=True):
             sharpe = sp["performance"].get("sharpe_ratio", 0)
-            optimal_weight = sharpe / total_sharpe if total_sharpe > 0 else 1 / len(strategy_performance)
+            # 非负得分归一化：权重落在 [0,1] 且和为 1；sharpe<=0 的策略得 0 权重
+            optimal_weight = score / score_sum if score_sum > 0 else 1 / len(strategy_performance)
             optimized_weights.append(
                 {
                     "strategy_id": sp["strategy_id"],
@@ -279,11 +297,17 @@ class PortfolioManager:
                 }
             )
 
-        return {
+        result = {
             "portfolio_id": portfolio_id,
             "current_weights": optimized_weights,
             "optimization_suggestion": "建议按夏普比率调整权重以优化风险收益比",
         }
+        if score_sum <= 0:
+            result["optimization_suggestion"] = "所有策略夏普比率均不为正，暂按等权分配，建议降低仓位或更换策略"
+            result["warning"] = "所有策略夏普比率均不为正，等权分配仅为兜底，不代表优化结果"
+        elif any(sp["performance"].get("sharpe_ratio", 0) < 0 for sp in strategy_performance):
+            result["warning"] = "部分策略夏普比率为负，已分配 0 权重，建议移出组合"
+        return result
 
     def _get_strategy_performance(self, strategy_id: str) -> dict:
         """获取策略绩效"""
@@ -384,7 +408,8 @@ class PortfolioManager:
         positions = []
         for s in portfolio.strategies:
             strategy_id = s.get("strategy_id")
-            weight = s.get("weight", 0)
+            # 防御历史脏数据：权重非负（写入路径已归一化，此处兜底避免负资金分配）
+            weight = max(0.0, float(s.get("weight", 0) or 0.0))
             allocated_capital = portfolio.total_capital * weight
 
             positions.append(

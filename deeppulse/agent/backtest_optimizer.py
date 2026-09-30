@@ -79,7 +79,10 @@ def optimize_strategy(code: str, strategy_name: str, param_grid: dict, days: int
 
 
 def backtest_with_benchmark(code: str, strategy_name: str, benchmark: str = "000300", days: int = 250, **kwargs) -> str:
-    """回测并对比基准收益
+    """回测并计算基准区间收益、给出超额收益
+
+    基准数据缺失时 benchmark 字段带 error 说明并把 return/excess 置 None，
+    不会把缺失基准当成 0% 收益伪造超额。
 
     Args:
         code: 股票代码
@@ -92,6 +95,32 @@ def backtest_with_benchmark(code: str, strategy_name: str, benchmark: str = "000
     # 运行回测
     result = _backtest_stock(code, strategy=strategy_name, days=days, **kwargs)
 
+    # 对齐回测区间取基准序列（个股与指数历史长度不同，不能用 limit 对齐）
+    bench_return = None
+    bench_annual = None
+    bench_error = None
+    try:
+        from deeppulse.src.query import StockQuery
+
+        bdf = StockQuery().get_daily_kline(benchmark, start_date=str(result.start_date), end_date=str(result.end_date))
+        if bdf is not None and len(bdf) >= 2:
+            closes = [float(c) for c in bdf["close"].tolist() if c is not None]
+            if len(closes) >= 2 and closes[0] > 0:
+                bench_return = closes[-1] / closes[0] - 1
+                n_days = len(closes)
+                if n_days > 1:
+                    bench_annual = (1 + bench_return) ** (252 / n_days) - 1
+            else:
+                bench_error = "无基准数据"
+        else:
+            bench_error = "无基准数据"
+    except Exception as e:
+        bench_error = f"基准数据获取失败: {e}"
+
+    excess = None
+    if bench_return is not None:
+        excess = round(result.total_return - bench_return, 4)
+
     response = {
         "code": code,
         "strategy": strategy_name,
@@ -103,6 +132,13 @@ def backtest_with_benchmark(code: str, strategy_name: str, benchmark: str = "000
         "sharpe_ratio": round(result.sharpe_ratio, 2),
         "total_trades": result.total_trades,
         "profit_factor": round(result.profit_factor, 2),
+        "benchmark": {
+            "code": benchmark,
+            "return": round(bench_return, 4) if bench_return is not None else None,
+            "annual_return": round(bench_annual, 4) if bench_annual is not None else None,
+            "excess": excess,
+            "error": bench_error,
+        },
         "summary": result.summary(),
     }
 

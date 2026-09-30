@@ -5,6 +5,18 @@ from datetime import date, datetime, timedelta
 from deeppulse import config
 from deeppulse.src.database import get_connection
 
+# action 白名单与别名归一化（入口校验，保证流水与持仓始终一致）
+_ACTION_ALIASES: dict = {}
+for _canon, _aliases in (
+    ("买入", ("买入", "建仓", "buy", "open")),
+    ("加仓", ("加仓", "补仓", "add")),
+    ("卖出", ("卖出", "sell")),
+    ("减仓", ("减仓", "reduce")),
+    ("清仓", ("清仓", "平仓", "止损", "止盈", "liquidate", "clear", "close")),
+):
+    for _alias in _aliases:
+        _ACTION_ALIASES[_alias.casefold()] = _canon
+
 
 class TradeJournal:
     """交易日志管理器"""
@@ -82,9 +94,9 @@ class TradeJournal:
 
         Args:
             code: 股票代码
-            action: 买入/卖出/加仓/减仓
+            action: 买入/加仓/卖出/减仓/清仓（支持 buy/sell 等别名）
             price: 成交价格
-            shares: 成交数量
+            shares: 成交数量（清仓时忽略，以实际持仓为准；卖出/减仓超过持仓返回 error 不写库）
             name: 股票名称
             direction: long/short
             reason: 交易理由
@@ -93,11 +105,32 @@ class TradeJournal:
             notes: 备注
             prediction_id: 关联的预测ID
         """
-        amount = price * shares
+        # 入口白名单校验 + 别名归一化（任何写表之前），避免流水与持仓不一致
+        norm = _ACTION_ALIASES.get(str(action).strip().casefold())
+        if norm is None:
+            return {"status": "error", "message": f"不支持的 action: {action}"}
+
         now = datetime.now()
 
         conn = get_connection(self.db_path)
         try:
+            existing = conn.execute("SELECT shares FROM portfolio WHERE code = ?", [code]).fetchdf()
+            held = int(existing.iloc[0]["shares"]) if not existing.empty else 0
+
+            if norm == "清仓":
+                if held <= 0:
+                    return {"status": "error", "message": "无持仓可清仓"}
+                shares = held  # 全量卖出，覆盖调用方可能错误的数量
+                norm = "卖出"
+            elif norm in ("卖出", "减仓"):
+                if held <= 0:
+                    return {"status": "error", "message": f"无持仓可{norm}"}
+                # 卖出/减仓不得超持仓（与 tools 层同语义），拒绝时不写库，
+                # 否则 max 截断持仓但流水按超卖数量入账，已实现盈亏虚增
+                if shares > held:
+                    return {"status": "error", "message": f"卖出数量{shares}超过持仓{held}股，未记录"}
+
+            amount = price * shares
             conn.execute(
                 """
                 INSERT INTO trade_journal
@@ -108,7 +141,7 @@ class TradeJournal:
                 [
                     code,
                     name,
-                    action,
+                    norm,
                     price,
                     shares,
                     amount,
@@ -124,9 +157,9 @@ class TradeJournal:
             )
 
             # 更新持仓
-            self._update_portfolio(conn, code, name, action, price, shares)
+            self._update_portfolio(conn, code, name, norm, price, shares)
 
-            return {"status": "ok", "action": action, "code": code, "price": price, "shares": shares, "amount": amount}
+            return {"status": "ok", "action": norm, "code": code, "price": price, "shares": shares, "amount": amount}
         finally:
             conn.close()
 
@@ -208,26 +241,56 @@ class TradeJournal:
         return df.to_dict("records")
 
     def calculate_pnl(self, code: str) -> dict:
-        """计算某只股票的已实现盈亏"""
-        trades = self.get_trade_history(code, days=365, limit=500)
+        """计算某只股票的已实现盈亏（FIFO 先进先出配对，覆盖全量交易）"""
+        # 全量交易：不限 365 天窗口，避免跨窗口买入被漏计导致盈亏错误
+        trades = self.get_trade_history(code, days=36500, limit=10**6)
         if not trades:
-            return {"code": code, "total_pnl": 0, "trades": 0}
+            return {
+                "code": code,
+                "total_buy": 0,
+                "total_sell": 0,
+                "realized_pnl": 0,
+                "buy_shares": 0,
+                "sell_shares": 0,
+                "trade_count": 0,
+                "unmatched_sell_shares": 0,
+            }
 
-        total_buy_amount = 0
-        total_sell_amount = 0
+        # get_trade_history 返回 DESC，FIFO 需要按时间升序
+        trades = sorted(trades, key=lambda t: (str(t.get("trade_date")), str(t.get("trade_time") or "")))
+
+        lots: list = []  # FIFO 买入队列 [price, remaining_shares]
+        realized_pnl = 0.0
+        total_buy_amount = 0.0
+        total_sell_amount = 0.0
         buy_shares = 0
         sell_shares = 0
+        unmatched_sell = 0
 
         for t in trades:
+            price = float(t["price"])
+            shares = int(t["shares"])
+            amount = float(t["amount"]) if t.get("amount") is not None else price * shares
             if t["action"] in ("买入", "加仓"):
-                total_buy_amount += t["amount"]
-                buy_shares += t["shares"]
+                total_buy_amount += amount
+                buy_shares += shares
+                lots.append([price, shares])
             elif t["action"] in ("卖出", "减仓"):
-                total_sell_amount += t["amount"]
-                sell_shares += t["shares"]
-
-        # FIFO 计算已实现盈亏
-        realized_pnl = total_sell_amount - total_buy_amount * (sell_shares / buy_shares) if buy_shares > 0 else 0
+                total_sell_amount += amount
+                sell_shares += shares
+                remaining = shares
+                while remaining > 0 and lots:
+                    lot_price, lot_rem = lots[0]
+                    matched = min(remaining, lot_rem)
+                    realized_pnl += (price - lot_price) * matched
+                    lots[0][1] = lot_rem - matched
+                    remaining -= matched
+                    if lots[0][1] == 0:
+                        lots.pop(0)
+                if remaining > 0:
+                    # 无配对买入的卖出股：按零成本计入，勿丢弃也勿除零
+                    unmatched_sell += remaining
+                    realized_pnl += price * remaining
 
         return {
             "code": code,
@@ -237,6 +300,8 @@ class TradeJournal:
             "buy_shares": buy_shares,
             "sell_shares": sell_shares,
             "trade_count": len(trades),
+            "unmatched_sell_shares": unmatched_sell,
+            "open_lots_shares": sum(l[1] for l in lots),
         }
 
     def get_period_summary(self, period: str = "week") -> dict:

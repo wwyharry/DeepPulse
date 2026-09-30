@@ -100,10 +100,17 @@ def check_predictions(stock_code: str = "") -> str:
     return mem.prediction_tracker.check_predictions(stock_code if stock_code else None)
 
 
-def verify_prediction(prediction_id: str, actual_price: float, actual_return_pct: float = 0) -> str:
-    """验证预测结果，更新准确率并自动调整关联记忆的重要性。"""
+def verify_prediction(prediction_id: str, actual_price: float, actual_return_pct: float = None) -> str:
+    """验证预测结果，更新准确率并自动调整关联记忆的重要性。
+
+    不传 actual_return_pct 时按目标价/止损价与实际价格判定结果。
+    """
     mem = get_memory()
-    return mem.prediction_tracker.verify_prediction(prediction_id, float(actual_price), float(actual_return_pct))
+    return mem.prediction_tracker.verify_prediction(
+        prediction_id,
+        float(actual_price),
+        None if actual_return_pct is None else float(actual_return_pct),
+    )
 
 
 def prediction_stats() -> str:
@@ -289,7 +296,7 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "memory_type": {"type": "string", "description": "按类型筛选（可选）", "default": ""},
-                    "limit": {"type": "integer", "description": "最多返回条数，默认20", "default": 20},
+                    "limit": {"type": "integer", "description": "最多返回条数，默认20", "default": 20, "minimum": 1},
                 },
                 "required": [],
             },
@@ -370,8 +377,7 @@ TOOL_DEFINITIONS = [
                     "actual_price": {"type": "number", "description": "实际价格"},
                     "actual_return_pct": {
                         "type": "number",
-                        "description": "实际收益率（百分比，如 5.2 表示涨5.2%）",
-                        "default": 0,
+                        "description": "实际收益率（百分比，如 5.2 表示涨5.2%）；不传时按目标价/止损价与实际价格判定",
                     },
                 },
                 "required": ["prediction_id", "actual_price"],

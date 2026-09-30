@@ -1,5 +1,10 @@
 """动态推理链 - 根据市场状态自动生成分析策略和推理路径"""
 
+import time
+
+# 市场状态检测结果缓存 (monotonic时间, 状态)，避免频繁请求涨跌停数据
+_market_state_cache: tuple[float, str | None] | None = None
+
 # 市场状态与分析策略映射
 MARKET_STATE_STRATEGIES = {
     "高潮期": {
@@ -139,61 +144,139 @@ def get_analysis_strategy(market_state: str = None) -> dict:
     }
 
 
+def _profile_value(user_profile: dict, *keys: str) -> str:
+    """从用户画像字典中取值，兼容 {"value": ...} 包装与纯字符串两种形态"""
+    for key in keys:
+        item = user_profile.get(key)
+        if isinstance(item, dict):
+            return str(item.get("value", "") or "")
+        if isinstance(item, str):
+            return item
+    return ""
+
+
 def build_dynamic_system_prompt(base_prompt: str, market_state: str = None, user_profile: dict = None) -> str:
     """构建动态 system prompt，融入市场状态和用户画像
 
     Args:
         base_prompt: 基础 system prompt
-        market_state: 当前市场状态
-        user_profile: 用户交易画像
+        market_state: 当前市场状态（高潮期/发酵期/启动期/低迷期/冰点期）
+        user_profile: 用户交易画像。键名兼容中文（"交易风格"/"风险偏好"）
+            与数据库英文键（"trading_style"/"risk_tolerance"）；值可为
+            {"value": ...} 包装或纯字符串。
     """
     strategy = get_analysis_strategy(market_state)
 
-    additions = []
+    sections = []
 
     # 市场状态分析指引
     if market_state:
-        additions.append(f"""
-## 当前市场状态: {market_state}
-- 风险等级: {strategy["risk_level"]}
-- 分析重点: {"、".join(strategy["focus"])}
-- 工具优先级: {" → ".join(strategy["priority_tools"])}
-- 操作风格: {strategy["output_style"]}
-
-### 动态推理步骤
-""")
+        lines = [
+            f"## 当前市场状态: {market_state}",
+            f"- 风险等级: {strategy['risk_level']}",
+            f"- 分析重点: {'、'.join(strategy['focus'])}",
+            f"- 工具优先级: {' → '.join(strategy['priority_tools'])}",
+            f"- 操作风格: {strategy['output_style']}",
+            "",
+            "### 动态推理步骤",
+        ]
         for i, step in enumerate(strategy["reasoning"], 1):
-            additions.append(f"{i}. {step}")
+            lines.append(f"{i}. {step}")
 
         if strategy["strategy_preference"]:
-            additions.append(f"\n### 推荐战法: {'、'.join(strategy['strategy_preference'])}")
+            lines.append(f"\n### 推荐战法: {'、'.join(strategy['strategy_preference'])}")
+        sections.append("\n".join(lines))
 
     # 用户画像适配
     if user_profile:
-        style = user_profile.get("交易风格", {}).get("value", "")
-        risk = user_profile.get("风险偏好", {}).get("value", "")
+        style = _profile_value(user_profile, "交易风格", "trading_style")
+        risk = _profile_value(user_profile, "风险偏好", "risk_tolerance")
 
         if style or risk:
-            additions.append(f"""
-## 用户画像适配
-- 交易风格: {style or "未确定"}
-- 风险偏好: {risk or "未确定"}
-""")
+            lines = [
+                "## 用户画像适配",
+                f"- 交易风格: {style or '未确定'}",
+                f"- 风险偏好: {risk or '未确定'}",
+            ]
             if "低吸" in style:
-                additions.append("- 优先推荐低吸类战法，避免追高建议")
+                lines.append("- 优先推荐低吸类战法，避免追高建议")
             elif "打板" in style:
-                additions.append("- 可推荐打板和接力战法，强调封板质量")
+                lines.append("- 可推荐打板和接力战法，强调封板质量")
             elif "追高" in style:
-                additions.append("- 提醒追高风险，建议设置严格止损")
+                lines.append("- 提醒追高风险，建议设置严格止损")
 
             if "稳健" in risk:
-                additions.append("- 操作建议偏向稳健，控制仓位，严格止损")
+                lines.append("- 操作建议偏向稳健，控制仓位，严格止损")
             elif "激进" in risk:
-                additions.append("- 可推荐进攻性操作，但仍需提示风险")
+                lines.append("- 可推荐进攻性操作，但仍需提示风险")
+            sections.append("\n".join(lines))
 
-    if additions:
-        return base_prompt + "\n" + "".join(additions)
+    if sections:
+        return base_prompt + "\n\n" + "\n\n".join(sections)
     return base_prompt
+
+
+def detect_market_state(ttl: float = 300.0, timeout: float = 5.0) -> str | None:
+    """从市场情绪数据推断当前市场状态
+
+    通过 ``get_market_sentiment()`` 的情绪评级解析出
+    高潮期/发酵期/启动期/低迷期/冰点期 之一。
+
+    市场情绪需要请求涨跌停数据（网络），因此结果按 ``ttl`` 秒缓存，
+    且单次取数不超过 ``timeout`` 秒——弱网/断网时立即降级返回 None，
+    不阻塞 Agent 启动。
+
+    Args:
+        ttl: 结果缓存秒数（默认 5 分钟）
+        timeout: 单次取数超时秒数
+
+    Returns:
+        市场状态字符串；数据不可用、非交易日（无任何涨跌停数据）
+        或解析失败时返回 None（调用方应回退到默认分析策略）。
+    """
+    global _market_state_cache
+    now = time.monotonic()
+    if _market_state_cache is not None:
+        cached_at, cached_state = _market_state_cache
+        if now - cached_at < ttl:
+            return cached_state
+
+    state = _fetch_market_state(timeout)
+    _market_state_cache = (now, state)
+    return state
+
+
+def _fetch_market_state(timeout: float) -> str | None:
+    """取市场情绪并解析状态（带超时，失败返回 None）"""
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeout
+
+        from deeppulse.agent.market import get_market_sentiment
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(get_market_sentiment)
+            data = future.result(timeout=timeout)
+        except FuturesTimeout:
+            future.cancel()
+            return None
+        finally:
+            executor.shutdown(wait=False)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    # 非交易日/数据未更新时涨停数与跌停数均为 0，不能误判为冰点期
+    if not data.get("涨停数") and not data.get("跌停数"):
+        return None
+
+    rating = str(data.get("情绪评级", ""))
+    for state in ("高潮期", "发酵期", "启动期", "低迷期", "冰点期"):
+        if state in rating:
+            return state
+    return None
 
 
 def analyze_stock_dynamic(code: str, market_state: str = None, user_profile: dict = None) -> dict:
@@ -233,7 +316,7 @@ def analyze_stock_dynamic(code: str, market_state: str = None, user_profile: dic
         plan["steps"].append(
             {
                 "action": tool,
-                "reason": f"市场{market_state}下的重点分析",
+                "reason": f"市场{plan['market_state']}下的重点分析",
                 "priority": "高",
             }
         )

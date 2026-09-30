@@ -94,9 +94,10 @@ def _cross_down(a: pd.Series, b: pd.Series) -> pd.Series:
 
 
 def _rolling_rank(s: pd.Series, period: int) -> pd.Series:
-    """滚动百分位排名 0~1"""
+    """滚动百分位排名 0~1（真实排名，ties 取平均秩；全 ties 窗口居中得 0.5）"""
     return s.rolling(period).apply(
-        lambda x: (x.iloc[-1] - x.min()) / (x.max() - x.min() + 1e-10) if len(x) > 1 else 0.5, raw=False
+        lambda x: (x.rank(method="average").iloc[-1] - 1) / (len(x) - 1) if len(x) > 1 else 0.5,
+        raw=False,
     )
 
 
@@ -280,10 +281,13 @@ def _macd_divergence(df: pd.DataFrame, p: dict) -> pd.Series:
     close = _col(df, "close")
     dif = _col(df, "dif")
     period = int(p["period"])
+    tol = p["tolerance"] / 100
     price_low = close.rolling(period).min()
     dif_low = dif.rolling(period).min()
-    price_new_low = close <= price_low * (1 + p["tolerance"] / 100)
-    dif_higher = dif > dif_low * (1 + p["tolerance"] / 100)
+    price_new_low = close <= price_low * (1 + tol)
+    # dif_low 为负时乘法方向反转，须按符号选 (1±tol)：阈值语义始终是「比窗口低点高 tol%」
+    dif_thr = (dif_low * (1 + tol)).where(dif_low > 0, dif_low * (1 - tol))
+    dif_higher = dif > dif_thr
     return (price_new_low & dif_higher).astype(float)
 
 
@@ -826,7 +830,7 @@ def _support_bounce(df: pd.DataFrame, p: dict) -> pd.Series:
     """支撑位反弹：价格触及支撑位后反弹"""
     close, low = _col(df, "close"), _col(df, "low")
     period = int(p["period"])
-    support = low.rolling(period).min()
+    support = low.rolling(period).min().shift(1)
     tolerance = p["tolerance"] / 100
     touched = low <= support * (1 + tolerance)
     bounced = close > support * (1 + tolerance)
@@ -1116,23 +1120,31 @@ def _low_risk_entry(df: pd.DataFrame, p: dict) -> pd.Series:
     return low_vol * 0.4 + near_ma * 0.3 + stable * 0.3
 
 
+def _streak_score(up: pd.Series, period: int) -> pd.Series:
+    """连续同向 streak 计数（遇反向重置为 0），按 period 归一化到 0~1"""
+    streak = np.zeros(len(up))
+    cur = 0
+    for i, v in enumerate(up.fillna(False).to_numpy()):
+        cur = cur + 1 if v else 0
+        streak[i] = cur
+    return (pd.Series(streak, index=up.index) / period).clip(0, 1)
+
+
 def _consecutive_up(df: pd.DataFrame, p: dict) -> pd.Series:
     """连涨天数：连续上涨天数"""
     close = _col(df, "close")
     period = int(p["period"])
-    up = (close > close.shift(1)).astype(int)
-    streak = up.rolling(period).sum()
-    return (streak / period).clip(0, 1)
+    up = close > close.shift(1)
+    return _streak_score(up, period)
 
 
 def _consecutive_down(df: pd.DataFrame, p: dict) -> pd.Series:
     """连跌天数：连续下跌后反弹概率"""
     close = _col(df, "close")
     period = int(p["period"])
-    down = (close < close.shift(1)).astype(int)
-    streak = down.rolling(period).sum()
+    down = close < close.shift(1)
     # 连跌越多，反弹概率越高
-    return (streak / period).clip(0, 1)
+    return _streak_score(down, period)
 
 
 def _price_acceleration(df: pd.DataFrame, p: dict) -> pd.Series:

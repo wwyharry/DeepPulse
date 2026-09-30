@@ -24,13 +24,17 @@ class TechnicalIndicators:
 
     @staticmethod
     def rsi(series: pd.Series, period: int = 14) -> pd.Series:
-        """相对强弱指标（EWM 平滑）"""
+        """相对强弱指标（EWM 平滑）
+
+        窗口内无下跌时 avg_loss=0 → rs=inf → RSI=100（而非 NaN）；
+        无涨跌时 avg_gain=avg_loss=0 → rs=NaN → RSI=NaN。
+        """
         delta = series.diff()
         gain = delta.clip(lower=0)
         loss = (-delta).clip(lower=0)
         avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
         avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
-        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rs = avg_gain / avg_loss
         return 100 - (100 / (1 + rs))
 
     @staticmethod

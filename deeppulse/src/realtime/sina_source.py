@@ -82,12 +82,28 @@ class SinaRealtimeSource(RealtimeQuoteSource):
         return result
 
     def _parse_response(self, code: str, text: str) -> RealtimeQuote | None:
-        """解析新浪行情响应文本"""
+        """解析新浪行情响应文本
+
+        Returns:
+            RealtimeQuote；空响应（`=""`）或停牌零价返回 None
+
+        Raises:
+            ValueError: 负载损坏/字段错乱无法解析（计入熔断失败，便于切备源）
+        """
         try:
             data_str = text.split('"')[1]
+        except IndexError as e:
+            raise ValueError(f"新浪响应不含引号字段，无法解析: {text[:80]}") from e
+        if not data_str:
+            return None  # 空响应：无效代码/无数据，属正常
+
+        try:
             fields = data_str.split(",")
 
             current = float(fields[3]) if fields[3] else None
+            # 停牌/无数据：零价过滤，与 eastmoney _row_to_quote 语义一致
+            if current is None or current <= 0:
+                return None
             yesterday_close = float(fields[2]) if fields[2] else None
 
             change_pct = None
@@ -106,14 +122,14 @@ class SinaRealtimeSource(RealtimeQuoteSource):
                 yesterday_close=yesterday_close,
                 change_amount=change_amt,
                 change_pct=change_pct,
-                volume=int(float(fields[8])) if fields[8] else None,
+                volume=int(float(fields[8])) if fields[8] else None,  # 单位：股
                 amount=float(fields[9]) if fields[9] else None,
                 trade_date=fields[30] if len(fields) > 30 else str(date.today()),
                 trade_time=fields[31] if len(fields) > 31 else "",
                 data_source="sina",
             )
-        except (IndexError, ValueError):
-            return None
+        except (IndexError, ValueError) as e:
+            raise ValueError(f"新浪行情字段解析失败: {data_str[:80]}") from e
 
     def cleanup(self):
         """关闭 HTTP session"""

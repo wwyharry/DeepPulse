@@ -3,6 +3,7 @@
 import json
 import re
 import time
+from datetime import date, datetime
 from pathlib import Path
 
 from deeppulse.strategy.models import (
@@ -13,6 +14,38 @@ from deeppulse.strategy.models import (
     Strategy,
     StrategyVersion,
 )
+
+
+def _ts_rank(value) -> float:
+    """把时间字段（datetime/ISO字符串）归一为可比较的排序键"""
+    if value is None:
+        return 0.0
+    if isinstance(value, datetime):
+        return value.timestamp()
+    s = str(value).strip()
+    if not s:
+        return 0.0
+    try:
+        return datetime.fromisoformat(s.replace(" ", "T", 1)).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _normalize_row(columns, row) -> dict:
+    """DB 行归一化：datetime→isoformat 字符串，JSON 字符串列→对象"""
+    data = dict(zip(columns, row, strict=True))
+    for k, v in list(data.items()):
+        if isinstance(v, datetime):
+            data[k] = v.isoformat()
+        elif isinstance(v, date):
+            data[k] = v.isoformat()
+    for k in ("matched_conditions", "conditions", "parameters", "tags"):
+        if k in data and isinstance(data[k], str):
+            try:
+                data[k] = json.loads(data[k])
+            except (json.JSONDecodeError, TypeError):
+                data[k] = [] if k in ("matched_conditions", "tags") else {}
+    return data
 
 
 class StrategyRepository:
@@ -29,6 +62,24 @@ class StrategyRepository:
         # 内存缓存
         self._strategies: dict[str, Strategy] = {}
         self._loaded = False
+        self._fs_signature: frozenset | None = None  # 文件系统签名，变更时自动失效缓存
+
+    def _compute_fs_signature(self) -> tuple:
+        """文件系统签名：策略文件集合+mtime 与 DB 文件 mtime"""
+        files = set()
+        if self.strategies_dir.exists():
+            for f in self.strategies_dir.glob("*.md"):
+                try:
+                    files.add((f.name, f.stat().st_mtime_ns))
+                except OSError:
+                    files.add((f.name, None))
+        db_sig = None
+        if self.db_path.exists():
+            try:
+                db_sig = self.db_path.stat().st_mtime_ns
+            except OSError:
+                db_sig = None
+        return (frozenset(files), db_sig)
 
     def load_all(self, source: str = None) -> list[Strategy]:
         """加载所有策略
@@ -36,8 +87,10 @@ class StrategyRepository:
         Args:
             source: 过滤来源 — "builtin"=战法库内置, "user"=用户创建, None=全部
         """
-        if not self._loaded:
+        sig = self._compute_fs_signature()
+        if not self._loaded or sig != self._fs_signature:
             self._strategies = {}
+            file_by_name: dict[str, Strategy] = {}
 
             # 从文件系统加载（战法库内置策略）
             if self.strategies_dir.exists():
@@ -48,14 +101,24 @@ class StrategyRepository:
                         content = f.read_text(encoding="utf-8").strip()
                         if content:
                             strategy = Strategy.from_markdown(f.name, content)
+                            # legacy 文件无持久化来源标记，默认 builtin；
+                            # 若 DB 中存在同 filename 行则在 _load_from_db 归并时以 DB 的 source 为准
                             strategy.source = "builtin"
+                            # 文件无持久化 updated_at，用 mtime 作为内容新旧依据
+                            # （否则默认 now() 会在归并时永远压过 DB 内容）
+                            try:
+                                strategy.updated_at = datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+                            except OSError:
+                                pass
                             self._strategies[strategy.id] = strategy
+                            file_by_name[f.name] = strategy
                     except Exception as e:
                         print(f"加载策略文件 {f.name} 失败: {e}")
 
-            # 从DuckDB加载（用户创建的策略）
-            self._load_from_db()
+            # 从DuckDB加载（用户创建的策略），按 filename/id 与文件副本归并
+            self._load_from_db(file_by_name)
 
+            self._fs_signature = sig
             self._loaded = True
 
         strategies = list(self._strategies.values())
@@ -63,8 +126,14 @@ class StrategyRepository:
             strategies = [s for s in strategies if s.source == source]
         return strategies
 
-    def _load_from_db(self):
-        """从DuckDB加载自定义策略"""
+    def _load_from_db(self, file_by_name: dict[str, Strategy] | None = None):
+        """从DuckDB加载自定义策略
+
+        与文件副本（同 filename 或同 id）归并为一条：
+        - id/source/created_at 以 DB 行为准（保住 strategy_versions/strategy_signals 的引用）
+        - 内容取 updated_at 较新者
+        """
+        file_by_name = file_by_name if file_by_name is not None else {}
         try:
             import duckdb
 
@@ -82,10 +151,44 @@ class StrategyRepository:
                     columns = [desc[0] for desc in conn.description]
 
                     for row in rows:
-                        data = dict(zip(columns, row, strict=True))
+                        data = _normalize_row(columns, row)
                         strategy = Strategy.from_dict(data)
-                        strategy.source = "user"  # DuckDB中的都是用户创建的
-                        if strategy.id not in self._strategies:
+                        # 保留持久化 source（旧数据 NULL 时兜底 user）
+                        strategy.source = data.get("source") or "user"
+
+                        existing = None
+                        if strategy.filename and strategy.filename in file_by_name:
+                            existing = file_by_name[strategy.filename]
+                        elif strategy.id in self._strategies:
+                            existing = self._strategies[strategy.id]
+
+                        if existing is not None:
+                            # 归并去重：DB 行 id/source/created_at 为准；内容取较新者
+                            if _ts_rank(strategy.updated_at) >= _ts_rank(existing.updated_at):
+                                content_src = strategy
+                            else:
+                                content_src = existing
+                            existing.id = strategy.id
+                            existing.source = strategy.source
+                            existing.created_at = strategy.created_at
+                            existing.name = content_src.name
+                            existing.category = content_src.category
+                            existing.tags = content_src.tags
+                            existing.description = content_src.description
+                            existing.content = content_src.content
+                            existing.conditions = content_src.conditions
+                            existing.parameters = content_src.parameters
+                            existing.risk_level = content_src.risk_level
+                            existing.status = content_src.status
+                            existing.version = content_src.version
+                            existing.updated_at = content_src.updated_at
+                            existing.filename = strategy.filename or existing.filename
+                            # 旧键可能是文件派生 id，归并后统一挂到 DB id 下
+                            for key in list(self._strategies):
+                                if self._strategies[key] is existing and key != strategy.id:
+                                    del self._strategies[key]
+                            self._strategies[strategy.id] = existing
+                        else:
                             self._strategies[strategy.id] = strategy
             finally:
                 conn.close()
@@ -171,8 +274,12 @@ class StrategyRepository:
             score = 0
             matched = []
 
+            # 防御：异常数据下 conditions/tags 可能不是 dict/list
+            conds = strategy.conditions if isinstance(strategy.conditions, dict) else {}
+            tags = strategy.tags if isinstance(strategy.tags, list) else []
+
             # 关键词匹配
-            for kw in strategy.conditions.get("keywords", []):
+            for kw in conds.get("keywords", []):
                 for qt in query_terms:
                     if qt in kw or kw in qt:
                         score += 1
@@ -180,7 +287,7 @@ class StrategyRepository:
                         break
 
             # 标签匹配
-            for tag in strategy.tags:
+            for tag in tags:
                 for qt in query_terms:
                     if qt in tag:
                         score += 0.5
@@ -208,30 +315,55 @@ class StrategyRepository:
         return scored[:top_k]
 
     def save_strategy(self, strategy: Strategy) -> bool:
-        """保存策略"""
+        """保存策略（文件 + DuckDB 双写；任一失败则恢复保存前状态并返回 False）"""
+        filepath = self.strategies_dir / strategy.filename
+        old_content = None
+        old_cached = self._strategies.get(strategy.id)
+        file_existed = False
         try:
-            # 保存到文件系统
-            filepath = self.strategies_dir / strategy.filename
-            filepath.write_text(strategy.content, encoding="utf-8")
-
-            # 更新内存缓存
-            self._strategies[strategy.id] = strategy
-
-            # 保存到DuckDB
-            self._save_to_db(strategy)
-
-            return True
+            if filepath.exists():
+                file_existed = True
+                old_content = filepath.read_text(encoding="utf-8")
         except Exception as e:
             print(f"保存策略失败: {e}")
             return False
 
-    def _save_to_db(self, strategy: Strategy):
-        """保存策略到DuckDB"""
+        try:
+            # 保存到文件系统
+            filepath.write_text(strategy.content, encoding="utf-8")
+        except Exception as e:
+            print(f"保存策略失败: {e}")
+            return False
+
+        # 更新内存缓存
+        self._strategies[strategy.id] = strategy
+
+        # 保存到DuckDB；失败时回滚文件与内存缓存，绝不报告假成功
+        if not self._save_to_db(strategy):
+            try:
+                if file_existed and old_content is not None:
+                    filepath.write_text(old_content, encoding="utf-8")
+                elif filepath.exists():
+                    filepath.unlink()
+            except Exception as e:
+                print(f"保存失败后回滚文件出错: {e}")
+            if old_cached is not None:
+                self._strategies[strategy.id] = old_cached
+            else:
+                self._strategies.pop(strategy.id, None)
+            return False
+
+        # 强制下次 load_all 重读（内存已直接维护，签名置空即可）
+        self._fs_signature = None
+        return True
+
+    def _save_to_db(self, strategy: Strategy) -> bool:
+        """保存策略到DuckDB。DB 不存在时视为可接受降级（返回 True）；其余异常返回 False"""
         try:
             import duckdb
 
             if not self.db_path.exists():
-                return
+                return True  # 可接受降级：仅文件存储
 
             conn = duckdb.connect(str(self.db_path))
             try:
@@ -282,52 +414,58 @@ class StrategyRepository:
                         strategy.updated_at,
                     ],
                 )
+                return True
             finally:
                 conn.close()
-        except Exception:
-            pass  # DuckDB不可用时忽略
+        except Exception as e:
+            print(f"保存策略到DuckDB失败: {e}")
+            return False
 
     def delete_strategy(self, strategy_id: str) -> bool:
-        """删除策略"""
+        """删除策略（先删 DB，成功后再删文件；任一步失败则尽量恢复并返回 False）"""
         strategy = self.get_strategy(strategy_id)
         if not strategy:
             return False
 
-        try:
-            # 删除文件
-            filepath = self.strategies_dir / strategy.filename
-            if filepath.exists():
-                filepath.unlink()
-
-            # 从内存缓存删除
-            self._strategies.pop(strategy_id, None)
-
-            # 从DuckDB删除
-            self._delete_from_db(strategy_id)
-
-            return True
-        except Exception as e:
-            print(f"删除策略失败: {e}")
+        # 先删 DB：失败则什么都不动，避免「文件删了 DB 行残留 → 策略复活」
+        if not self._delete_from_db(strategy_id):
             return False
 
-    def _delete_from_db(self, strategy_id: str):
-        """从DuckDB删除策略"""
+        filepath = self.strategies_dir / strategy.filename
+        try:
+            if filepath.exists():
+                filepath.unlink()
+        except Exception as e:
+            print(f"删除策略文件失败: {e}")
+            # 恢复 DB 行，避免「DB 行在、文件没了」的状态
+            self._save_to_db(strategy)
+            return False
+
+        # 从内存缓存删除
+        self._strategies.pop(strategy_id, None)
+        self._fs_signature = None
+        return True
+
+    def _delete_from_db(self, strategy_id: str) -> bool:
+        """从DuckDB删除策略。DB 不存在时视为可接受降级（返回 True）；其余异常返回 False"""
         try:
             import duckdb
 
             if not self.db_path.exists():
-                return
+                return True  # 可接受降级：仅文件存储
 
             conn = duckdb.connect(str(self.db_path))
             try:
                 conn.execute("DELETE FROM strategies WHERE id = ?", [strategy_id])
+                return True
             finally:
                 conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"从DuckDB删除策略失败: {e}")
+            return False
 
     def create_strategy(self, name: str, content: str, category: str = "", **kwargs) -> Strategy:
-        """创建新策略"""
+        """创建新策略。保存失败时抛 RuntimeError，不返回幽灵策略"""
         # 生成文件名
         existing_files = list(self.strategies_dir.glob("*.md"))
         max_num = 0
@@ -338,7 +476,11 @@ class StrategyRepository:
 
         filename = f"{max_num + 1:02d}-{name}.md"
 
+        # 新建策略使用按文件名派生的确定性 id，使文件与 DB 两份从一开始就同 id
+        import uuid
+
         strategy = Strategy(
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"deeppulse-strategy:{filename}")),
             name=name,
             category=category,
             content=content,
@@ -346,11 +488,12 @@ class StrategyRepository:
             **kwargs,
         )
 
-        self.save_strategy(strategy)
+        if not self.save_strategy(strategy):
+            raise RuntimeError(f"策略保存失败: {name} (filename={filename})")
         return strategy
 
     def update_strategy(self, strategy_id: str, **kwargs) -> Strategy | None:
-        """更新策略"""
+        """更新策略。保存失败时抛 RuntimeError，不返回未持久化的幽灵对象"""
         strategy = self.get_strategy(strategy_id)
         if not strategy:
             return None
@@ -363,19 +506,19 @@ class StrategyRepository:
         strategy.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         strategy.version += 1
 
-        # 保存版本历史
+        # 先保存策略本体，成功后再写版本历史（避免 save 失败时版本表多出不符的版本）
+        if not self.save_strategy(strategy):
+            raise RuntimeError(f"策略保存失败: {strategy_id}")
         self._save_version(strategy)
-
-        self.save_strategy(strategy)
         return strategy
 
-    def _save_version(self, strategy: Strategy):
-        """保存策略版本"""
+    def _save_version(self, strategy: Strategy) -> bool:
+        """保存策略版本。DB 不存在时视为可接受降级；其余异常返回 False"""
         try:
             import duckdb
 
             if not self.db_path.exists():
-                return
+                return True  # 可接受降级
 
             conn = duckdb.connect(str(self.db_path))
             try:
@@ -417,10 +560,12 @@ class StrategyRepository:
                         version.comment,
                     ],
                 )
+                return True
             finally:
                 conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"保存策略版本失败: {e}")
+            return False
 
     def get_versions(self, strategy_id: str) -> list[StrategyVersion]:
         """获取策略版本历史"""
@@ -442,7 +587,7 @@ class StrategyRepository:
                 ).fetchall()
 
                 columns = [desc[0] for desc in conn.description]
-                return [StrategyVersion(**dict(zip(columns, row, strict=True))) for row in rows]
+                return [StrategyVersion(**_normalize_row(columns, row)) for row in rows]
             finally:
                 conn.close()
         except Exception:
@@ -515,8 +660,45 @@ class StrategyRepository:
         except Exception:
             return False
 
+    def _ensure_signal_tables(self, conn):
+        """确保 strategy_signals 表 + 业务唯一索引存在（先清理历史重复再建索引）"""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS strategy_signals (
+                id VARCHAR PRIMARY KEY,
+                strategy_id VARCHAR,
+                strategy_name VARCHAR,
+                stock_code VARCHAR,
+                stock_name VARCHAR,
+                signal_type VARCHAR,
+                signal_price DOUBLE,
+                signal_time TIMESTAMP,
+                confidence DOUBLE,
+                matched_conditions VARCHAR,
+                status VARCHAR,
+                notes VARCHAR,
+                created_at TIMESTAMP
+            )
+        """)
+        # 迁移去重：保留每组业务键最早一行，否则唯一索引建不上
+        conn.execute("""
+            DELETE FROM strategy_signals a
+            WHERE EXISTS (
+                SELECT 1 FROM strategy_signals b
+                WHERE a.strategy_id = b.strategy_id
+                  AND a.stock_code = b.stock_code
+                  AND a.signal_time = b.signal_time
+                  AND a.signal_type = b.signal_type
+                  AND (b.created_at < a.created_at
+                       OR (b.created_at = a.created_at AND b.id < a.id))
+            )
+        """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_signal_biz
+            ON strategy_signals(strategy_id, stock_code, signal_time, signal_type)
+        """)
+
     def save_signal(self, signal: Signal) -> bool:
-        """保存信号"""
+        """保存信号。返回是否实际新插入（重复业务键去重，返回 False）"""
         try:
             import duckdb
 
@@ -525,23 +707,20 @@ class StrategyRepository:
 
             conn = duckdb.connect(str(self.db_path))
             try:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS strategy_signals (
-                        id VARCHAR PRIMARY KEY,
-                        strategy_id VARCHAR,
-                        strategy_name VARCHAR,
-                        stock_code VARCHAR,
-                        stock_name VARCHAR,
-                        signal_type VARCHAR,
-                        signal_price DOUBLE,
-                        signal_time TIMESTAMP,
-                        confidence DOUBLE,
-                        matched_conditions VARCHAR,
-                        status VARCHAR,
-                        notes VARCHAR,
-                        created_at TIMESTAMP
-                    )
-                """)
+                self._ensure_signal_tables(conn)
+
+                # 业务键去重检查（唯一索引兜底；此处显式判断以便返回「是否实际插入」）
+                existing = conn.execute(
+                    """
+                    SELECT 1 FROM strategy_signals
+                    WHERE strategy_id = ? AND stock_code = ?
+                      AND signal_time = ? AND signal_type = ?
+                    LIMIT 1
+                """,
+                    [signal.strategy_id, signal.stock_code, signal.signal_time, signal.signal_type],
+                ).fetchone()
+                if existing:
+                    return False
 
                 conn.execute(
                     """
@@ -572,6 +751,32 @@ class StrategyRepository:
                 conn.close()
         except Exception:
             return False
+
+    def get_max_signal_time(self, strategy_id: str, stock_code: str):
+        """获取某 (strategy, stock) 已入库的最大 signal_time，用于扫描窗口去重"""
+        try:
+            import duckdb
+
+            if not self.db_path.exists():
+                return None
+
+            conn = duckdb.connect(str(self.db_path), read_only=True)
+            try:
+                tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
+                if "strategy_signals" not in tables:
+                    return None
+                row = conn.execute(
+                    """
+                    SELECT MAX(signal_time) FROM strategy_signals
+                    WHERE strategy_id = ? AND stock_code = ?
+                """,
+                    [strategy_id, stock_code],
+                ).fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+        except Exception:
+            return None
 
     def get_signals(self, strategy_id: str = None, limit: int = 100) -> list[Signal]:
         """获取信号列表"""
@@ -604,7 +809,7 @@ class StrategyRepository:
                     ).fetchall()
 
                 columns = [desc[0] for desc in conn.description]
-                return [Signal(**dict(zip(columns, row, strict=True))) for row in rows]
+                return [Signal(**_normalize_row(columns, row)) for row in rows]
             finally:
                 conn.close()
         except Exception:
@@ -804,9 +1009,7 @@ class StrategyRepository:
         try:
             import duckdb
 
-            from deeppulse import config
-
-            conn = duckdb.connect(str(config.DB_PATH))
+            conn = duckdb.connect(str(self.db_path))
             try:
                 self._ensure_health_snapshots_table(conn)
                 # 删除同策略同日期的旧快照
@@ -850,11 +1053,9 @@ class StrategyRepository:
         try:
             import duckdb
 
-            from deeppulse import config
-
-            if not config.DB_PATH.exists():
+            if not self.db_path.exists():
                 return []
-            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
+            conn = duckdb.connect(str(self.db_path), read_only=True)
             try:
                 # 检查表是否存在
                 tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
@@ -874,11 +1075,7 @@ class StrategyRepository:
                 columns = [d[0] for d in conn.description]
                 result = []
                 for row in rows:
-                    data = dict(zip(columns, row, strict=True))
-                    # 转换 datetime 为字符串
-                    if "created_at" in data and data["created_at"] is not None:
-                        data["created_at"] = str(data["created_at"])
-                    result.append(HealthSnapshot(**data))
+                    result.append(HealthSnapshot(**_normalize_row(columns, row)))
                 return result
             finally:
                 conn.close()
@@ -890,11 +1087,9 @@ class StrategyRepository:
         try:
             import duckdb
 
-            from deeppulse import config
-
-            if not config.DB_PATH.exists():
+            if not self.db_path.exists():
                 return []
-            conn = duckdb.connect(str(config.DB_PATH), read_only=True)
+            conn = duckdb.connect(str(self.db_path), read_only=True)
             try:
                 # 检查表是否存在
                 tables = [t[0] for t in conn.execute("SHOW TABLES").fetchall()]
@@ -909,11 +1104,7 @@ class StrategyRepository:
                 columns = [d[0] for d in conn.description]
                 result = []
                 for row in rows:
-                    data = dict(zip(columns, row, strict=True))
-                    # 转换 datetime 为字符串
-                    if "created_at" in data and data["created_at"] is not None:
-                        data["created_at"] = str(data["created_at"])
-                    result.append(HealthSnapshot(**data))
+                    result.append(HealthSnapshot(**_normalize_row(columns, row)))
                 result.reverse()  # 按日期正序
                 return result
             finally:

@@ -1,18 +1,91 @@
 """股票筛选器 - 基于技术指标的条件筛选"""
 
 import json
+import re
+
+# _check_conditions 实际支持的条件关键字（解析不到任何关键字的条件串必须整体拒绝）
+_SUPPORTED_CONDITION_KEYWORDS = (
+    "MA5",
+    "MA10",
+    "MA20",
+    "MA60",
+    "多头排列",
+    "RSI6",
+    "RSI12",
+    "RSI超卖",
+    "RSI超买",
+    "超卖",
+    "超买",
+    "MACD金叉",
+    "MACD金",
+    "MACD死叉",
+    "MACD死",
+    "MACD多头",
+    "放量",
+    "缩量",
+    "成交量",
+    "VOL",
+    "涨幅",
+    "涨跌幅",
+    "跌幅",
+    "强势",
+    "突破",
+    "弱势",
+    "下跌",
+    "超跌",
+)
+
+SUPPORTED_CONDITIONS_DOC = [
+    "MA5>MA10",
+    "MA10>MA20",
+    "多头排列",
+    "RSI6<20",
+    "RSI6>80",
+    "RSI超卖",
+    "RSI超买",
+    "MACD金叉",
+    "MACD死叉",
+    "MACD多头",
+    "放量",
+    "缩量",
+    "成交量>5日均量*1.5",
+    "涨幅>N%",
+    "跌幅>N%",
+    "强势",
+    "突破",
+    "弱势",
+    "下跌",
+    "超跌",
+]
+
+
+def _unsupported_condition_fragments(conditions: str) -> list:
+    """拆分条件串，返回无法解析的片段列表（空表示全部受支持）"""
+    fragments = [f for f in re.split(r"[,，、;；\s]+", conditions) if f]
+    return [f for f in fragments if not any(k in f.upper() for k in _SUPPORTED_CONDITION_KEYWORDS)]
 
 
 def screen_stocks(conditions: str, limit: int = 20) -> str:
     """根据技术条件筛选股票
 
     Args:
-        conditions: 筛选条件描述（自然语言或简单表达式）
+        conditions: 筛选条件描述（自然语言或简单表达式），逗号分隔可叠加（AND 语义）
             支持: "MA5>MA10", "RSI6<20", "成交量>5日均量*1.5", "MACD金叉", "涨跌幅>3%"
         limit: 最多返回数量
     """
     from deeppulse import config
     from deeppulse.src.database import get_connection
+
+    # 无法解析的条件必须整体拒绝，不能把全部股票当成命中
+    unsupported = _unsupported_condition_fragments(conditions)
+    if unsupported:
+        return json.dumps(
+            {
+                "error": f"不支持的条件: {', '.join(unsupported)}",
+                "supported": SUPPORTED_CONDITIONS_DOC,
+            },
+            ensure_ascii=False,
+        )
 
     conn = get_connection(config.DB_PATH)
     try:
@@ -178,32 +251,32 @@ def _check_conditions(rows, conditions: str) -> tuple:
             else:
                 fails.append("非多头排列")
 
-    # RSI 条件
+    # RSI 条件（threshold is None：未找到阈值；0 是合法阈值，不能当假值跳过）
     for period, val in rsi.items():
         key = f"RSI{period}"
         if key in conds:
             if val is not None:
                 if "<" in conds:
                     threshold = _extract_number(conds, key + "<")
-                    if threshold and val < threshold:
+                    if threshold is not None and val < threshold:
                         matches.append(f"RSI{period}={val:.1f}<{threshold}")
                     else:
                         fails.append(f"RSI{period}={val:.1f}")
                 elif ">" in conds:
                     threshold = _extract_number(conds, key + ">")
-                    if threshold and val > threshold:
+                    if threshold is not None and val > threshold:
                         matches.append(f"RSI{period}={val:.1f}>{threshold}")
                     else:
                         fails.append(f"RSI{period}={val:.1f}")
 
-    # RSI 超卖/超买
+    # RSI 超卖/超买（is not None：RSI==0 是最极端超卖，不能当假值跳过）
     if "RSI超卖" in conds or "超卖" in conds:
-        if rsi.get(6) and rsi[6] < 20:
+        if rsi.get(6) is not None and rsi[6] < 20:
             matches.append(f"RSI6={rsi[6]:.1f} 超卖")
         else:
             fails.append("未超卖")
     if "RSI超买" in conds or "超买" in conds:
-        if rsi.get(6) and rsi[6] > 80:
+        if rsi.get(6) is not None and rsi[6] > 80:
             matches.append(f"RSI6={rsi[6]:.1f} 超买")
         else:
             fails.append("未超买")
@@ -233,7 +306,9 @@ def _check_conditions(rows, conditions: str) -> tuple:
     # 成交量条件
     if "放量" in conds or "成交量" in conds.upper() or "VOL" in conds:
         vol_ratio = last_vol / vol_avg5 if vol_avg5 > 0 else 1
-        multiplier = _extract_number(conds, "*") or 1.5
+        multiplier = _extract_number(conds, "*")
+        if multiplier is None:
+            multiplier = 1.5
         if "缩量" in conds:
             if vol_ratio < 0.7:
                 matches.append(f"缩量(量比{vol_ratio:.2f})")
@@ -245,10 +320,31 @@ def _check_conditions(rows, conditions: str) -> tuple:
             else:
                 fails.append(f"量比{vol_ratio:.2f}不足{multiplier}")
 
-    # 涨跌幅条件
-    if "涨跌幅" in conds or "涨幅" in conds:
-        threshold = _extract_number(conds, ">") or _extract_number(conds, "<") or 3
-        if ">" in conds:
+    # 涨跌幅条件（跌幅语义：change_pct < -阈值，"跌幅>3%" 即跌超 3%）
+    if "涨跌幅" in conds or "涨幅" in conds or "跌幅" in conds:
+        if "涨跌幅" in conds:
+            _ctx = "涨跌幅"
+        elif "跌幅" in conds:
+            _ctx = "跌幅"
+        else:
+            _ctx = "涨幅"
+        threshold = _extract_number(conds, _ctx + ">")
+        if threshold is None:
+            threshold = _extract_number(conds, _ctx + "<")
+        if threshold is None:
+            threshold = 3
+        if _ctx == "跌幅":
+            if ">" in conds:
+                if change_pct < -threshold:
+                    matches.append(f"跌幅{change_pct:.2f}%超过{threshold}%")
+                else:
+                    fails.append(f"跌幅不足{threshold}%")
+            elif "<" in conds:
+                if change_pct > -threshold:
+                    matches.append(f"跌幅{change_pct:.2f}%小于{threshold}%")
+                else:
+                    fails.append(f"跌幅超过{threshold}%")
+        elif ">" in conds:
             if change_pct > threshold:
                 matches.append(f"涨幅{change_pct:.2f}%>{threshold}%")
             else:
@@ -275,11 +371,15 @@ def _check_conditions(rows, conditions: str) -> tuple:
             else:
                 fails.append("不满足弱势/下跌条件")
         else:
-            # 条件无法解析，返回 True 让 LLM 判断
-            return True, f"条件'{conditions}'需LLM辅助判断"
+            # 条件无法解析：不能把股票当成命中（screen_stocks 入口已提前拒绝）
+            return False, f"条件'{conditions}'无法解析"
 
-    if fails and not matches:
-        return False, "; ".join(fails)
+    # 多条件 AND 语义：任一条件不满足即不命中（与"逗号分隔可叠加"一致）
+    if fails:
+        detail = "; ".join(fails)
+        if matches:
+            detail = f"未满足[{detail}]；满足[{' ; '.join(matches)}]"
+        return False, detail
     return True, "; ".join(matches)
 
 
@@ -294,22 +394,28 @@ def _ema(data: list, span: int) -> list:
     return ema
 
 
-def _extract_number(text: str, context: str = "") -> float:
-    """从文本中提取数字"""
+def _extract_number(text: str, context: str = "") -> float | None:
+    """从文本中提取与 context 相关的数字。
+
+    context 非空时定位 context 并取其后紧跟的数字；context 不在文本中（或其后
+    无数字）返回 None，由调用方用 is None 判断给默认值——找到的合法 0 阈值
+    （如 "涨幅>0"）原样返回，不再被当成"未找到"。context 为空时取文本中第一个
+    数字，未找到返回 0（历史契约，无生产调用方）。
+    """
     import re
 
-    # 尝试提取 *N 或 >N 或 <N 形式的数字
-    patterns = [
-        r"\*\s*([\d.]+)",
-        r">\s*([\d.]+)",
-        r"<\s*([\d.]+)",
-        r"(\d+\.?\d*)",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, text)
+    t = re.sub(r"\s+", "", text)
+    if not context:
+        m = re.search(r"(\d+\.?\d*)", t)
+        return float(m.group(1)) if m else 0
+
+    c = re.sub(r"\s+", "", context)
+    i = t.find(c)
+    if i >= 0:
+        seg = t[i + len(c) :].lstrip("=")  # 容忍 "RSI6<=15" / ">=" 等
+        m = re.match(r"(\d+\.?\d*)", seg)
         if m:
-            try:
-                return float(m.group(1))
-            except ValueError:
-                continue
-    return 0
+            return float(m.group(1))
+    # 兜底：context 后紧跟数字的其它出现（跳过 "MA5>MA10" 这类）
+    m = re.search(re.escape(c) + r"(\d+\.?\d*)", t)
+    return float(m.group(1)) if m else None

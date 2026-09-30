@@ -45,31 +45,46 @@ class UserProfile:
         try:
             now = datetime.now()
             # 检查是否已存在
-            existing = conn.execute("SELECT confidence FROM user_profile WHERE key = ?", [key]).fetchone()
+            existing = conn.execute(
+                "SELECT value, confidence, source_memory_ids FROM user_profile WHERE key = ?", [key]
+            ).fetchone()
 
             if existing:
-                # 合并置信度：取加权平均
-                old_conf = existing[0]
-                new_conf = min(1.0, (old_conf + confidence) / 2 + 0.05)
+                old_value, old_conf, old_ids_raw = existing
+                old_conf = float(old_conf) if old_conf is not None else 0.5
+                # 一致性判断：值一致才加成，冲突则降权（防止反复翻转的字段置信度虚高）
+                if (old_value or "").strip() == (value or "").strip():
+                    new_conf = min(1.0, (old_conf + confidence) / 2 + 0.05)
+                else:
+                    new_conf = max(0.1, (old_conf + confidence) / 2 - 0.1)
+                # source_memory_ids 合并而非覆盖，容错空/NULL/坏 JSON
+                try:
+                    old_ids = json.loads(old_ids_raw) if old_ids_raw else []
+                    if not isinstance(old_ids, list):
+                        old_ids = []
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    old_ids = []
+                merged_ids = list(dict.fromkeys(old_ids + list(source_memory_ids or [])))
                 conn.execute(
                     """
                     UPDATE user_profile
                     SET value = ?, confidence = ?, source_memory_ids = ?, updated_at = ?
                     WHERE key = ?
                 """,
-                    [value, new_conf, json.dumps(source_memory_ids or [], ensure_ascii=False), now, key],
+                    [value, new_conf, json.dumps(merged_ids, ensure_ascii=False), now, key],
                 )
             else:
+                new_conf = confidence
                 conn.execute(
                     """
                     INSERT INTO user_profile (key, value, confidence, source_memory_ids, updated_at)
                     VALUES (?, ?, ?, ?, ?)
                 """,
-                    [key, value, confidence, json.dumps(source_memory_ids or [], ensure_ascii=False), now],
+                    [key, value, new_conf, json.dumps(source_memory_ids or [], ensure_ascii=False), now],
                 )
 
             return json.dumps(
-                {"status": "updated", "key": key, "value": value, "confidence": confidence}, ensure_ascii=False
+                {"status": "updated", "key": key, "value": value, "confidence": new_conf}, ensure_ascii=False
             )
         finally:
             conn.close()

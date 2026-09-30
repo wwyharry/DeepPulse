@@ -111,16 +111,16 @@ class MemoryManager:
 
         now = datetime.now()
 
-        # 生成 embedding
+        # 生成 embedding（先只算向量，落库成功后再写缓存，避免失败残留幽灵向量）
         embedding_bytes = None
+        embedding_vec = None
         if self.embedding_index.is_ready:
             try:
-                vec = self.embedding_index.encode_single(content)
-                if vec:
-                    embedding_bytes = EmbeddingIndex.vector_to_bytes(vec)
-                    self.embedding_index.add_to_cache(memory_id, vec)
+                embedding_vec = self.embedding_index.encode_single(content)
+                if embedding_vec:
+                    embedding_bytes = EmbeddingIndex.vector_to_bytes(embedding_vec)
             except Exception:
-                pass
+                embedding_vec = None
 
         conn = self._conn()
         try:
@@ -153,6 +153,10 @@ class MemoryManager:
                     now,
                 ],
             )
+
+            # 落库成功后再写 embedding 缓存
+            if embedding_vec:
+                self.embedding_index.add_to_cache(memory_id, embedding_vec)
 
             # 更新 BM25 索引标记
             self._bm25_index = None
@@ -347,6 +351,9 @@ class MemoryManager:
             mem = self._row_to_memory_dict(row)
 
             bm25_raw = bm25_scores.get(row[0], 0)
+            if bm25_raw <= 0:
+                # 零分/负分文档与查询无关，跳过
+                continue
             # 归一化 BM25 分数
             max_bm25 = max(bm25_scores.values()) if bm25_scores else 1
             bm25_norm = bm25_raw / max_bm25 if max_bm25 > 0 else 0
@@ -366,6 +373,9 @@ class MemoryManager:
 
     def _search_keyword_fallback(self, query_keywords: list, memory_type: str, top_k: int, conn) -> list:
         """最后的关键词 LIKE 回退"""
+        if not query_keywords:
+            # 无关键词时不能把全库按重要度返回当作搜索结果
+            return []
         conditions = ["is_archived = FALSE"]
         params = []
         if memory_type:
@@ -416,6 +426,7 @@ class MemoryManager:
 
             updates = ["updated_at = ?"]
             params = [datetime.now()]
+            new_vec = None
 
             if content:
                 updates.append("content = ?")
@@ -423,14 +434,14 @@ class MemoryManager:
                 new_kw = self._extract_keywords(content)
                 updates.append("keywords_json = ?")
                 params.append(json.dumps(new_kw, ensure_ascii=False))
-                # 重新生成 embedding
+                # 重新生成 embedding（落库成功后再写缓存，避免失败残留幽灵向量）
                 if self.embedding_index.is_ready:
                     try:
                         vec = self.embedding_index.encode_single(content)
                         if vec:
                             updates.append("embedding = ?")
                             params.append(EmbeddingIndex.vector_to_bytes(vec))
-                            self.embedding_index.add_to_cache(memory_id, vec)
+                            new_vec = vec
                     except Exception:
                         pass
 
@@ -445,6 +456,8 @@ class MemoryManager:
 
             params.append(memory_id)
             conn.execute(f"UPDATE long_term_memories SET {', '.join(updates)} WHERE id = ?", params)
+            if new_vec:
+                self.embedding_index.add_to_cache(memory_id, new_vec)
             self._bm25_index = None  # 标记需要重建
             return json.dumps({"status": "updated", "memory_id": memory_id}, ensure_ascii=False)
         finally:
@@ -576,6 +589,8 @@ class MemoryManager:
         """获取最重要+最近的记忆"""
         conn = self._conn()
         try:
+            # 先按有效权重（importance * 衰减）过滤并排序，再 LIMIT，
+            # 避免过期的高重要度记忆占满名额后被 Python 侧过滤掉导致返回空
             rows = conn.execute(
                 """
                 SELECT id, memory_type, content, keywords_json, tags_json,
@@ -584,10 +599,12 @@ class MemoryManager:
                        COALESCE(learned_what, ''), COALESCE(learned_why, ''), COALESCE(apply_when, '')
                 FROM long_term_memories
                 WHERE is_archived = FALSE
-                ORDER BY importance DESC, last_accessed_at DESC NULLS LAST
+                  AND decay_halflife_days > 0
+                  AND importance * exp(-0.693 * date_diff('second', COALESCE(last_accessed_at, created_at), now())/86400.0 / decay_halflife_days) >= ?
+                ORDER BY importance * exp(-0.693 * date_diff('second', COALESCE(last_accessed_at, created_at), now())/86400.0 / decay_halflife_days) DESC
                 LIMIT ?
             """,
-                [limit],
+                [config.MEMORY_DECAY_THRESHOLD, limit],
             ).fetchall()
 
             now = datetime.now()

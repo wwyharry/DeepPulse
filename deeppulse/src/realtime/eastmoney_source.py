@@ -3,7 +3,9 @@
 import logging
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
+from pathlib import Path
 
 import pandas as pd
 
@@ -79,15 +81,87 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
         df["code_clean"] = df["代码"].astype(str).str.zfill(6)
         filtered = df[df["code_clean"].isin(codes_set)]
 
+        stamp = self._session_stamp()  # 批量共用一个会话戳
         result = {}
         for _, row in filtered.iterrows():
-            quote = self._row_to_quote(row)
+            quote = self._row_to_quote(row, stamp=stamp)
             if quote:
                 result[quote.code] = quote
         return result
 
-    def _row_to_quote(self, row: pd.Series) -> RealtimeQuote | None:
-        """将DataFrame行转换为RealtimeQuote（修复数据保真问题）"""
+    # 集合竞价开始 / 收盘：trade_date 归属的会话日与是否写 trade_time 的边界
+    _SESSION_OPEN = dtime(9, 15)
+    _SESSION_CLOSE = dtime(15, 0)
+    # 收盘后日线回补窗口截止：数据源出完整日线并落库存在延迟，窗口内本地库
+    # 尚无今日数据不足以否认今日开市；窗口外仍缺今日数据则按未开市处理
+    _BACKFILL_CUTOFF = dtime(17, 0)
+
+    def _session_stamp(self, now: datetime | None = None) -> tuple[str, str]:
+        """返回数据所属交易时段日的 (trade_date, trade_time)
+
+        快照是东财全市场缓存里的最后交易数据，非交易时段/节假日查询时
+        不能把陈旧快照标成今天。trade_time 仅在实时会话内写当前时间，
+        否则置空（to_dict() 会省略空串），不再伪造为 now()。
+        """
+        now = datetime.now() if now is None else now
+        t = now.time()
+        if now.weekday() < 5 and t >= self._SESSION_OPEN and self._opened_today(now):
+            trade_time = now.strftime("%H:%M:%S") if t <= self._SESSION_CLOSE else ""
+            return now.date().isoformat(), trade_time
+        return self._recent_trade_date(now), ""
+
+    def _opened_today(self, now: datetime) -> bool:
+        """今天是否确认已开市——工作日盘中也不能臆断（法定节假日照常休市）
+
+        东财全市场快照不带最后成交时间字段，确认依据为本地库 MAX(trade_date)
+        （可识别节假日）。收盘后日线回补窗口内本地库可能尚无今日数据，不能据此
+        否认今日开市；其余情况无法确认今天已开市即返回 False，
+        由调用方退回 _recent_trade_date，避免把陈旧快照标成今天。
+        """
+        db_last = self._db_last_trade_date()
+        if db_last is not None and db_last >= now.date():
+            return True  # 本地库已有今日数据 → 今日确已开市
+        return self._SESSION_CLOSE < now.time() <= self._BACKFILL_CUTOFF
+
+    @staticmethod
+    def _db_last_trade_date() -> date | None:
+        """本地库 daily_kline 的 MAX(trade_date)；库缺失/无数据/异常返回 None"""
+        try:
+            from deeppulse import config
+            from deeppulse.src.database import get_connection
+
+            if not Path(config.DB_PATH).exists():
+                return None
+            conn = get_connection()
+            try:
+                row = conn.execute("SELECT MAX(trade_date) FROM daily_kline").fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                return date.fromisoformat(str(row[0]))
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _recent_trade_date(now: datetime) -> str:
+        """最近已完结交易日：优先本地库 MAX(trade_date)（可识别节假日），否则回退最近工作日"""
+        db_last = EastMoneyRealtimeSource._db_last_trade_date()
+        if db_last is not None and (now.date() - db_last).days <= 7:
+            # 本地库数据较新时采信（可识别节假日）；陈旧则回退工作日推算
+            return db_last.isoformat()
+        d = now.date() - timedelta(days=1)  # 盘前/周末：快照属此前交易时段
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+        return d.isoformat()
+
+    def _row_to_quote(self, row: pd.Series, stamp: tuple[str, str] | None = None) -> RealtimeQuote | None:
+        """将DataFrame行转换为RealtimeQuote（修复数据保真问题）
+
+        Args:
+            row: 快照行
+            stamp: 可选的 (trade_date, trade_time) 预计算会话戳，批量路径复用
+        """
         try:
             current = self._safe_float(row.get("最新价"))
             if current is None or current == 0:
@@ -96,6 +170,8 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
             # 修复：change_amount/change_pct 为 None 时保持 None，而非默认 0
             change_amt_raw = self._safe_float(row.get("涨跌额"))
             change_pct_raw = self._safe_float(row.get("涨跌幅"))
+
+            trade_date, trade_time = stamp if stamp else self._session_stamp()
 
             return RealtimeQuote(
                 code=str(row.get("代码", "")).zfill(6),
@@ -107,10 +183,11 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
                 yesterday_close=self._safe_float(row.get("昨收")),
                 change_amount=round(change_amt_raw, 2) if change_amt_raw is not None else None,
                 change_pct=round(change_pct_raw, 2) if change_pct_raw is not None else None,
-                volume=int(self._safe_float(row.get("成交量")) or 0),
+                # 东财成交量单位为手，统一换算为股（与 sina / daily_kline 口径一致）
+                volume=int(round((self._safe_float(row.get("成交量")) or 0) * 100)),
                 amount=self._safe_float(row.get("成交额")),
-                trade_date=str(date.today()),
-                trade_time=datetime.now().strftime("%H:%M:%S"),
+                trade_date=trade_date,
+                trade_time=trade_time,
                 data_source="eastmoney",
             )
         except (ValueError, TypeError):

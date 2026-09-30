@@ -27,21 +27,42 @@ class KnowledgeGraph:
             # 检查是否已存在同名同类型实体
             existing = conn.execute(
                 """
-                SELECT id FROM knowledge_entities
+                SELECT id, attributes_json FROM knowledge_entities
                 WHERE entity_type = ? AND name = ?
             """,
                 [entity_type, name],
             ).fetchone()
 
             if existing:
-                conn.execute(
-                    """
-                    UPDATE knowledge_entities
-                    SET attributes_json = ?, updated_at = ?
-                    WHERE id = ?
-                """,
-                    [json.dumps(attributes or {}, ensure_ascii=False), now, existing[0]],
-                )
+                if attributes is None:
+                    # 未提供 attributes 时保留既有属性，只刷新时间
+                    conn.execute(
+                        """
+                        UPDATE knowledge_entities
+                        SET updated_at = ?
+                        WHERE id = ?
+                    """,
+                        [now, existing[0]],
+                    )
+                else:
+                    # 提供 attributes 时与旧值浅合并，避免清空已积累的属性
+                    old: dict = {}
+                    if existing[1]:
+                        try:
+                            parsed = json.loads(existing[1])
+                            if isinstance(parsed, dict):
+                                old = parsed
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            old = {}
+                    merged = {**old, **attributes}
+                    conn.execute(
+                        """
+                        UPDATE knowledge_entities
+                        SET attributes_json = ?, updated_at = ?
+                        WHERE id = ?
+                    """,
+                        [json.dumps(merged, ensure_ascii=False), now, existing[0]],
+                    )
                 return existing[0]
 
             conn.execute(

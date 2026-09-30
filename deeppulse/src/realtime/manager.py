@@ -67,11 +67,11 @@ class RealtimeQuoteManager:
             try:
                 source = self._get_source(source_name)
                 quote = source.fetch_quote(code)
+                # 调用未抛异常即视为源可达：记成功，释放半开试探名额
+                breaker.record_success()
                 if quote is not None:
-                    breaker.record_success()
                     return quote
-                # None 表示停牌/无数据，不算失败
-                return None
+                # None 表示停牌/无数据：不算失败，继续尝试备源兜底
             except Exception as e:
                 breaker.record_failure()
                 errors.append(f"[{source_name}] {e}")
@@ -101,9 +101,10 @@ class RealtimeQuoteManager:
 
             try:
                 source = self._get_source(source_name)
-                quotes = source.fetch_quotes(remaining)
+                quotes = source.fetch_quotes(remaining) or {}
+                # 调用未抛异常即视为源可达：记成功，释放半开试探名额
+                breaker.record_success()
                 if quotes:
-                    breaker.record_success()
                     result.update(quotes)
                     remaining = [c for c in remaining if c not in result]
             except Exception as e:

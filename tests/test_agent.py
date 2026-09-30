@@ -23,7 +23,10 @@ def mock_agent():
         mock_strat = MockStrat.return_value
         mock_strat.get_all_content_summary.return_value = ""
 
-        with patch("deeppulse.agent.agent.SYSTEM_PROMPT", "test prompt"):
+        with (
+            patch("deeppulse.agent.agent.build_system_prompt", return_value="test prompt"),
+            patch("deeppulse.agent.agent.detect_market_state", return_value=None),
+        ):
             agent = StockAgent.__new__(StockAgent)
             agent.memory = mock_mem
             agent.session_id = "test-session"
@@ -112,3 +115,34 @@ class TestAppendPendingSystemNotes:
         original_len = len(mock_agent.messages)
         mock_agent._append_pending_system_notes()
         assert len(mock_agent.messages) == original_len
+
+
+class TestBuildSystemContent:
+    def test_assembles_base_memory_strategy(self, mock_agent):
+        mock_agent.memory.get_context_block.return_value = "- 记忆条目"
+        with patch("deeppulse.agent.agent.get_strategy_loader") as MockStrat:
+            MockStrat.return_value.get_all_content_summary.return_value = "- 战法甲"
+            content = mock_agent._build_system_content()
+        assert content.startswith("test prompt")
+        assert "## 历史记忆" in content and "记忆条目" in content
+        assert "## 可用短线战法一览" in content and "战法甲" in content
+
+    def test_integrates_user_profile(self, mock_agent):
+        mock_agent.memory.user_profile.get_profile.return_value = json.dumps(
+            {"profile": {"trading_style": {"value": "低吸"}}, "total": 1}, ensure_ascii=False
+        )
+        with patch("deeppulse.agent.agent.detect_market_state", return_value="发酵期"):
+            content = mock_agent._build_system_content()
+        assert "## 当前市场状态: 发酵期" in content
+        assert "## 用户画像适配" in content and "低吸" in content
+
+    def test_bad_profile_json_degrades(self, mock_agent):
+        mock_agent.memory.user_profile.get_profile.return_value = "not json"
+        content = mock_agent._build_system_content()
+        assert content.startswith("test prompt")
+        assert "## 用户画像适配" not in content
+
+    def test_refresh_updates_system_message(self, mock_agent):
+        mock_agent.messages = [{"role": "system", "content": "old"}]
+        mock_agent.refresh_memory_context()
+        assert mock_agent.messages[0]["content"].startswith("test prompt")

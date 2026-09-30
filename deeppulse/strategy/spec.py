@@ -14,6 +14,18 @@ import pandas as pd
 
 from deeppulse.strategy.factor_library import get_factor
 
+# 跨参数语义约束（按参数名实际含义，作用于同一因子内合并 default 后的生效值）：
+# "lt" = 必须严格小于（快/慢、短/长、区间上下界相等即语义倒置，如空强势区/自比较）；
+# "le" = 必须小于等于（min/max 范围端点，相等合法，仅 min>max 才是倒置）。
+# 只拒绝真正倒置的组合，不收缩合法搜索空间。
+_CROSS_PARAM_RULES: tuple[tuple[str, str, str], ...] = (
+    ("fast", "slow", "lt"),
+    ("short", "long", "lt"),
+    ("short_n", "long_n", "lt"),
+    ("low", "high", "lt"),
+    ("min_gap", "max_gap", "le"),
+)
+
 
 @dataclass
 class FactorSpec:
@@ -82,6 +94,7 @@ class StrategySpec:
         if not self.factors:
             errors.append("策略至少需要一个因子")
         total_weight = 0.0
+        has_positive_factor = False
         for f in self.factors:
             try:
                 factor = get_factor(f.factor_id)
@@ -92,6 +105,8 @@ class StrategySpec:
                 errors.append(f"因子 {f.factor_id} 权重必须为正数，当前: {f.weight}")
             if f.direction not in (1, -1):
                 errors.append(f"因子 {f.factor_id} direction 只能是 1 或 -1，当前: {f.direction}")
+            if f.direction == 1 and f.weight > 0:
+                has_positive_factor = True
             total_weight += f.weight
             for pname, pvalue in f.params.items():
                 if pname not in factor.params:
@@ -100,10 +115,37 @@ class StrategySpec:
                 fp = factor.params[pname]
                 if not (fp.min - 1e-9 <= float(pvalue) <= fp.max + 1e-9):
                     errors.append(f"因子 {f.factor_id} 参数 {pname}={pvalue} 越界 [{fp.min}, {fp.max}]")
+            # 跨参数语义约束：用合并 default 后的生效参数值判断，
+            # 拒绝 fast>=slow、short>=long、low>=high 等语义倒置组合
+            effective = {k: p.default for k, p in factor.params.items()}
+            effective.update({k: v for k, v in f.params.items() if k in factor.params})
+            for a_name, b_name, rel in _CROSS_PARAM_RULES:
+                if a_name not in effective or b_name not in effective:
+                    continue
+                try:
+                    a_val, b_val = float(effective[a_name]), float(effective[b_name])
+                except (TypeError, ValueError):
+                    continue  # 非数值由范围校验负责报错
+                inverted = a_val >= b_val if rel == "lt" else a_val > b_val
+                if inverted:
+                    operator = "小于" if rel == "lt" else "小于等于"
+                    errors.append(f"因子 {f.factor_id} 参数语义倒置: {a_name}={a_val} 必须{operator} {b_name}={b_val}")
         if self.factors and total_weight <= 0:
             errors.append("因子权重总和必须大于 0")
+        if self.factors and not has_positive_factor:
+            errors.append("策略至少需要一个 direction=1 的正向因子（反向因子仅作扣分/防守项，不能单独产生买入信号）")
         if not (0.0 < self.entry_threshold <= 1.0):
             errors.append(f"entry_threshold 必须在 (0, 1] 区间，当前: {self.entry_threshold}")
+        if "partial_exit_ratio" in self.exit_params:
+            try:
+                r = float(self.exit_params["partial_exit_ratio"])
+            except (TypeError, ValueError):
+                errors.append(
+                    f"exit_params.partial_exit_ratio 必须是数值，当前: {self.exit_params['partial_exit_ratio']!r}"
+                )
+            else:
+                if not (0.0 < r <= 1.0):
+                    errors.append(f"exit_params.partial_exit_ratio 必须在 (0, 1] 区间（小数，0.5=50%），当前: {r}")
         return errors
 
 
@@ -118,14 +160,18 @@ def compile_signal_func(spec: StrategySpec) -> Callable[[pd.DataFrame], pd.Serie
         raise ValueError("策略规格非法: " + "; ".join(errors))
 
     factors = [(get_factor(f.factor_id), f) for f in spec.factors]
-    total_weight = sum(f.weight for f in spec.factors)
+    # 归一化分母只取正向因子权重：反向因子作扣分/防守项，不稀释最大可达得分，
+    # 保证 entry_threshold 在 (0,1] 全区间可达（纯 -1 组合已在 validate 阶段拒绝）
+    pos_weight = sum(f.weight for f in spec.factors if f.direction == 1)
+    if pos_weight <= 0:  # 防御：validate 已保证至少一个正向因子
+        pos_weight = 1.0
 
     def signal_func(df: pd.DataFrame) -> pd.Series:
         score = pd.Series(0.0, index=df.index)
         for factor, fspec in factors:
             s = factor.score(df, fspec.params)
             score = score + s * (fspec.weight * fspec.direction)
-        normalized = (score / total_weight).clip(0.0, 1.0)
+        normalized = (score / pos_weight).clip(0.0, 1.0)
         return pd.Series(np.where(normalized >= spec.entry_threshold, 1, 0), index=df.index, dtype=int)
 
     return signal_func
@@ -133,7 +179,7 @@ def compile_signal_func(spec: StrategySpec) -> Callable[[pd.DataFrame], pd.Serie
 
 def factor_scores_detail(spec: StrategySpec, df: pd.DataFrame) -> dict:
     """计算最新 bar 的各因子得分明细（供 evaluate_spec 使用）"""
-    total_weight = sum(f.weight for f in spec.factors) or 1.0
+    total_weight = sum(f.weight for f in spec.factors if f.direction == 1) or 1.0
     details = []
     total = 0.0
     for fspec in spec.factors:

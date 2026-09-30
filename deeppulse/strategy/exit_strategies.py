@@ -53,7 +53,12 @@ class ExitStrategy:
     max_hold_days: int = 30  # 最大持仓天数
 
     # 分批退出配置
-    partial_exit_ratio: float = 0.5  # 部分退出比例
+    partial_exit_ratio: float = 0.5  # 部分退出比例（(0, 1] 区间的小数，0.5=50%）
+
+    def __post_init__(self):
+        r = float(self.partial_exit_ratio)
+        if not (0.0 < r <= 1.0):
+            raise ValueError(f"partial_exit_ratio 必须在 (0, 1] 区间（小数，0.5=50%），当前: {self.partial_exit_ratio}")
 
     def to_dict(self) -> dict:
         """转换为字典"""
@@ -297,18 +302,20 @@ class DynamicExitEngine:
 
         # 2. 检查移动止损（保护利润）
         if self.exit_strategy.trailing_stop_enabled:
-            # 激活条件：盈利达到一定幅度
-            if pnl_pct >= self.exit_strategy.trailing_stop_activation_pct:
-                # 计算移动止损价
-                trailing_distance = atr * self.exit_strategy.trailing_stop_atr_multiple
-                new_trailing_stop = self.highest_price - trailing_distance
+            # 激活条件：盈利达到激活线后开始跟踪；一旦激活（止损价>0）则持续跟踪
+            if pnl_pct >= self.exit_strategy.trailing_stop_activation_pct or self.trailing_stop_price > 0:
+                # 计算移动止损价（atr 缺失时不更新，避免止损价贴到最高价误触发）
+                if atr > 0:
+                    trailing_distance = atr * self.exit_strategy.trailing_stop_atr_multiple
+                    new_trailing_stop = self.highest_price - trailing_distance
 
-                # 移动止损价只能上移，不能下移
-                if new_trailing_stop > self.trailing_stop_price:
-                    self.trailing_stop_price = new_trailing_stop
+                    # 移动止损价只能上移，不能下移
+                    if new_trailing_stop > self.trailing_stop_price:
+                        self.trailing_stop_price = new_trailing_stop
 
-                if self.trailing_stop_price > 0 and current_price <= self.trailing_stop_price:
-                    return True, "移动止损", 1.0
+            # 触发检查在激活门控之外：浮盈回落到激活线以下后仍必须执行移动止损
+            if self.trailing_stop_price > 0 and current_price <= self.trailing_stop_price:
+                return True, "移动止损", 1.0
 
         # 3. 检查保本止损
         if self.exit_strategy.breakeven_enabled:

@@ -33,11 +33,16 @@ def analyze_confluence(code: str) -> str:
     # 分析各周期
     daily_analysis = _analyze_single_timeframe(daily, "日线")
 
-    # 尝试获取分钟数据
+    # 尝试获取分钟数据（query_timeframe 返回 dict，需取 kline 建 DataFrame）
     try:
         from deeppulse.agent.timeframes import query_timeframe
 
-        hourly = query_timeframe(code, timeframe="60m", limit=120)
+        res = query_timeframe(code, timeframe="60m", limit=120)
+        hourly = (
+            pd.DataFrame(res["kline"])
+            if isinstance(res, dict) and res.get("kline")
+            else (res if not isinstance(res, dict) else None)
+        )
         if hourly is not None and not hourly.empty and len(hourly) > 30:
             hourly_analysis = _analyze_single_timeframe(hourly, "60分钟")
         else:
@@ -48,7 +53,12 @@ def analyze_confluence(code: str) -> str:
     try:
         from deeppulse.agent.timeframes import query_timeframe
 
-        min15 = query_timeframe(code, timeframe="15m", limit=120)
+        res = query_timeframe(code, timeframe="15m", limit=120)
+        min15 = (
+            pd.DataFrame(res["kline"])
+            if isinstance(res, dict) and res.get("kline")
+            else (res if not isinstance(res, dict) else None)
+        )
         if min15 is not None and not min15.empty and len(min15) > 30:
             min15_analysis = _analyze_single_timeframe(min15, "15分钟")
         else:

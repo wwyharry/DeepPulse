@@ -124,16 +124,19 @@ class LLMStrategyGenerator:
 【该股近期行情画像】
 {json.dumps(kline_stats, ensure_ascii=False, indent=2)}
 
-【可用因子库】（只能从下列因子中选取，不得编造）
+【可用因子库】（factor_id 只能从下列清单中选取，不得编造）
 {_factor_catalog_prompt()}
 
-【要求】
-1. 选取 2~5 个互补的因子组合（趋势/动量/量能/位置类搭配），给出每个因子的 weight(0.1~2.0)、direction(1正向/-1反向) 和参数（必须在给定范围内）。
-2. entry_threshold 为综合得分入场阈值（0.3~0.8）。
-3. exit_preset 从 conservative/balanced/aggressive 中选择。
-{f"4. 用户附加要求: {hint}" if hint else ""}
+【设计原则】
+1. 选取 2~5 个**互补**的因子组合：趋势/动量/量能/位置类搭配，避免同类因子堆叠（如不要同时选3个均线类因子）。给出每个因子的 weight(0.1~2.0)、direction(1正向/-1反向) 和 params。
+2. 每个因子输出 0~1 逐 bar 得分，加权归一后与 entry_threshold 比较产生入场信号。方向用 direction 表达：看多信号用 1，看空/反向信号用 -1，不要在参数里硬编码反向。direction=-1 为防守/扣分项（触发时压低综合分），请保证至少有一个 direction=1 的正向因子；综合分按正向因子权重和归一化后设定 entry_threshold。
+3. params 必须在因子库给定的 min/max/step 范围内；不写的参数用默认值。**严禁编造因子库以外的 factor_id 或参数名**。
+4. entry_threshold 为综合得分入场阈值（0.3~0.8）：阈值越高信号越少越精选，结合行情画像调整（震荡市宜高、趋势市宜适中）。
+5. exit_preset 从 conservative/balanced/aggressive 中选择，与行情波动匹配。
+6. 针对该股**近期**行情画像设计，但不要过拟合单一历史片段：因子逻辑应有交易常识支撑，llm_rationale 里说明选择逻辑。
+{f"7. 用户附加要求: {hint}" if hint else ""}
 
-严格只输出如下 JSON，不要输出任何其他文字：
+严格只输出如下 JSON，不要输出任何其他文字（禁止 markdown 代码块以外的文本）：
 {{
   "name": "策略名称",
   "factors": [{{"factor_id": "因子id", "params": {{}}, "weight": 1.0, "direction": 1}}],
@@ -182,7 +185,7 @@ class LLMStrategyGenerator:
             }
             for h in history[-5:]
         ]
-        prompt = f"""你是一位资深量化策略调优专家。以下是一个多因子策略的回测结果，请分析并给出调整动作。
+        prompt = f"""你是一位资深量化策略调优专家。以下是一个多因子策略的回测结果，请诊断问题并给出调整动作。
 
 【当前策略】
 {spec.to_json()}
@@ -193,16 +196,31 @@ class LLMStrategyGenerator:
 【退出统计】
 {json.dumps(result.get("exit_statistics", {}), ensure_ascii=False)}
 
-【近期迭代历史】
+【近期迭代历史】（最近 5 轮）
 {json.dumps(history_brief, ensure_ascii=False)}
 
-【可用因子库】
+【可用因子库】（add_factor 的 factor_id 只能从下列清单选取）
 {_factor_catalog_prompt()}
 
-请判断问题所在（如交易过少=阈值过高、回撤过大=缺少防守因子、胜率低=因子冲突等），
+【诊断指引】（对照指标找根因，不要头痛医头）
+- total_trades 过少（<10）→ 入场条件过严：entry_threshold 偏高，或因子太苛刻；优先 adjust_threshold / adjust_param 放宽
+- max_drawdown 过大 → 缺少防守：加反向/防守类因子、收紧阈值、或换更保守的 exit_preset
+- win_rate 低且盈亏比差 → 因子信号互相冲突或方向错误：检查 direction，remove 掉拖后腿的因子
+- total_return 尚可但 sharpe 低/波动大 → 信号质量不稳：提高核心因子权重，砍掉弱因子
+- avg_hold_days 异常（过长/过短）→ 信号滞后或过敏感：调整动量/趋势类因子参数
+- 对照迭代历史：若分数连续下降说明上一轮调整方向错误，应小幅回调而非继续激进改动
+
+【调整纪律】
+1. 每轮最多 3 个动作，小步调整，一次只改一类问题
+2. 只允许以下动作类型：adjust_param / adjust_weight / adjust_threshold / add_factor / remove_factor
+3. adjust_param 的 param 必须是该因子真实存在的参数名，value 在其 min/max 范围内
+4. adjust_weight 的 weight 必须为正数（建议 0.1~2.0）；adjust_threshold 在 0.3~0.8 之间
+5. add_factor 时 factor_id 必须存在于因子库，params 在给定范围内
+6. 不要为了改而改：若结构已合理，actions 用空数组（交由参数网格搜索微调）
+
 严格只输出如下 JSON：
 {{
-  "comment": "一段中文分析评语",
+  "comment": "一段中文分析评语（指出根因，而不是复述指标）",
   "actions": [
     {{"type": "adjust_param", "factor_id": "因子id", "param": "参数名", "value": 数值}},
     {{"type": "adjust_weight", "factor_id": "因子id", "weight": 数值}},
@@ -210,8 +228,7 @@ class LLMStrategyGenerator:
     {{"type": "add_factor", "factor_id": "因子id", "params": {{}}, "weight": 1.0, "direction": 1}},
     {{"type": "remove_factor", "factor_id": "因子id"}}
   ]
-}}
-actions 可以为空数组（表示当前结构合理，仅依赖参数网格搜索）。"""
+}}"""
         try:
             text = self._chat(prompt)
             data = _extract_json(text)
@@ -266,17 +283,21 @@ actions 可以为空数组（表示当前结构合理，仅依赖参数网格搜
 
 请综合分析：
 1. 各轮策略的表现对比（不只看评分，还要看收益、风险、交易频率等）
-2. 策略的稳定性（是否有大起大落）
-3. 风险收益比（夏普比率、最大回撤）
-4. 是否有改进空间
+2. 策略的稳定性（是否有大起大落；评分高的策略是否只是过拟合了某段行情）
+3. 风险收益比（夏普比率、最大回撤、盈亏比）
+4. 样本可信度（total_trades 太少时，胜率和收益的统计意义有限，必须在 reasoning 中说明）
+5. 是否有改进空间
+
+【结论原则】
+- 优先选择风险收益比均衡、表现稳定的策略，而不是收益最高但回撤巨大的策略
+- recommended_spec 仅在有明确改进方向时给出（如替换弱因子、微调阈值），且必须基于因子库中的 factor_id，结构与"当前最佳策略"一致
+- 宁缺毋滥：没有足够证据支持改进时，recommended_spec 设为 null
 
 严格只输出如下 JSON：
 {{
-  "reasoning": "详细的分析推理过程，说明为什么选择这个策略",
+  "reasoning": "详细的分析推理过程，说明为什么选择这个策略（含风险与样本量评估）",
   "recommended_spec": null 或 策略规格JSON（如果你认为可以进一步优化）
-}}
-
-如果当前最佳策略已经足够好，recommended_spec 设为 null。"""
+}}"""
 
         try:
             text = self._chat(prompt)

@@ -8,7 +8,8 @@ import uuid
 from deeppulse import config as _config
 from deeppulse.agent.client import LLMClient
 from deeppulse.agent.memory import MemoryManager
-from deeppulse.agent.prompts import SYSTEM_PROMPT
+from deeppulse.agent.prompts import build_system_prompt
+from deeppulse.agent.reasoning import build_dynamic_system_prompt, detect_market_state
 from deeppulse.agent.strategy_loader import get_strategy_loader
 from deeppulse.agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
 
@@ -41,39 +42,77 @@ class StockAgent:
         self._session_topics = set()
         self._pending_system_notes = []
 
-        # 构建动态 system prompt（静态 + 记忆上下文 + 战法列表）
+        # 构建动态 system prompt（基础提示 + 市场状态/用户画像 + 记忆上下文 + 战法列表）
+        self.messages = [{"role": "system", "content": self._build_system_content()}]
+
+    def _build_system_content(self) -> str:
+        """组装完整 system prompt
+
+        结构：基础提示 → 动态推理链（市场状态 + 用户画像）→ 历史记忆 → 战法摘要。
+        市场状态/用户画像获取失败时静默降级，不影响 Agent 可用性。
+        """
+        try:
+            user_profile = json.loads(self.memory.user_profile.get_profile()).get("profile") or {}
+        except Exception:
+            user_profile = {}
+
+        system_content = build_dynamic_system_prompt(
+            build_system_prompt(),
+            market_state=detect_market_state(),
+            user_profile=user_profile if isinstance(user_profile, dict) else {},
+        )
+
         memory_context = self.memory.get_context_block("", max_chars=2000)
-        strategy_summary = get_strategy_loader().get_all_content_summary(max_chars=2000)
-        system_content = SYSTEM_PROMPT
         if memory_context:
             system_content += "\n\n## 历史记忆（自动加载，供分析参考）\n" + memory_context
+        strategy_summary = get_strategy_loader().get_all_content_summary(max_chars=2000)
         if strategy_summary:
             system_content += "\n\n## 可用短线战法一览\n" + strategy_summary
-        self.messages = [{"role": "system", "content": system_content}]
+        return system_content
 
     def chat(self, user_input: str) -> str:
         """处理用户输入，返回 Agent 回复（非流式）"""
-        self._track_session_info(user_input)
-        self.messages.append({"role": "user", "content": user_input})
+        self._prepare_user_input(user_input)
 
-        for round_num in range(self.max_rounds):
-            if self.verbose:
-                print(f"\n[Round {round_num + 1}] 调用 LLM...")
+        try:
+            for round_num in range(self.max_rounds):
+                if self.verbose:
+                    print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
-            response = self.client.chat(self.messages, tools=TOOL_DEFINITIONS)
-            self.messages.append(self.client.format_assistant_message(response))
+                response = self.client.chat(self.messages, tools=TOOL_DEFINITIONS)
+                self.messages.append(self.client.format_assistant_message(response))
 
-            if response["stop_reason"] == "stop" or not response["tool_calls"]:
-                return response["content"]
+                if response["stop_reason"] == "stop" or not response["tool_calls"]:
+                    self._pending_system_notes.clear()
+                    return response["content"]
 
-            self._execute_tools(response)
+                self._execute_tools(response)
 
-        return "分析轮次已达上限，请简化问题后重试。"
+            # 轮次耗尽：最终回复必须写入历史，否则下一轮模型不知道自己说过什么
+            msg = "分析轮次已达上限，请简化问题后重试。"
+            self.messages.append(
+                self.client.format_assistant_message({"content": msg, "tool_calls": None, "stop_reason": "stop"})
+            )
+            self._pending_system_notes.clear()
+            return msg
+        except Exception:
+            # 流中断占位：保证历史中用户消息后必有 assistant 消息，再抛出原异常
+            if self.messages and self.messages[-1]["role"] != "assistant":
+                self.messages.append(
+                    self.client.format_assistant_message(
+                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
+                    )
+                )
+            raise
 
     def _prepare_user_input(self, user_input: str):
         """公共预处理：追踪会话信息、追加用户消息、重置轮内状态"""
+        # 上一轮残留提示作废（轮内作用域），避免过时指令泄漏到不相关提问
+        self._pending_system_notes.clear()
         self._track_session_info(user_input)
         self.messages.append({"role": "user", "content": user_input})
+        # 学习信号等轮首提示立即下发，本轮是否调用工具都能生效
+        self._append_pending_system_notes()
         # 每轮用户输入重置工具追踪状态（跨 ReAct 轮次保持）
         self._tool_call_history.clear()
         self._consecutive_tool_errors = 0
@@ -102,34 +141,51 @@ class StockAgent:
         """
         self._prepare_user_input(user_input)
 
-        for round_num in range(self.max_rounds):
-            yield ("round", round_num + 1)
+        try:
+            for round_num in range(self.max_rounds):
+                yield ("round", round_num + 1)
 
-            if self.verbose:
-                print(f"\n[Round {round_num + 1}] 调用 LLM...")
+                if self.verbose:
+                    print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
-            for chunk in self.client.chat_stream(self.messages, tools=TOOL_DEFINITIONS):
-                if chunk.type == "thinking":
-                    yield ("thinking", chunk.text)
-                elif chunk.type == "content":
-                    yield ("content", chunk.text)
+                for chunk in self.client.chat_stream(self.messages, tools=TOOL_DEFINITIONS):
+                    if chunk.type == "thinking":
+                        yield ("thinking", chunk.text)
+                    elif chunk.type == "content":
+                        yield ("content", chunk.text)
 
-            response = self.client.last_stream_response
-            is_done = self._process_stream_response(response)
+                response = self.client.last_stream_response
+                is_done = self._process_stream_response(response)
 
-            if is_done:
-                yield ("done", "")
-                return
+                if is_done:
+                    self._pending_system_notes.clear()
+                    yield ("done", "")
+                    return
 
-            for tc in response["tool_calls"]:
-                result = self._run_tool(tc["name"], tc["arguments"])
-                tool_start, tool_result = self._yield_tool_execution(tc, result)
-                yield ("tool_start", tool_start)
-                yield ("tool_result", tool_result)
+                for tc in response["tool_calls"]:
+                    result = self._run_tool(tc["name"], tc["arguments"])
+                    tool_start, tool_result = self._yield_tool_execution(tc, result)
+                    yield ("tool_start", tool_start)
+                    yield ("tool_result", tool_result)
 
-            self._append_pending_system_notes()
+                self._append_pending_system_notes()
 
-        yield ("done", "")
+            # 轮次耗尽：写入历史并下发给用户，避免历史以 tool_result 结尾
+            msg = "分析轮次已达上限，请简化问题后重试。"
+            self.messages.append(
+                self.client.format_assistant_message({"content": msg, "tool_calls": None, "stop_reason": "stop"})
+            )
+            self._pending_system_notes.clear()
+            yield ("content", msg)
+            yield ("done", "")
+        except Exception:
+            if self.messages and self.messages[-1]["role"] != "assistant":
+                self.messages.append(
+                    self.client.format_assistant_message(
+                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
+                    )
+                )
+            raise
 
     async def chat_stream_async(self, user_input: str):
         """异步流式处理用户输入，yield (type, text) 元组。
@@ -138,37 +194,66 @@ class StockAgent:
         """
         self._prepare_user_input(user_input)
 
-        for round_num in range(self.max_rounds):
-            yield ("round", round_num + 1)
+        try:
+            for round_num in range(self.max_rounds):
+                yield ("round", round_num + 1)
 
-            if self.verbose:
-                print(f"\n[Round {round_num + 1}] 调用 LLM...")
+                if self.verbose:
+                    print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
-            async for chunk in self.client.chat_stream_async(self.messages, tools=TOOL_DEFINITIONS):
-                if chunk.type == "thinking":
-                    yield ("thinking", chunk.text)
-                elif chunk.type == "content":
-                    yield ("content", chunk.text)
+                async for chunk in self.client.chat_stream_async(self.messages, tools=TOOL_DEFINITIONS):
+                    if chunk.type == "thinking":
+                        yield ("thinking", chunk.text)
+                    elif chunk.type == "content":
+                        yield ("content", chunk.text)
 
-            response = self.client.last_stream_response
-            is_done = self._process_stream_response(response)
+                response = self.client.last_stream_response
+                is_done = self._process_stream_response(response)
 
-            if is_done:
-                yield ("done", "")
-                return
+                if is_done:
+                    self._pending_system_notes.clear()
+                    yield ("done", "")
+                    return
 
-            for tc in response["tool_calls"]:
-                result = await asyncio.to_thread(self._run_tool, tc["name"], tc["arguments"])
-                tool_start, tool_result = self._yield_tool_execution(tc, result)
-                yield ("tool_start", tool_start)
-                yield ("tool_result", tool_result)
+                for tc in response["tool_calls"]:
+                    result = await asyncio.to_thread(self._run_tool, tc["name"], tc["arguments"])
+                    tool_start, tool_result = self._yield_tool_execution(tc, result)
+                    yield ("tool_start", tool_start)
+                    yield ("tool_result", tool_result)
 
-            self._append_pending_system_notes()
+                self._append_pending_system_notes()
 
-        yield ("done", "")
+            # 轮次耗尽：写入历史并下发给用户，避免历史以 tool_result 结尾
+            msg = "分析轮次已达上限，请简化问题后重试。"
+            self.messages.append(
+                self.client.format_assistant_message({"content": msg, "tool_calls": None, "stop_reason": "stop"})
+            )
+            self._pending_system_notes.clear()
+            yield ("content", msg)
+            yield ("done", "")
+        except Exception:
+            if self.messages and self.messages[-1]["role"] != "assistant":
+                self.messages.append(
+                    self.client.format_assistant_message(
+                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
+                    )
+                )
+            raise
 
     def _run_tool(self, tool_name: str, tool_args: dict) -> str:
         """执行单个工具，结果超长时智能截断以防上下文溢出"""
+        # 工具参数 JSON 解析失败：显式报错让 LLM 重试，不静默用默认参数执行
+        if isinstance(tool_args, dict) and "__parse_error__" in tool_args:
+            return json.dumps(
+                {
+                    "error": "tool arguments parse failed",
+                    "tool": tool_name,
+                    "detail": tool_args.get("__parse_error__"),
+                    "raw": tool_args.get("__raw__", ""),
+                    "hint": "上一次工具调用参数不是合法 JSON（可能被 max_tokens 截断）。请用完整合法的 JSON 参数重新调用该工具。",
+                },
+                ensure_ascii=False,
+            )
         if tool_name in TOOL_DISPATCH:
             try:
                 result = TOOL_DISPATCH[tool_name](**tool_args)
@@ -182,47 +267,137 @@ class StockAgent:
         return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
 
     def _smart_truncate(self, result: str, max_chars: int, tool_name: str) -> str:
-        """智能截断工具结果：尝试保留合法JSON结构"""
-        # 尝试 JSON 感知截断
+        """智能截断工具结果：保持合法 JSON 结构，绝不把真实数据替换成 error"""
         try:
             data = json.loads(result)
-            # 找到主要的数据列表字段（kline, results, patterns 等）
-            truncated = False
-            for key in ("kline", "results", "patterns", "data", "news", "memories"):
-                if isinstance(data.get(key), list) and len(data[key]) > 3:
-                    original_len = len(data[key])
-                    # 逐步缩减直到满足大小限制
-                    for keep_ratio in [0.7, 0.5, 0.3, 0.2]:
-                        test_data = dict(data)
-                        test_data[key] = data[key][: max(3, int(original_len * keep_ratio))]
-                        test_data["_truncated"] = True
-                        test_data["_truncated_hint"] = (
-                            f"数据已截断：原始{original_len}条，当前{len(test_data[key])}条。"
-                            f"如需完整数据请缩小查询范围（如减少天数）"
-                        )
-                        test_str = json.dumps(test_data, ensure_ascii=False, default=str)
-                        if len(test_str) <= max_chars:
-                            return test_str
-                    # 都不行，至少保留3条
-                    data[key] = data[key][:3]
-                    truncated = True
-                    break
+        except Exception:
+            data = None  # 非 JSON 文本走硬截断兜底
 
-            if truncated:
-                data["_truncated"] = True
-                data["_truncated_hint"] = "数据已严重截断，仅保留部分记录。请缩小查询范围。"
-                result = json.dumps(data, ensure_ascii=False, default=str)
-                if len(result) <= max_chars:
-                    return result
-        except (json.JSONDecodeError, TypeError, KeyError):
-            pass
+        if isinstance(data, (dict, list)):
+            shrunk = self._shrink_json(data, max_chars)
+            if isinstance(data, dict):
+                shrunk["_truncated"] = True
+                shrunk.setdefault("_truncated_hint", "数据已严重截断，仅保留部分记录。请缩小查询范围。")
+            else:
+                # 顶层 list 包一层 dict 信封，保留 _truncated 语义
+                shrunk = {
+                    "_truncated": True,
+                    "_truncated_hint": "数据已严重截断，仅保留部分记录。请缩小查询范围。",
+                    "items": shrunk if isinstance(shrunk, list) else [shrunk],
+                }
+            try:
+                out = json.dumps(shrunk, ensure_ascii=False, default=str)
+                if len(out) <= max_chars:
+                    return out
+            except Exception:
+                pass
+            # 无法安全装入限制：返回合法 error 信封，绝不硬切 JSON 文本
+            return json.dumps(
+                {"error": "结果过大且无法安全截断，请缩小查询范围", "tool": tool_name},
+                ensure_ascii=False,
+            )
 
-        # 兜底：在最后一个换行符处截断，保持可读
+        if isinstance(data, str):
+            # JSON 字符串值：截断后仍以合法 JSON 字符串返回
+            keep = max(0, max_chars - 60)
+            return json.dumps(data[:keep] + "...[结果过长已截断]", ensure_ascii=False)
+
+        # 兜底：非 JSON 文本在最后一个换行符处截断，保持可读
         truncated = result[:max_chars]
         last_newline = truncated.rfind("\n")
         if last_newline > max_chars * 0.8:
             truncated = truncated[:last_newline]
         return truncated + f"\n...[结果过长已截断，原始长度{len(result)}字符，请缩小查询范围]"
+
+    def _shrink_json(self, data, max_chars: int):
+        """在保持 JSON 结构的前提下收缩到预算内（给 _truncated 标记预留空间）。"""
+        budget = max(200, max_chars - 400)
+
+        def fits(obj) -> bool:
+            try:
+                return len(json.dumps(obj, ensure_ascii=False, default=str)) <= budget
+            except Exception:
+                return False
+
+        if fits(data):
+            return data
+
+        if isinstance(data, dict):
+            # 1) 优先削减识别键下的大列表（kline, results, patterns 等）
+            for key in ("kline", "results", "patterns", "data", "news", "memories"):
+                if isinstance(data.get(key), list) and len(data[key]) > 3:
+                    original_len = len(data[key])
+                    for keep_ratio in [0.7, 0.5, 0.3, 0.2]:
+                        test_data = dict(data)
+                        test_data[key] = data[key][: max(3, int(original_len * keep_ratio))]
+                        if fits(test_data):
+                            test_data["_truncated"] = True
+                            test_data["_truncated_hint"] = (
+                                f"数据已截断：原始{original_len}条，当前{len(test_data[key])}条。"
+                                f"如需完整数据请缩小查询范围（如减少天数）"
+                            )
+                            return test_data
+                    data = dict(data)
+                    data[key] = data[key][:3]
+                    break
+
+            if fits(data):
+                data["_truncated"] = True
+                data["_truncated_hint"] = "数据已严重截断，仅保留部分记录。请缩小查询范围。"
+                return data
+
+            # 2) 识别键不够时：从最大的嵌套列表/长字符串入手收缩
+            self._shrink_largest(data, fits)
+            return data
+
+        if isinstance(data, list):
+            original_len = len(data)
+            for keep_ratio in [0.7, 0.5, 0.3, 0.2]:
+                kept = data[: max(3, int(original_len * keep_ratio))]
+                if fits(kept):
+                    return kept
+            return data[:3]
+
+        return data
+
+    @classmethod
+    def _collect_shrinkables(cls, node, out: list):
+        """收集可收缩节点 (kind, parent, key, size)：大列表与超长字符串。"""
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(v, list) and len(v) > 3:
+                    out.append(("list", node, k, len(v)))
+                elif isinstance(v, str) and len(v) > 1000:
+                    out.append(("str", node, k, len(v)))
+                elif isinstance(v, (dict, list)):
+                    cls._collect_shrinkables(v, out)
+        elif isinstance(node, list):
+            for item in node:
+                cls._collect_shrinkables(item, out)
+
+    @classmethod
+    def _shrink_largest(cls, data, fits):
+        """从最大的列表/长字符串入手收缩（保留 ≥3 条 / ≥100 字符），直到装入预算。"""
+        candidates: list = []
+        cls._collect_shrinkables(data, candidates)
+        candidates.sort(key=lambda c: c[3], reverse=True)
+        for kind, parent, key, _size in candidates:
+            if fits(data):
+                return
+            if kind == "list":
+                original_len = len(parent[key])
+                for ratio in (0.7, 0.5, 0.3, 0.2):
+                    parent[key] = parent[key][: max(3, int(original_len * ratio))]
+                    if fits(data):
+                        return
+                parent[key] = parent[key][:3]
+            else:
+                original = parent[key]
+                for ratio in (0.5, 0.3, 0.2):
+                    parent[key] = original[: max(100, int(len(original) * ratio))]
+                    if fits(data):
+                        return
+                parent[key] = original[:100]
 
     @staticmethod
     def _is_error_result(result: str) -> bool:
@@ -269,17 +444,7 @@ class StockAgent:
 
     def refresh_memory_context(self):
         """重新加载记忆上下文到 system message"""
-        memory_context = self.memory.get_context_block("", max_chars=2000)
-        from deeppulse.agent.prompts import SYSTEM_PROMPT
-        from deeppulse.agent.strategy_loader import get_strategy_loader
-
-        strategy_summary = get_strategy_loader().get_all_content_summary(max_chars=2000)
-        system_content = SYSTEM_PROMPT
-        if memory_context:
-            system_content += "\n\n## 历史记忆（自动加载，供分析参考）\n" + memory_context
-        if strategy_summary:
-            system_content += "\n\n## 可用短线战法一览\n" + strategy_summary
-        self.messages[0]["content"] = system_content
+        self.messages[0]["content"] = self._build_system_content()
 
     def _track_tool_result(self, tool_name: str, tool_args: dict, result: str):
         """追踪工具调用结果：去重检测、错误/截断注入 system note"""
@@ -404,8 +569,8 @@ class StockAgent:
         # 保存用户消息用于画像提取
         self._user_messages.append(user_input)
 
-        # 提取6位股票代码
-        codes = re.findall(r"\b[036]\d{5}\b", user_input)
+        # 提取6位股票代码（汉字属 \w，\b 在中文相邻时失效，改用否定环视）
+        codes = re.findall(r"(?<![0-9A-Za-z])[036]\d{5}(?![0-9A-Za-z])", user_input)
         self._session_stocks.update(codes)
 
         # 提取可能的股票名称（简单匹配）
@@ -436,9 +601,5 @@ class StockAgent:
         self._tool_call_history.clear()
         self._consecutive_tool_errors = 0
         self._truncated_tools.clear()
-        # 重新加载记忆上下文
-        memory_context = self.memory.get_context_block("", max_chars=2000)
-        system_content = SYSTEM_PROMPT
-        if memory_context:
-            system_content += "\n\n## 历史记忆（自动加载，供分析参考）\n" + memory_context
-        self.messages = [{"role": "system", "content": system_content}]
+        # 重新构建 system prompt（含动态推理链、记忆与战法摘要）
+        self.messages = [{"role": "system", "content": self._build_system_content()}]

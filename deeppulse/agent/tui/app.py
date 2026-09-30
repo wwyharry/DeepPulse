@@ -401,9 +401,13 @@ class DeepPulseTUI(App):
         self.current_query = query
         self.chat_log.add_user_message(query)
 
-        # 检测评判命令
-        judge_triggers = ["评判", "评判一下", "帮我看看", "检查一下", "有问题吗", "对吗", "对不对"]
-        is_judge_request = any(trigger in query for trigger in judge_triggers)
+        # 检测评判命令：仅明确评判意图才进评判流程；
+        # “帮我看看/检查一下/对吗”等中性分析用语走主分析，避免劫持正常分析请求
+        is_judge_request = "评判" in query
+        if not is_judge_request:
+            # 整句等于短语（去空白与结尾标点）时仍视为评判指令
+            query_norm = query.strip().rstrip("。！？!?；;，, ")
+            is_judge_request = query_norm in {"对吗", "对不对", "有问题吗", "检查一下", "帮我看看", "评判", "评判一下"}
 
         if is_judge_request and self.agent and len(self.agent.messages) > 2:
             last_msg = self.agent.messages[-1]

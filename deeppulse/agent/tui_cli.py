@@ -31,8 +31,12 @@ def _safe_print(msg: str):
     """编码安全的 print，防止 Windows GBK 终端崩溃"""
     try:
         print(msg)
-    except UnicodeEncodeError:
-        print(msg.encode("utf-8", errors="replace").decode("utf-8", errors="replace"))
+    except Exception:
+        try:
+            # 退化为纯 ASCII 转义（emoji → \\U0001f389），任何 ASCII 兼容编码都能输出
+            print(msg.encode("ascii", errors="backslashreplace").decode("ascii"))
+        except Exception:
+            pass  # 最后兜底：宁可丢消息，也不让错误路径崩溃
 
 
 def main():

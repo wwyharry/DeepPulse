@@ -1,6 +1,7 @@
 """BaoStock 数据源实现"""
 
 import logging
+import threading
 from datetime import date
 
 import baostock as bs
@@ -17,10 +18,14 @@ logger = logging.getLogger(__name__)
 class BaoStockSource(DataSourceBase):
     # BaoStock session 约 50 秒超时，主动重连间隔设为 40 秒
     SESSION_MAX_AGE = 40
+    # fetch 路径有界获取会话锁：拿不到即视为会话忙，快速失败跳过该股
+    IO_LOCK_TIMEOUT = 0.1
 
     def __init__(self):
         self._logged_in = False
         self._login_time = 0.0
+        # 会话互斥：杜绝主线程 cleanup/logout 与残留采集线程并发使用全局 socket
+        self._io_lock = threading.RLock()
         self._retry_policy = RetryPolicy(
             max_retries=config.RETRY_MAX_RETRIES,
             base_delay=config.RETRY_BASE_DELAY,
@@ -46,6 +51,18 @@ class BaoStockSource(DataSourceBase):
             raise RuntimeError(f"BaoStock登录失败: {login_result.error_code} {login_result.error_msg}")
         self._logged_in = True
         self._login_time = time.time()
+        self._set_socket_timeout()
+
+    def _set_socket_timeout(self):
+        """给全局会话 socket 设超时，使阻塞 recv 有界退出，残留线程能释放会话锁"""
+        try:
+            import baostock.common.context as bs_context
+
+            sock = getattr(bs_context, "default_socket", None)
+            if sock is not None:
+                sock.settimeout(float(config.FETCH_TIMEOUT))
+        except Exception:
+            pass
 
     def _logout(self):
         """安全登出"""
@@ -67,18 +84,37 @@ class BaoStockSource(DataSourceBase):
         self._login_time = 0.0
 
     def cleanup(self):
-        """资源清理"""
-        self._logout()
+        """资源清理 — 会话忙（在途/残留线程）时跳过 logout，避免竞态或阻塞"""
+        self.try_cleanup()
+
+    def try_cleanup(self, timeout: float = 0.2) -> bool:
+        """有界清理：拿得到会话锁才 logout；拿不到说明残留线程仍在会话上，保留会话
+
+        Returns:
+            True 表示已 logout；False 表示会话忙被跳过
+        """
+        if not self._io_lock.acquire(timeout=timeout):
+            return False
+        try:
+            self._logout()
+            return True
+        finally:
+            self._io_lock.release()
 
     def health_check(self) -> bool:
         """连接健康检查"""
-        if not self._logged_in:
+        if not self._io_lock.acquire(timeout=self.IO_LOCK_TIMEOUT):
             return False
         try:
-            rs = bs.query_trade_dates(start_date="2024-01-01", end_date="2024-01-02")
-            return rs.error_code == "0"
-        except Exception:
-            return False
+            if not self._logged_in:
+                return False
+            try:
+                rs = bs.query_trade_dates(start_date="2024-01-01", end_date="2024-01-02")
+                return rs.error_code == "0"
+            except Exception:
+                return False
+        finally:
+            self._io_lock.release()
 
     @property
     def name(self) -> str:
@@ -94,7 +130,13 @@ class BaoStockSource(DataSourceBase):
 
     def fetch_stock_list(self) -> list[dict]:
         """通过BaoStock获取沪深A股列表（带重试）"""
-        return self._retry_policy.execute(self._fetch_stock_list_impl)
+        if not self._io_lock.acquire(timeout=self.IO_LOCK_TIMEOUT):
+            raise ConnectionError("BaoStock 会话忙（残留线程占用），跳过本次股票列表查询")
+        try:
+            # 重试策略整体在锁内执行，避免重试窗口越锁
+            return self._retry_policy.execute(self._fetch_stock_list_impl)
+        finally:
+            self._io_lock.release()
 
     def _fetch_stock_list_impl(self) -> list[dict]:
         self._ensure_login()
@@ -118,8 +160,8 @@ class BaoStockSource(DataSourceBase):
             code = bs_code.split(".")[1]
             market = bs_code.split(".")[0]
 
-            # 筛选主板
-            if market == "sh" and code.startswith("6") and not code.startswith("688"):
+            # 筛选主板（排除科创板 68x，含 689 CDR）
+            if market == "sh" and code.startswith("6") and not code.startswith("68"):
                 board = "main"
             elif market == "sz" and code.startswith("0"):
                 board = "main"
@@ -140,7 +182,13 @@ class BaoStockSource(DataSourceBase):
 
     def fetch_daily_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """通过BaoStock获取日K线数据（带重试）"""
-        return self._retry_policy.execute(self._fetch_kline_impl, code, start_date, end_date)
+        if not self._io_lock.acquire(timeout=self.IO_LOCK_TIMEOUT):
+            raise ConnectionError(f"BaoStock 会话忙（残留线程占用），跳过 {code}")
+        try:
+            # 重试策略整体在锁内执行，避免重试窗口越锁
+            return self._retry_policy.execute(self._fetch_kline_impl, code, start_date, end_date)
+        finally:
+            self._io_lock.release()
 
     def _fetch_kline_impl(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         self._ensure_login()

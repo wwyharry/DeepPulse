@@ -12,8 +12,9 @@ def validate_kline_df(df: pd.DataFrame, code: str) -> pd.DataFrame:
 
     检查项：
         1. 必须字段完整性
-        2. 关键价格字段不允许 NaN
-        3. 价格合理性：high >= low, high >= open/close, low <= open/close
+        2. 关键字段（价格/成交量/日期）不允许 NaN
+        3. 价格合理性：open/high/low/close 均须 > 0（剔除负价与全 0 停牌标记行），
+           且 high >= low, high >= open/close, low <= open/close
         4. 成交量非负
         5. 去重 + 按日期排序
 
@@ -35,28 +36,30 @@ def validate_kline_df(df: pd.DataFrame, code: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"[{code}] 缺少必要列: {missing}")
 
-    # 2. NaN 检查 — 关键价格字段不允许 NaN
-    price_cols = ["open", "high", "low", "close"]
-    nan_mask = df[price_cols].isnull().any(axis=1)
+    # 2. NaN 检查 — 关键字段不允许 NaN（含 volume：NaN 成交量会以 NULL 入库并污染量能分析）
+    key_cols = ["trade_date", "open", "high", "low", "close", "volume"]
+    nan_mask = df[key_cols].isnull().any(axis=1)
     if nan_mask.any():
-        nan_count = nan_mask.sum()
-        logger.warning(f"[{code}] 发现 {nan_count} 行含 NaN 价格，已剔除")
+        nan_count = int(nan_mask.sum())
+        logger.warning(f"[{code}] 发现 {nan_count} 行含 NaN 关键字段（价格/成交量/日期），已剔除")
         df = df[~nan_mask].copy()
 
     if df.empty:
         return df
 
-    # 3. 价格合理性：high >= low, high >= open/close, low <= open/close
+    # 3. 价格合理性：价格必须为正（剔除负价与全 0 停牌标记），且 high >= low, high >= open/close, low <= open/close
+    nonpos = (df[["open", "high", "low", "close"]] <= 0).any(axis=1)
     invalid = (
-        (df["high"] < df["low"])
+        nonpos
+        | (df["high"] < df["low"])
         | (df["high"] < df["open"])
         | (df["high"] < df["close"])
         | (df["low"] > df["open"])
         | (df["low"] > df["close"])
     )
     if invalid.any():
-        invalid_count = invalid.sum()
-        logger.warning(f"[{code}] 发现 {invalid_count} 行价格不合理（high<low 等），已剔除")
+        invalid_count = int(invalid.sum())
+        logger.warning(f"[{code}] 发现 {invalid_count} 行价格不合理（非正价格/全0停牌标记 或 high<low 等），已剔除")
         df = df[~invalid].copy()
 
     if df.empty:

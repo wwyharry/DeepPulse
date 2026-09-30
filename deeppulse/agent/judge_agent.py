@@ -16,19 +16,26 @@ JUDGE_SYSTEM_PROMPT = """你是 DeepPulse 的评测Agent，根据用户问题类
 ## 核心原则
 
 **不同问题，不同标准**：
-- 简单查询（如"贵州茅台多少钱"）→ 重点看回答准确性，不需要深度分析
-- 技术分析（如"分析贵州茅台走势"）→ 重点看工具使用、数据覆盖、逻辑推理
-- 策略回测（如"回测MA金叉策略"）→ 重点看回测参数、结果解读
-- 综合分析（如"贵州茅台值得买吗"）→ 重点看多维度分析、风险提示
+- 简单查询（如"贵州茅台多少钱"）→ 重点看回答准确性、响应是否切题，不要求深度分析
+- 技术分析（如"分析贵州茅台走势"）→ 重点看数据覆盖、工具使用、逻辑推理、关键价位与风险提示
+- 策略回测（如"回测MA金叉策略"）→ 重点看回测参数是否合理、指标解读是否准确、结论是否被数据支撑
+- 综合分析（如"贵州茅台值得买吗"）→ 重点看多维度分析（技术/资金/消息/情绪）、风险提示、建议可操作性
+
+**一票否决项（任一触发，总分不超过 4 分）**：
+- 编造数据：出现工具未返回的数字、价格、日期却当作事实陈述
+- 结论与数据矛盾：给出的建议与自己引用的指标方向相反且无解释
+- 回避问题：答非所问或遗漏用户明确问到的核心诉求
 
 ## 评分方式
 
 根据问题类型，给出 1-10 分评价：
-- 9-10：优秀，完全满足需求
-- 7-8：良好，基本满足需求，有小改进空间
-- 5-6：一般，有明显不足
-- 3-4：较差，遗漏重要内容
-- 1-2：很差，分析有严重问题
+- 9-10：优秀。数据准确完整，推理严密，结论有数据支撑，风险提示到位，完全满足需求
+- 7-8：良好。主体正确，有小的遗漏或表述瑕疵，基本满足需求
+- 5-6：一般。有明显不足（如漏掉资金面/消息面、关键价位含糊、建议笼统）
+- 3-4：较差。遗漏重要内容，或存在数据误读、逻辑跳跃
+- 1-2：很差。分析有严重问题（编造数据、结论错误、严重跑题）
+
+评分必须与问题复杂度匹配：对简单查询不要因缺少深度分析而扣分；对复杂分析不要因"看起来完整"而给高分——逐条核对数据与推理。
 
 ## 输出格式
 
@@ -48,10 +55,52 @@ JUDGE_SYSTEM_PROMPT = """你是 DeepPulse 的评测Agent，根据用户问题类
 [一段话总结]
 
 ## 要求
-- 根据问题复杂度调整期望
-- 不要对简单问题要求深度分析
-- 不要对复杂问题只看表面
-- 给出具体可操作的建议"""
+- 评分行必须严格写成「**评分：X/10**」（X 为 1-10 的数字），供系统解析
+- 逐条核对回复中引用的数据与工具返回是否一致，发现编造立即指出并触发一票否决
+- 根据问题复杂度调整期望，不要对简单问题要求深度分析
+- 不要对复杂问题只看表面，逐维度核对
+- 做得好/可改进各给 2-4 条，必须具体（引用回复中的原句或数据），不写空话
+- 给出的改进建议必须可操作（如"补上止损位"而非"注意风险"）"""
+
+
+# ═══════════════════════════════════════════════════════════
+# 评分解析（实时流式 / 终态全文共用）
+# ═══════════════════════════════════════════════════════════
+
+# 流式：必须等到 "/10" 或 "分" 出现数字才算完整，避免 "8.5" 流到一半在 "8" 处提前锁存
+_SCORE_RE_STREAM = re.compile(r"评分[：:]\s*(\d+(?:\.\d+)?)(?:\s*/\s*10|\s*分)")
+# 终态全文：内容已完整，宽松即可（兼容 "评分：8分"、截断的 "评分：8"）
+_SCORE_RE_FINAL = re.compile(r"评分[：:]\s*(\d+(?:\.\d+)?)")
+
+
+def _parse_score(content: str, streaming: bool = False):
+    """解析评分；解析失败或越界返回 None，绝不伪造 0 分。"""
+    m = (_SCORE_RE_STREAM if streaming else _SCORE_RE_FINAL).search(content)
+    if not m:
+        return None
+    v = float(m.group(1))
+    return v if 0.0 <= v <= 10.0 else None
+
+
+def _text_of(content):
+    """归一化消息 content 为 (纯文本, 工具名列表)。兼容 OpenAI str 与 Anthropic block list。"""
+    tool_names = []
+    if isinstance(content, str):
+        return content, tool_names
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            t = b.get("type")
+            if t == "text":
+                parts.append(b.get("text", ""))
+            elif t == "tool_use":
+                name = b.get("name")
+                if name:
+                    tool_names.append(name)
+        return "\n".join(parts), tool_names
+    return str(content), tool_names
 
 
 # ═══════════════════════════════════════════════════════════
@@ -92,10 +141,10 @@ class JudgeAgent:
 
                 # 实时检测评分
                 if not score_emitted:
-                    score_match = re.search(r"评分[：:]\s*(\d+(?:\.\d+)?)\s*/\s*10", content_buffer)
-                    if score_match:
+                    v = _parse_score(content_buffer, streaming=True)
+                    if v is not None:
                         score_emitted = True
-                        yield ("score", score_match.group(1))
+                        yield ("score", f"{v:g}")
 
         # 生成摘要
         summary = self._generate_summary(content_buffer)
@@ -132,10 +181,13 @@ class JudgeAgent:
                     rounds.append(current_round)
 
                 content = msg.get("content", "")
-                if content:
-                    current_round["content"] = content
+                text, tool_names = _text_of(content)
+                if text:
+                    current_round["content"] = text  # 保证是 str，避免 list repr 灌入上下文
+                for name in tool_names:  # anthropic tool_use 块提取工具名
+                    current_round["tool_calls"].append({"name": name})
 
-                for tc in msg.get("tool_calls", []):
+                for tc in msg.get("tool_calls", []):  # openai 路径保持不变
                     if isinstance(tc, dict):
                         func = tc.get("function", tc)
                         current_round["tool_calls"].append(
@@ -157,7 +209,7 @@ class JudgeAgent:
             last_content = ""
             for msg in reversed(messages):
                 if msg.get("role") == "assistant" and msg.get("content"):
-                    last_content = msg["content"]
+                    last_content, _ = _text_of(msg["content"])
                     break
             return f"## 用户问题\n{user_query}\n\n## 分析结论\n{last_content}\n\n请评估以上分析。"
 
@@ -202,8 +254,8 @@ class JudgeAgent:
 
     def _generate_summary(self, content: str) -> dict:
         """生成评测摘要"""
-        score_match = re.search(r"评分[：:]\s*(\d+(?:\.\d+)?)", content)
-        score = float(score_match.group(1)) if score_match else 0
+        # 解析失败/越界为 None（而非 0），避免把“解析失败”伪装成 0 分差评
+        score = _parse_score(content)
 
         # 检测问题类型
         qtype = "未知"
@@ -270,7 +322,8 @@ class JudgeHistory:
         if not history:
             return {"total": 0}
 
-        scores = [h.get("summary", {}).get("score", 0) for h in history]
+        # 过滤无效评分（None/非数值），区分总数与有效评分数
+        scores = [s for h in history if isinstance(s := h.get("summary", {}).get("score"), (int, float))]
         types = {}
         for h in history:
             t = h.get("summary", {}).get("type", "未知")
@@ -278,6 +331,7 @@ class JudgeHistory:
 
         return {
             "total": len(history),
+            "scored_count": len(scores),
             "avg_score": sum(scores) / len(scores) if scores else 0,
             "max_score": max(scores) if scores else 0,
             "min_score": min(scores) if scores else 0,

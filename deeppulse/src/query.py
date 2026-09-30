@@ -67,6 +67,8 @@ class StockQuery:
 
     def get_multi_stock_kline(self, codes: list[str], start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """获取多只股票日K数据，用于横向对比"""
+        if not codes:
+            return pd.DataFrame()
         conn = self._conn()
         placeholders = ",".join(["?" for _ in codes])
         sql = f"SELECT * FROM daily_kline WHERE code IN ({placeholders})"
@@ -85,24 +87,36 @@ class StockQuery:
         return df
 
     def get_latest_price(self, codes: list[str] = None) -> pd.DataFrame:
-        """获取最新价格。不传codes返回全部股票最新价。"""
-        conn = self._conn()
-        sql = """
-            SELECT k.code, s.name, k.trade_date, k.open, k.high, k.low,
-                   k.close, k.volume, k.amount, k.turnover, k.data_source
-            FROM daily_kline k
-            JOIN stock_info s ON k.code = s.code
-            WHERE k.trade_date = (
-                SELECT MAX(trade_date) FROM daily_kline WHERE code = k.code
-            )
+        """获取最新价格。不传codes返回全部股票最新价。
+
+        每只股票恰好返回一行：同日多源并列时优先 preferred 源，
+        优先源较旧时仍返回另一源的最新交易日数据。
         """
-        params = []
+        conn = self._conn()
+        preferred = config.DATA_SOURCES[0] if getattr(config, "DATA_SOURCES", None) else "baostock"
+        sql = """
+            SELECT code, name, trade_date, open, high, low,
+                   close, volume, amount, turnover, data_source
+            FROM (
+                SELECT k.code, s.name, k.trade_date, k.open, k.high, k.low,
+                       k.close, k.volume, k.amount, k.turnover, k.data_source,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY k.code
+                           ORDER BY k.trade_date DESC,
+                                    CASE WHEN k.data_source = ? THEN 0 ELSE 1 END
+                       ) AS rn
+                FROM daily_kline k
+                JOIN stock_info s ON k.code = s.code
+            ) t
+            WHERE rn = 1
+        """
+        params = [preferred]
         if codes:
             placeholders = ",".join(["?" for _ in codes])
-            sql += f" AND k.code IN ({placeholders})"
-            params = list(codes)
+            sql += f" AND code IN ({placeholders})"
+            params.extend(codes)
 
-        sql += " ORDER BY k.code"
+        sql += " ORDER BY code"
         df = conn.execute(sql, params).fetchdf()
         conn.close()
         return df
@@ -133,6 +147,9 @@ class StockQuery:
 
     def get_fetch_log(self, code: str = None, status: str = None, limit: int = 100) -> pd.DataFrame:
         """查询采集日志"""
+        limit = int(limit)  # 强制整数，非法输入直接抛错（防 SQL 注入）
+        if limit < 0:
+            raise ValueError(f"limit must be non-negative, got {limit}")
         conn = self._conn()
         sql = "SELECT * FROM fetch_log WHERE 1=1"
         params = []
@@ -142,7 +159,8 @@ class StockQuery:
         if status:
             sql += " AND status = ?"
             params.append(status)
-        sql += f" ORDER BY fetched_at DESC LIMIT {limit}"
+        sql += " ORDER BY fetched_at DESC LIMIT ?"
+        params.append(limit)
         df = conn.execute(sql, params).fetchdf()
         conn.close()
         return df

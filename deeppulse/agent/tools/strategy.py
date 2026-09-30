@@ -2,6 +2,7 @@
 
 import json
 
+from deeppulse.agent.tools._shared import parse_positive_int
 from deeppulse.strategy.repository import get_repository
 
 
@@ -47,18 +48,25 @@ def backtest_stock(
     stop_loss: float = 0.05,
     take_profit: float = 0.10,
     max_hold: int = 20,
+    use_dynamic_exit: bool = True,
+    exit_strategy_preset: str = "balanced",
 ) -> str:
     """对单只股票运行指定策略的历史回测，统计胜率、盈亏比、最大回撤等指标。"""
     from deeppulse.strategy.backtest import backtest_stock as _backtest_stock
 
+    days = parse_positive_int(days, "days")
+    if use_dynamic_exit is None:
+        use_dynamic_exit = True
     try:
         result = _backtest_stock(
             code,
             strategy=strategy,
-            days=int(days),
+            days=days,
             stop_loss=float(stop_loss),
             take_profit=float(take_profit),
             max_hold=int(max_hold),
+            use_dynamic_exit=use_dynamic_exit,
+            exit_strategy_preset=exit_strategy_preset,
         )
         return json.dumps(result.to_dict(), ensure_ascii=False, default=str)
     except Exception as e:
@@ -66,12 +74,18 @@ def backtest_stock(
 
 
 def backtest_multi_stock(strategy: str = "macd_cross", codes: str = "", days: int = 500, top_n: int = 10) -> str:
-    """在多只股票上回测同一策略，汇总统计胜率和收益率。"""
+    """在多只股票上回测同一策略，汇总统计胜率和收益率。
+
+    codes 为空时从全市场随机抽样最多 100 只（固定种子 random_state=42，可复现）；
+    avg_return/median_return/avg_win_rate/positive_rate 仅统计有交易的股票，
+    零交易样本在 stocks_without_trades 中披露，另含 coverage/positive_rate_all 等口径字段。
+    """
     from deeppulse.strategy.backtest import backtest_strategy_multi_stock
 
+    days = parse_positive_int(days, "days")
     try:
         code_list = [c.strip() for c in codes.split(",") if c.strip()] if codes else None
-        result = backtest_strategy_multi_stock(strategy=strategy, codes=code_list, days=int(days), top_n=int(top_n))
+        result = backtest_strategy_multi_stock(strategy=strategy, codes=code_list, days=days, top_n=int(top_n))
         return json.dumps(result, ensure_ascii=False, default=str)
     except Exception as e:
         return json.dumps({"error": f"批量回测失败: {e}"}, ensure_ascii=False)
@@ -130,10 +144,33 @@ TOOL_DEFINITIONS = [
                         "description": "策略名（ma_cross / macd_cross / rsi_oversold / volume_breakout / boll_bounce / kdj_cross / multi_confirm）",
                         "default": "macd_cross",
                     },
-                    "days": {"type": "integer", "description": "回测天数", "default": 500},
-                    "stop_loss": {"type": "number", "description": "止损比例", "default": 0.05},
-                    "take_profit": {"type": "number", "description": "止盈比例", "default": 0.10},
-                    "max_hold": {"type": "integer", "description": "最大持仓天数", "default": 20},
+                    "days": {"type": "integer", "description": "回测天数", "default": 500, "minimum": 1},
+                    "stop_loss": {
+                        "type": "number",
+                        "description": "止损比例（仅在 use_dynamic_exit=false 时使用）",
+                        "default": 0.05,
+                    },
+                    "take_profit": {
+                        "type": "number",
+                        "description": "止盈比例（仅在 use_dynamic_exit=false 时使用）",
+                        "default": 0.10,
+                    },
+                    "max_hold": {
+                        "type": "integer",
+                        "description": "最大持仓天数（仅在 use_dynamic_exit=false 时使用）",
+                        "default": 20,
+                    },
+                    "use_dynamic_exit": {
+                        "type": "boolean",
+                        "description": "是否使用动态退出策略（默认开启）。关闭后才使用 stop_loss/take_profit/max_hold",
+                        "default": True,
+                    },
+                    "exit_strategy_preset": {
+                        "type": "string",
+                        "description": "动态退出策略预设，仅在 use_dynamic_exit=true 时使用",
+                        "default": "balanced",
+                        "enum": ["conservative", "balanced", "aggressive"],
+                    },
                 },
                 "required": ["code"],
             },
@@ -143,13 +180,16 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "backtest_multi_stock",
-            "description": "在多只股票上回测同一策略，汇总统计胜率和收益率。",
+            "description": "在多只股票上回测同一策略，汇总统计胜率和收益率。codes 为空时从全市场随机抽样最多 100 只（固定种子，可复现）；avg_return/avg_win_rate/positive_rate 仅统计有交易的股票，零交易样本在 stocks_without_trades 中披露。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "strategy": {"type": "string", "description": "策略名", "default": "macd_cross"},
-                    "codes": {"type": "string", "description": "逗号分隔的股票代码"},
-                    "days": {"type": "integer", "description": "回测天数", "default": 500},
+                    "codes": {
+                        "type": "string",
+                        "description": "逗号分隔的股票代码；为空时从全市场随机抽样最多 100 只（固定种子 random_state=42，抽样可复现）",
+                    },
+                    "days": {"type": "integer", "description": "回测天数", "default": 500, "minimum": 1},
                     "top_n": {"type": "integer", "description": "返回表现最好的N只", "default": 10},
                 },
                 "required": [],

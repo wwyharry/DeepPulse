@@ -36,25 +36,30 @@ class OptimizeReport:
 
     best_spec: StrategySpec
     best_result: dict
-    best_score: float
+    best_score: float | None  # None = 从未回测成功，不是 0.0
     history: list[dict] = field(default_factory=list)
     converged: bool = False
     code: str = ""
     days: int = 750
     llm_final_reasoning: str = ""  # LLM 最终选择原因
+    untested: bool = False  # True = best_spec 为未验证的兜底默认策略
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "code": self.code,
             "days": self.days,
             "best_spec": self.best_spec.to_dict(),
             "best_result": self.best_result,
-            "best_score": round(self.best_score, 4),
+            "best_score": round(self.best_score, 4) if self.best_score is not None else None,
+            "untested": self.untested,
             "converged": self.converged,
             "iterations": len(self.history),
             "history": self.history,
             "llm_final_reasoning": self.llm_final_reasoning,
         }
+        if self.untested:
+            d["note"] = "优化失败，返回未验证的默认策略（best_score 非实测成绩）"
+        return d
 
 
 def compute_score(result: BacktestResult) -> float:
@@ -140,6 +145,9 @@ class AutoOptimizer:
             hint: 用户偏好提示
             kline_stats: K线统计信息
         """
+        if not (1 <= max_iterations <= 20):
+            raise ValueError(f"max_iterations 必须在 1-20 之间，收到: {max_iterations}")
+
         # 动态计算基础训练轮数和最小迭代轮数
         # 基础训练：总轮数的40%（至少1轮，最多3轮）
         base_training_rounds = max(1, min(3, max_iterations * 2 // 5))
@@ -228,7 +236,8 @@ class AutoOptimizer:
             # ============================================================
             rolled_back = False
             if best_score != float("-inf") and score < best_score:
-                regression = (best_score - score) / abs(best_score) if best_score != 0 else 0
+                denom = abs(best_score) if best_score != 0 else 1.0
+                regression = (best_score - score) / denom
                 if regression > MAX_REGRESSION_TOLERANCE:
                     llm_comment += f" [回滚] 得分下降 {regression:.1%}，回滚至最佳策略"
                     spec = best_spec
@@ -271,7 +280,11 @@ class AutoOptimizer:
                 recent_avg = sum(score_history[-TREND_WINDOW:]) / TREND_WINDOW
                 if len(score_history) > TREND_WINDOW:
                     prev_avg = sum(score_history[-(TREND_WINDOW + 1) : -1]) / TREND_WINDOW
-                    improvement = (recent_avg - prev_avg) / abs(prev_avg) if prev_avg != 0 else 0
+                    if prev_avg == 0:
+                        # 从 0 起跳视为无穷大改善（否则大提升会被误判为已收敛）
+                        improvement = float("inf") if recent_avg > 0 else 0.0
+                    else:
+                        improvement = (recent_avg - prev_avg) / abs(prev_avg)
                 else:
                     improvement = float("inf")
 
@@ -289,11 +302,14 @@ class AutoOptimizer:
         #  最终：LLM 综合分析，选出最优策略
         # ============================================================
         if best_spec is None or best_result is None:
+            # 全部轮回失败：返回未验证的兜底默认策略，不伪造 0.0 实测成绩
             best_spec = default_spec()
             best_result_dict: dict = {}
-            best_score = 0.0
+            best_score = None
+            untested = True
         else:
             best_result_dict = best_result.to_dict()
+            untested = False
 
         # LLM 综合分析（如果有足够历史）
         if len(history) >= 2:
@@ -307,10 +323,11 @@ class AutoOptimizer:
                     recommended_spec = StrategySpec.from_dict(final_analysis["recommended_spec"])
                     try:
                         rec_result, rec_score = self._run_backtest(code, recommended_spec, days)
-                        if rec_score > best_score:
+                        if best_score is None or rec_score > best_score:
                             best_spec = recommended_spec
                             best_result_dict = rec_result.to_dict()
                             best_score = rec_score
+                            untested = False
                             llm_final_reasoning += f"\n\n[最终优化] LLM 推荐策略评分更高: {rec_score:.4f}"
                     except Exception:
                         pass
@@ -320,10 +337,11 @@ class AutoOptimizer:
         return OptimizeReport(
             best_spec=best_spec,
             best_result=best_result_dict,
-            best_score=best_score if best_score != float("-inf") else 0.0,
+            best_score=None if best_score == float("-inf") else best_score,
             history=history,
             converged=converged,
             code=code,
             days=days,
             llm_final_reasoning=llm_final_reasoning,
+            untested=untested,
         )

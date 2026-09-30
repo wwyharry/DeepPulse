@@ -9,7 +9,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RealtimeQuote:
-    """统一的实时行情数据结构"""
+    """统一的实时行情数据结构
+
+    注意：volume 单位统一为「股」（与 daily_kline 入库口径一致），
+    各数据源在构造前须自行归一（如东财快照 f5 单位为手，需 ×100）。
+    """
 
     code: str
     name: str
@@ -20,7 +24,7 @@ class RealtimeQuote:
     yesterday_close: float | None = None
     change_amount: float | None = None
     change_pct: float | None = None
-    volume: int | None = None
+    volume: int | None = None  # 单位：股
     amount: float | None = None
     trade_date: str = ""
     trade_time: str = ""
@@ -46,6 +50,8 @@ class RealtimeQuoteSource(ABC):
         - fetch_quotes(codes)：批量获取（默认逐个调用）
         - health_check()：连接健康检查
         - cleanup()：资源清理
+
+    约定：返回的 RealtimeQuote.volume 单位为「股」，子类须在构造前归一。
     """
 
     @property

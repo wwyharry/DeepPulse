@@ -70,8 +70,27 @@ class Strategy:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Strategy":
-        """从字典创建"""
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        """从字典创建（还原 DB 中以 JSON 字符串存储的 tags/conditions/parameters）"""
+        raw = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        for json_field, default in (("tags", list), ("conditions", dict), ("parameters", dict)):
+            v = raw.get(json_field)
+            if v is None or v == "":
+                raw[json_field] = default()
+                continue
+            if isinstance(v, str):
+                try:
+                    v = json.loads(v)
+                except json.JSONDecodeError:
+                    v = None
+            if json_field == "tags":
+                raw[json_field] = v if isinstance(v, list) else []
+            else:
+                raw[json_field] = v if isinstance(v, dict) else {}
+        # DuckDB TIMESTAMP 列返回 datetime，统一转 str 以免 to_dict/json.dumps 再炸
+        for ts_field in ("created_at", "updated_at"):
+            if ts_field in raw and raw[ts_field] is not None and not isinstance(raw[ts_field], str):
+                raw[ts_field] = str(raw[ts_field])
+        return cls(**raw)
 
     @classmethod
     def from_markdown(cls, filename: str, content: str) -> "Strategy":
@@ -156,6 +175,8 @@ class Strategy:
             risk_level = RiskLevel.LOW
 
         return cls(
+            # 按文件名派生确定性 id，保证同一 .md 文件跨重启 id 稳定（否则每次加载生成新 UUID）
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"deeppulse-strategy:{filename}")) if filename else str(uuid.uuid4()),
             name=name,
             category=category,
             tags=tags,

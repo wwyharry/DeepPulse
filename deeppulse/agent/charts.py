@@ -1,5 +1,6 @@
 """K线图与技术指标可视化 - 生成专业K线图并自动打开"""
 
+import html as html_mod
 import json
 from datetime import datetime
 from pathlib import Path
@@ -204,8 +205,8 @@ def _generate_html_chart(
     chart_title = title or f"{name}({code})"
     df = add_indicators(df)
 
-    # 准备数据
-    dates = [str(d) for d in df["trade_date"]]
+    # 准备数据（日期统一 YYYY-MM-DD，与 mark_signals 的 docstring 约定一致）
+    dates = [str(d)[:10] for d in df["trade_date"]]
     ohlc = df[["open", "high", "low", "close"]].values.tolist()
     volumes = df["volume"].tolist()
     ma5 = df["ma5"].round(2).where(df["ma5"].notna(), None).tolist()
@@ -331,29 +332,37 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd
             }
         )
 
-    # 信号标记
+    # 信号标记（锚定真实价位，避免 y=0 远离K线并拉扁坐标轴）
     if mark_points:
-        buy_points = [p for p in mark_points if p["type"] == "buy"]
-        sell_points = [p for p in mark_points if p["type"] == "sell"]
-        if buy_points:
+        date_index = {d: i for i, d in enumerate(dates)}
+
+        def _mp_items(points, is_buy):
+            items = []
+            for p in points:
+                d = str(p.get("date", ""))[:10]
+                i = date_index.get(d)
+                if i is None or i >= len(ohlc):
+                    continue  # 日期不在窗口内则跳过，不落在 0 价位
+                _o, high, low, _c = (float(v) for v in ohlc[i])
+                price = low * 0.99 if is_buy else high * 1.01
+                items.append(
+                    {
+                        "coord": [d, round(price, 2)],
+                        "value": p.get("label", ""),
+                        "itemStyle": {"color": "#FF0000" if is_buy else "#00AA00"},
+                        "symbolRotate": 0 if is_buy else 180,
+                    }
+                )
+            return items
+
+        mp_data = _mp_items([p for p in mark_points if p["type"] == "buy"], True)
+        mp_data += _mp_items([p for p in mark_points if p["type"] == "sell"], False)
+        if mp_data:
             series[0]["markPoint"] = {
-                "data": [
-                    {"coord": [p["date"], 0], "value": p["label"], "itemStyle": {"color": "#FF0000"}}
-                    for p in buy_points
-                ],
+                "data": mp_data,
                 "symbol": "triangle",
                 "symbolSize": 15,
-                "symbolRotate": 0,
             }
-        if sell_points:
-            mp = series[0].get("markPoint", {"data": []})
-            mp["data"].extend(
-                [{"coord": [p["date"], 0], "value": p["label"], "itemStyle": {"color": "#00AA00"}} for p in sell_points]
-            )
-            mp["symbol"] = "triangle"
-            mp["symbolSize"] = 15
-            mp["symbolRotate"] = 180
-            series[0]["markPoint"] = mp
 
     # 成交量
     vol_colors = []
@@ -369,12 +378,16 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd
             {
                 "name": "成交量",
                 "type": "bar",
-                "data": volumes,
+                # 数据点级 itemStyle：纯 JSON 可序列化，按涨跌着色
+                "data": [
+                    {
+                        "value": v,
+                        "itemStyle": {"color": vol_colors[i] if i < len(vol_colors) else "#ef232a"},
+                    }
+                    for i, v in enumerate(volumes)
+                ],
                 "xAxisIndex": vol_idx,
                 "yAxisIndex": vol_idx,
-                "itemStyle": {
-                    "color": lambda p: vol_colors[p.dataIndex] if p.dataIndex < len(vol_colors) else "#ef232a"
-                },
             }
         )
 
@@ -408,12 +421,20 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd
                 {
                     "name": "MACD",
                     "type": "bar",
-                    "data": hist,
+                    # 数据点级 itemStyle：None 保持 value: null 不画柱
+                    "data": [
+                        (
+                            v
+                            if v is None
+                            else {
+                                "value": v,
+                                "itemStyle": {"color": hist_colors[i] if i < len(hist_colors) else "#ef232a"},
+                            }
+                        )
+                        for i, v in enumerate(hist)
+                    ],
                     "xAxisIndex": macd_idx,
                     "yAxisIndex": macd_idx,
-                    "itemStyle": {
-                        "color": lambda p: hist_colors[p.dataIndex] if p.dataIndex < len(hist_colors) else "#ef232a"
-                    },
                 },
             ]
         )
@@ -446,11 +467,15 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd
             ]
         )
 
+    # 标题按上下文分别转义：JS 字符串用 json.dumps，HTML 文本用 html.escape
+    title_js = json.dumps(title, ensure_ascii=False).replace("</", "<\\/")
+    title_html = html_mod.escape(title)
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>{title}</title>
+<title>{title_html}</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <style>body {{ margin:0; background:#1a1a2e; }}</style>
 </head>
@@ -459,7 +484,7 @@ def _build_echarts_html(title, dates, ohlc, volumes, ma5, ma10, ma20, ma60, macd
 <script>
 var chart = echarts.init(document.getElementById('chart'), 'dark');
 var option = {{
-    title: {{ text: '{title}', left: 'center', top: 10,
+    title: {{ text: {title_js}, left: 'center', top: 10,
               textStyle: {{ color: '#eee', fontSize: 16 }} }},
     tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'cross' }} }},
     legend: {{ top: 40, data: ['MA5','MA10','MA20','MA60'],

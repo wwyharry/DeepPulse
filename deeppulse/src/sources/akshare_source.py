@@ -37,8 +37,8 @@ class AkShareSource(DataSourceBase):
         results = []
         for _, row in df.iterrows():
             code = str(row["code"]).zfill(6)
-            # 筛选主板：沪市6开头，深市0开头（排除创业板3开头、科创板688开头、北交所8开头）
-            if code.startswith("6") and not code.startswith("688"):
+            # 筛选主板：沪市6开头，深市0开头（排除创业板3开头、科创板68x开头、北交所8开头）
+            if code.startswith("6") and not code.startswith("68"):
                 market = "sh"
                 board = "main"
             elif code.startswith("0"):
@@ -93,7 +93,8 @@ class AkShareSource(DataSourceBase):
         # 数值类型转换（与 BaoStock 保持一致）
         for col in ["open", "high", "low", "close", "amount", "turnover"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").astype("Int64")
+        # 东财成交量单位为手，统一换算为股（与 baostock / 实时行情口径一致）
+        df["volume"] = (pd.to_numeric(df["volume"], errors="coerce") * 100).astype("Int64")
 
         cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
         return df[[c for c in cols if c in df.columns]]

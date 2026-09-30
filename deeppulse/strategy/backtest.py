@@ -172,7 +172,8 @@ class BacktestEngine:
 
         signals = signal_func(df)
         df = df.copy()
-        df["signal"] = signals
+        # 前视偏差修复：信号延迟一根 bar —— 决策发生在第 i-1 根收盘，成交在第 i 根收盘
+        df["signal"] = pd.Series(signals, index=df.index).shift(1).fillna(0).astype(int)
 
         capital = self.initial_capital
         position = 0
@@ -186,6 +187,7 @@ class BacktestEngine:
             row = df.iloc[i]
             current_price = row["close"]
             current_date = str(row["trade_date"])
+            exited_this_bar = False  # 同一根 bar 退出后禁止立刻按同一收盘价买回
 
             # 计算当前权益
             if position > 0:
@@ -211,9 +213,11 @@ class BacktestEngine:
                     if not exit_reason:
                         exit_reason = "信号卖出"
                     sell_price = current_price * (1 - self.slippage)
+                    # 含佣成本核算：买入侧佣金计入成本，卖出侧佣金计入回款
                     proceeds = position * sell_price * (1 - self.commission)
-                    pnl = proceeds - position * entry_price
-                    pnl_pct_actual = (sell_price - entry_price) / entry_price
+                    entry_cost = position * entry_price * (1 + self.commission)
+                    pnl = proceeds - entry_cost
+                    pnl_pct_actual = sell_price * (1 - self.commission) / (entry_price * (1 + self.commission)) - 1
 
                     trades.append(
                         Trade(
@@ -235,9 +239,10 @@ class BacktestEngine:
 
                     capital = self._recalc_capital(capital, position, entry_price, sell_price)
                     position = 0
+                    exited_this_bar = True
 
-            # 无持仓：检查买入信号
-            if position == 0 and row["signal"] == 1:
+            # 无持仓：检查买入信号（同 bar 退出后不重新入场）
+            if position == 0 and row["signal"] == 1 and not exited_this_bar:
                 buy_price = current_price * (1 + self.slippage)
                 buy_cost = capital * self.position_pct
                 shares = int(buy_cost / (buy_price * (1 + self.commission)) / 100) * 100
@@ -254,7 +259,8 @@ class BacktestEngine:
             last_row = df.iloc[-1]
             sell_price = last_row["close"] * (1 - self.slippage)
             proceeds = position * sell_price * (1 - self.commission)
-            pnl_pct_actual = (sell_price - entry_price) / entry_price
+            entry_cost = position * entry_price * (1 + self.commission)
+            pnl_pct_actual = sell_price * (1 - self.commission) / (entry_price * (1 + self.commission)) - 1
             trades.append(
                 Trade(
                     code=code,
@@ -265,7 +271,7 @@ class BacktestEngine:
                     exit_price=round(sell_price, 3),
                     direction="long",
                     shares=position,
-                    pnl=round(proceeds - position * entry_price, 2),
+                    pnl=round(proceeds - entry_cost, 2),
                     pnl_pct=round(pnl_pct_actual, 4),
                     hold_days=len(df) - 1 - entry_idx,
                     signal=strategy_name,
@@ -283,6 +289,7 @@ class BacktestEngine:
             name,
             str(df["trade_date"].iloc[0]),
             str(df["trade_date"].iloc[-1]),
+            final_cash=capital,
         )
 
     def _recalc_capital(self, capital, shares, entry_price, sell_price):
@@ -290,9 +297,22 @@ class BacktestEngine:
         return capital + shares * sell_price * (1 - self.commission)
 
     def _compute_metrics(
-        self, trades: list, equity_curve: list, strategy_name: str, code: str, name: str, start_date: str, end_date: str
+        self,
+        trades: list,
+        equity_curve: list,
+        strategy_name: str,
+        code: str,
+        name: str,
+        start_date: str,
+        end_date: str,
+        final_cash: float | None = None,
     ) -> BacktestResult:
-        """计算回测绩效指标"""
+        """计算回测绩效指标
+
+        Args:
+            final_cash: 强平后的真实现金。回测结束仍持仓时，equity_curve[-1]
+                是未扣卖出成本的市值点，与平仓交易记录对不上账，应传入强平后 capital。
+        """
         result = BacktestResult(
             strategy_name=strategy_name,
             stock_code=code,
@@ -326,8 +346,11 @@ class BacktestEngine:
         total_loss = abs(sum(losses)) if losses else 0.001
         result.profit_factor = total_win / total_loss if total_loss > 0 else float("inf")
 
-        # 最终权益
-        final_equity = equity_curve[-1]["equity"] if equity_curve else self.initial_capital
+        # 最终权益（优先使用强平后的真实现金）
+        if final_cash is not None:
+            final_equity = final_cash
+        else:
+            final_equity = equity_curve[-1]["equity"] if equity_curve else self.initial_capital
         result.final_capital = round(final_equity, 2)
         result.total_return = (final_equity - self.initial_capital) / self.initial_capital
 
@@ -357,12 +380,13 @@ class BacktestEngine:
         result.max_drawdown = max_dd
         result.max_drawdown_duration = dd_duration
 
-        # 夏普比率（假设无风险利率3%）
-        if len(pnls) > 1:
-            returns = np.array(pnls)
-            excess_returns = returns - 0.03 / 244
-            std = np.std(excess_returns, ddof=1)
-            result.sharpe_ratio = float(np.mean(excess_returns) / std * np.sqrt(244)) if std > 0 else 0
+        # 夏普比率（日收益口径，无风险利率3%，按244个交易日年化）
+        eq_series = pd.Series([e["equity"] for e in equity_curve], dtype=float)
+        daily_ret = eq_series.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+        if len(daily_ret) >= 2:
+            excess = daily_ret - 0.03 / 244
+            std = float(excess.std(ddof=1))
+            result.sharpe_ratio = float(excess.mean() / std * np.sqrt(244)) if std > 0 else 0
 
         # 期望收益
         result.expectancy = float(np.mean(pnls)) if pnls else 0
@@ -460,7 +484,8 @@ class DynamicBacktestEngine(BacktestEngine):
 
         signals = signal_func(df)
         df = df.copy()
-        df["signal"] = signals
+        # 前视偏差修复：信号延迟一根 bar —— 决策发生在第 i-1 根收盘，成交在第 i 根收盘
+        df["signal"] = pd.Series(signals, index=df.index).shift(1).fillna(0).astype(int)
 
         # 添加前一日数据用于技术退出判断
         df["dif_prev"] = df["dif"].shift(1)
@@ -491,6 +516,7 @@ class DynamicBacktestEngine(BacktestEngine):
             row_dict = row.to_dict()
             current_price = row["close"]
             current_date = str(row["trade_date"])
+            exited_this_bar = False  # 同一根 bar 全平后禁止立刻按同一收盘价买回
 
             # 计算当前权益
             if position > 0:
@@ -509,18 +535,26 @@ class DynamicBacktestEngine(BacktestEngine):
                 )
 
                 if should_exit or row["signal"] == -1:
-                    if not exit_reason:
+                    # 策略卖出信号强制全平，不能沿用技术部分退出比例
+                    if row["signal"] == -1:
+                        exit_ratio = 1.0
+                        exit_reason = "信号卖出" if not exit_reason else f"{exit_reason}+信号卖出"
+                    elif not exit_reason:
                         exit_reason = "信号卖出"
 
-                    # 计算退出比例（分批止盈）
+                    # 计算退出比例（分批止盈），钳位到 (0, 1] 防御异常比率超卖持仓
+                    exit_ratio = min(max(float(exit_ratio), 0.0), 1.0)
                     exit_shares = int(position * exit_ratio / 100) * 100
+                    exit_shares = min(exit_shares, position)
                     if exit_shares < 100:
                         exit_shares = position  # 退出太少时全部退出
 
                     sell_price = current_price * (1 - self.slippage)
+                    # 含佣成本核算：买入侧佣金计入成本，卖出侧佣金计入回款
                     proceeds = exit_shares * sell_price * (1 - self.commission)
-                    pnl = proceeds - exit_shares * entry_price
-                    pnl_pct_actual = (sell_price - entry_price) / entry_price
+                    entry_cost = exit_shares * entry_price * (1 + self.commission)
+                    pnl = proceeds - entry_cost
+                    pnl_pct_actual = sell_price * (1 - self.commission) / (entry_price * (1 + self.commission)) - 1
 
                     trades.append(
                         Trade(
@@ -556,10 +590,11 @@ class DynamicBacktestEngine(BacktestEngine):
                     # 如果全部退出，重置引擎
                     if position <= 0:
                         position = 0
+                        exited_this_bar = True
                         exit_engine.reset()
 
-            # 无持仓：检查买入信号
-            if position == 0 and row["signal"] == 1:
+            # 无持仓：检查买入信号（同 bar 全平后不重新入场）
+            if position == 0 and row["signal"] == 1 and not exited_this_bar:
                 buy_price = current_price * (1 + self.slippage)
                 buy_cost = capital * self.position_pct
                 shares = int(buy_cost / (buy_price * (1 + self.commission)) / 100) * 100
@@ -578,7 +613,8 @@ class DynamicBacktestEngine(BacktestEngine):
             last_row = df.iloc[-1]
             sell_price = last_row["close"] * (1 - self.slippage)
             proceeds = position * sell_price * (1 - self.commission)
-            pnl_pct_actual = (sell_price - entry_price) / entry_price
+            entry_cost = position * entry_price * (1 + self.commission)
+            pnl_pct_actual = sell_price * (1 - self.commission) / (entry_price * (1 + self.commission)) - 1
             trades.append(
                 Trade(
                     code=code,
@@ -589,7 +625,7 @@ class DynamicBacktestEngine(BacktestEngine):
                     exit_price=round(sell_price, 3),
                     direction="long",
                     shares=position,
-                    pnl=round(proceeds - position * entry_price, 2),
+                    pnl=round(proceeds - entry_cost, 2),
                     pnl_pct=round(pnl_pct_actual, 4),
                     hold_days=len(df) - 1 - entry_idx,
                     signal=strategy_name,
@@ -614,6 +650,7 @@ class DynamicBacktestEngine(BacktestEngine):
             name,
             str(df["trade_date"].iloc[0]),
             str(df["trade_date"].iloc[-1]),
+            final_cash=capital,
         )
 
         # 添加退出策略信息
@@ -707,7 +744,8 @@ def backtest_stock(
         # 构建退出策略
         exit_strategy = None
         if exit_strategy_params:
-            exit_strategy = ExitStrategy(**exit_strategy_params)
+            # from_dict 过滤未知键；__post_init__ 校验 partial_exit_ratio 范围
+            exit_strategy = ExitStrategy.from_dict(exit_strategy_params)
 
         engine = DynamicBacktestEngine(
             initial_capital=initial_capital,
@@ -740,20 +778,27 @@ def backtest_strategy_multi_stock(
 
     Args:
         strategy: 策略名称
-        codes: 股票代码列表
+        codes: 股票代码列表。为空时从全市场随机抽样最多 100 只
+            （固定种子 random_state=42，可复现）。零交易股票不计入
+            avg_win_rate/avg_return/positive_rate，但会在 stocks_without_trades 中披露。
         days: 回测天数
         top_n: 返回前N只股票
         use_dynamic_exit: 是否使用动态退出策略
         exit_strategy_preset: 动态退出策略预设
         **kwargs: 其他参数
     """
+    universe_size = None
     if codes is None:
         query = StockQuery()
         all_stocks = query.get_stock_info()
         if all_stocks.empty:
             return {"error": "数据库无股票数据"}
-        codes = all_stocks["code"].sample(min(100, len(all_stocks))).tolist()
+        universe_size = len(all_stocks)
+        # 固定种子保证可复现，同时保持代码分布代表性
+        codes = all_stocks["code"].sample(min(100, len(all_stocks)), random_state=42).tolist()
 
+    attempted = len(codes)
+    errors = 0
     results = []
     for code in codes:
         try:
@@ -781,6 +826,7 @@ def backtest_strategy_multi_stock(
                     }
                 )
         except Exception:
+            errors += 1
             continue
 
     if not results:
@@ -789,7 +835,7 @@ def backtest_strategy_multi_stock(
     # 按收益率排序
     results.sort(key=lambda x: x["total_return"], reverse=True)
 
-    # 汇总统计
+    # 汇总统计（仅统计有交易的股票，零交易样本单独披露）
     all_returns = [r["total_return"] for r in results]
     all_win_rates = [r["win_rate"] for r in results if r["total_trades"] > 0]
 
@@ -799,15 +845,27 @@ def backtest_strategy_multi_stock(
         for reason, count in r.get("exit_statistics", {}).items():
             total_exit_statistics[reason] = total_exit_statistics.get(reason, 0) + count
 
+    stocks_with_trades = len(results)
+    stocks_without_trades = attempted - stocks_with_trades - errors
+
     return {
         "strategy": strategy,
         "exit_strategy": exit_strategy_preset if use_dynamic_exit else "static",
-        "tested_stocks": len(results),
+        "tested_stocks": attempted,  # 语义：尝试回测的股票数（含零交易/失败样本）
+        "sampled": attempted,
+        "universe": universe_size if universe_size is not None else attempted,
+        "stocks_with_trades": stocks_with_trades,
+        "stocks_without_trades": stocks_without_trades,
+        "error_count": errors,
+        "coverage": round(stocks_with_trades / attempted, 4) if attempted else 0,
         "top_stocks": results[:top_n],
+        # 以下 avg_return/median_return/avg_win_rate/positive_rate 仅统计有交易的股票
+        # （win_rate 以交易为条件，零交易样本置 0 会低估，故不并入）
         "avg_return": round(float(np.mean(all_returns)), 4),
         "median_return": round(float(np.median(all_returns)), 4),
         "avg_win_rate": round(float(np.mean(all_win_rates)), 4) if all_win_rates else 0,
         "positive_rate": round(sum(1 for r in all_returns if r > 0) / len(all_returns), 4),
+        "positive_rate_all": round(sum(1 for r in all_returns if r > 0) / attempted, 4) if attempted else 0,
         "exit_statistics": total_exit_statistics,
     }
 

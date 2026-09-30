@@ -6,11 +6,13 @@ from datetime import date, timedelta
 
 import duckdb
 
-from deeppulse.agent.tools._shared import get_query, get_realtime_manager, shares_to_lots
+from deeppulse.agent.tools._shared import get_query, get_realtime_manager, parse_positive_int, shares_to_lots
 
 
 def search_stock(keyword: str) -> str:
     """按名称或代码模糊搜索股票"""
+    if keyword is None or not str(keyword).strip():
+        return json.dumps({"error": "keyword 不能为空，请提供股票名称或代码片段"}, ensure_ascii=False)
     query = get_query()
     df = query.search_stocks(keyword)
     if df.empty:
@@ -38,13 +40,14 @@ def query_stock_info(code: str) -> str:
 
 def query_kline(code: str, days: int = 60, source: str = "") -> str:
     """查询股票最近N个交易日的日K线数据"""
+    days = parse_positive_int(days, "days")
     query = get_query()
     end = date.today()
-    start = end - timedelta(days=int(days) * 3)
+    start = end - timedelta(days=days * 3)
     df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
-    df = df.sort_values("trade_date").tail(int(days))
+    df = df.sort_values("trade_date").tail(days)
     records = df.to_dict("records")
     for r in records:
         r["trade_date"] = str(r["trade_date"])
@@ -60,8 +63,10 @@ def query_kline(code: str, days: int = 60, source: str = "") -> str:
 def latest_price(codes: str) -> str:
     """获取股票最新价格"""
     query = get_query()
-    code_list = [c.strip() for c in codes.split(",") if c.strip()]
-    df = query.get_latest_price(code_list if code_list else None)
+    code_list = [c.strip() for c in str(codes).split(",") if c.strip()]
+    if not code_list:
+        return json.dumps({"error": "codes 不能为空，请提供至少一个股票代码"}, ensure_ascii=False)
+    df = query.get_latest_price(code_list)
     if df.empty:
         return json.dumps({"error": "无数据"}, ensure_ascii=False)
     records = df.to_dict("records")
@@ -152,18 +157,32 @@ def market_overview() -> str:
     )
 
 
-def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi") -> str:
+def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kdj,boll") -> str:
     """计算股票技术指标"""
+    days = parse_positive_int(days, "days")
     query = get_query()
     end = date.today()
-    start = end - timedelta(days=int(days) * 3)
+    start = end - timedelta(days=days * 3)
     df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
 
     df = df.sort_values("trade_date").reset_index(drop=True)
-    indicator_list = [i.strip().lower() for i in indicators.split(",")]
+    known_indicators = {"ma", "macd", "rsi", "kdj", "boll"}
+    indicator_list = [i.strip().lower() for i in str(indicators).split(",") if i.strip()]
+    if not indicator_list:
+        # 空串视为全部计算（与 schema 默认"全部计算"一致）
+        indicator_list = list(known_indicators)
+    unknown = sorted({i for i in indicator_list if i not in known_indicators})
+    indicator_list = [i for i in indicator_list if i in known_indicators]
+    if not indicator_list:
+        return json.dumps(
+            {"error": f"indicators 中无有效指标: {indicators!r}，可选 ma,macd,rsi,kdj,boll"},
+            ensure_ascii=False,
+        )
     result = {"code": code, "count": len(df)}
+    if unknown:
+        result["warning"] = f"忽略未知指标: {','.join(unknown)}，可选 ma,macd,rsi,kdj,boll"
 
     if "ma" in indicator_list:
         for w in [5, 10, 20, 60]:
@@ -219,11 +238,12 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi") 
         rsi6 = float(latest["rsi6"]) if latest["rsi6"] == latest["rsi6"] else None
         result["rsi"] = {
             "date": str(latest["trade_date"]),
-            "rsi6": round(rsi6, 2) if rsi6 else None,
+            "rsi6": round(rsi6, 2) if rsi6 is not None else None,
             "rsi12": round(float(latest["rsi12"]), 2) if latest["rsi12"] == latest["rsi12"] else None,
             "rsi24": round(float(latest["rsi24"]), 2) if latest["rsi24"] == latest["rsi24"] else None,
         }
-        if rsi6:
+        # rsi6=0.0 是合法超卖值，必须用 is not None 判定，否则 0 被当假值丢失
+        if rsi6 is not None:
             if rsi6 > 80:
                 result["rsi"]["信号"] = "超买区间，注意回调风险"
             elif rsi6 < 20:
@@ -271,9 +291,9 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi") 
         lower = float(latest["boll_lower"]) if latest["boll_lower"] == latest["boll_lower"] else None
         result["boll"] = {
             "date": str(latest["trade_date"]),
-            "upper": round(upper, 2) if upper else None,
-            "mid": round(mid, 2) if mid else None,
-            "lower": round(lower, 2) if lower else None,
+            "upper": round(upper, 2) if upper is not None else None,
+            "mid": round(mid, 2) if mid is not None else None,
+            "lower": round(lower, 2) if lower is not None else None,
             "close": round(close, 2),
         }
         if mid and upper and lower:
@@ -486,7 +506,12 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "6位股票代码"},
-                    "max_days": {"type": "integer", "description": "最多回溯天数，默认5", "default": 5},
+                    "max_days": {
+                        "type": "integer",
+                        "description": "最多回溯天数，默认5",
+                        "default": 5,
+                        "minimum": 1,
+                    },
                 },
                 "required": ["code"],
             },
@@ -499,7 +524,14 @@ TOOL_DEFINITIONS = [
             "description": "更新全部沪深主板股票的K线数据到最新。当用户要求更新完整数据库时调用。耗时较长（约10-15分钟），调用前应告知用户。",
             "parameters": {
                 "type": "object",
-                "properties": {"max_days": {"type": "integer", "description": "最多回溯天数，默认5", "default": 5}},
+                "properties": {
+                    "max_days": {
+                        "type": "integer",
+                        "description": "最多回溯天数，默认5",
+                        "default": 5,
+                        "minimum": 1,
+                    }
+                },
                 "required": [],
             },
         },
@@ -567,6 +599,7 @@ TOOL_DEFINITIONS = [
                         "type": "integer",
                         "description": "获取最近N个交易日的数据（非自然日），默认60",
                         "default": 60,
+                        "minimum": 1,
                     },
                 },
                 "required": ["code"],
@@ -600,6 +633,7 @@ TOOL_DEFINITIONS = [
                         "type": "integer",
                         "description": "计算数据天数（交易日，非自然日），默认120",
                         "default": 120,
+                        "minimum": 1,
                     },
                     "indicators": {
                         "type": "string",

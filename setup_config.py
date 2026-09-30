@@ -45,8 +45,11 @@ def main():
 
     # 检查API Key
     api_key = setting["llm"]["api_key"]
+    # 未配置 = 空值 / "${}" / 示例占位（sk-your-api-key-here 等）。
+    # 注意不要用 startswith("${")：合法的 "${ENV_VAR}" 引用视为已配置，交给 load_setting 解析。
+    _unconfigured = not api_key or not str(api_key).strip() or api_key == "${}" or str(api_key).startswith("sk-your")
 
-    if api_key == "${}":
+    if _unconfigured:
         print("\n⚠️ API Key 未配置")
         print("\n请选择配置方式:")
         print("  1. 直接输入 API Key (推荐)")
@@ -72,8 +75,8 @@ def main():
 
             print("\n✅ API Key 已保存到 setting.json")
             print("\n🎉 配置完成！现在可以启动 DeepPulse:")
-            print("  TUI模式: python -m agent.tui_cli")
-            print("  CLI模式: python -m agent.cli")
+            print("  TUI模式: python -m tui")
+            print("  CLI模式: python -m cli")
 
         elif choice == "2":
             print("\n请输入环境变量名称 (例如: DEEPSEEK_API_KEY):")
@@ -112,8 +115,8 @@ def main():
             load_setting()
             print("✅ 配置验证通过")
             print("\n🎉 现在可以启动 DeepPulse:")
-            print("  TUI模式: python -m agent.tui_cli")
-            print("  CLI模式: python -m agent.cli")
+            print("  TUI模式: python -m tui")
+            print("  CLI模式: python -m cli")
         except ValueError as e:
             print(f"❌ 配置验证失败: {e}")
             return 1

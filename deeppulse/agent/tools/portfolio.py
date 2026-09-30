@@ -1,6 +1,9 @@
 """投资组合工具 - 龙虎榜、板块资金流、自选股、交易日志"""
 
 import json
+import math
+
+from deeppulse.agent.tools._shared import norm_trade_date, parse_positive_int
 
 _watchlist = None
 _journal = None
@@ -28,7 +31,15 @@ def dragon_tiger_list(trade_date: str = None) -> str:
     """获取龙虎榜数据（当日上榜个股、净买入额、上榜原因）。"""
     from deeppulse.agent.datalink import get_dragon_tiger
 
-    result = get_dragon_tiger(trade_date)
+    nd = norm_trade_date(trade_date)
+    if nd is None:
+        return json.dumps(
+            {
+                "error": f"trade_date 格式错误: {trade_date!r}，应为 YYYYMMDD（如 20260930），也支持 2026-09-30 等常见写法"
+            },
+            ensure_ascii=False,
+        )
+    result = get_dragon_tiger(nd)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -70,6 +81,24 @@ def remove_from_watchlist(code: str, group: str = "默认") -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+class _GroupScopedWatchlist:
+    """把 WatchlistManager 的查询限定到指定分组，供 format_watchlist_status 渲染分组视图。
+
+    format_watchlist_status 本身不接受 group 参数（在 watchlist.py，本组不可改），
+    这里用鸭子类型代理实现分组过滤，避免 list_watchlist(group=...) 输出全部分组。
+    """
+
+    def __init__(self, mgr, group):
+        self._mgr = mgr
+        self._group = group
+
+    def get_codes(self, group=None):
+        return self._mgr.get_codes(self._group)
+
+    def list(self, group=None):
+        return self._mgr.list(self._group)
+
+
 def list_watchlist(group: str = "") -> str:
     """查看自选股列表及实时状态（含当前价、涨跌幅、目标价距离）。"""
     from deeppulse.agent.watchlist import format_watchlist_status
@@ -79,32 +108,58 @@ def list_watchlist(group: str = "") -> str:
         codes = wl.get_codes(group)
         if not codes:
             return json.dumps({"message": f"分组'{group}'无自选股"}, ensure_ascii=False)
-    result = format_watchlist_status(wl)
+    result = format_watchlist_status(_GroupScopedWatchlist(wl, group) if group else wl)
     return json.dumps({"status": "ok", "display": result}, ensure_ascii=False)
 
 
 def set_alert_rule(code: str, rule_type: str, threshold: float = 0, zone: str = "", ratio: float = 3) -> str:
     """为自选股设置告警规则。触发时会发送桌面通知。"""
-    wl = _get_watchlist()
+    valid_types = ("price_above", "price_below", "pct_change", "volume_spike", "rsi_zone")
+    if rule_type not in valid_types:
+        return json.dumps({"error": f"未知rule_type: {rule_type!r}，可选 {'/'.join(valid_types)}"}, ensure_ascii=False)
+
+    def _positive(value):
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(v) or v <= 0:
+            return None
+        return v
+
     params = {}
-    if rule_type in ("price_above", "price_below"):
-        params["threshold"] = float(threshold)
-    elif rule_type == "pct_change":
-        params["threshold"] = float(threshold)
+    if rule_type in ("price_above", "price_below", "pct_change"):
+        # 阈值必须为正数：price_above 阈值<=0 会恒触发，price_below 阈值<=0 永不触发
+        t = _positive(threshold)
+        if t is None:
+            return json.dumps({"error": f"threshold 必须为正数，收到 {threshold!r}"}, ensure_ascii=False)
+        params["threshold"] = t
     elif rule_type == "rsi_zone":
-        params["zone"] = zone or "oversold"
+        z = str(zone or "oversold").strip().lower()
+        if z not in ("oversold", "overbought"):
+            return json.dumps({"error": f"zone 必须为 oversold 或 overbought，收到 {zone!r}"}, ensure_ascii=False)
+        params["zone"] = z
     elif rule_type == "volume_spike":
-        params["ratio"] = float(ratio)
+        r = _positive(ratio)
+        if r is None:
+            return json.dumps({"error": f"ratio 必须为正数，收到 {ratio!r}"}, ensure_ascii=False)
+        params["ratio"] = r
+
+    # 监控引擎只遍历自选股，非自选股上的规则永不触发（死规则），先拒绝
+    wl = _get_watchlist()
+    if code not in wl.get_codes():
+        return json.dumps({"error": f"{code} 不在自选股中，请先 add_to_watchlist 再设置告警"}, ensure_ascii=False)
     result = wl.add_alert_rule(code, rule_type, params)
     return json.dumps(result, ensure_ascii=False)
 
 
 def check_alerts() -> str:
-    """立即检查自选股告警条件，返回触发的告警列表。"""
-    from deeppulse.agent.watchlist import MarketMonitor
+    """立即检查自选股告警条件，返回触发的告警列表，并尝试发送桌面通知。"""
+    from deeppulse.agent.watchlist import MarketMonitor, send_desktop_notification
 
     wl = _get_watchlist()
     monitor = MarketMonitor(wl)
+    monitor.on_alert(lambda a: send_desktop_notification(a.name, a.message))
     alerts = monitor.check_now()
     if not alerts:
         return json.dumps({"message": "无告警触发", "alerts": []}, ensure_ascii=False)
@@ -132,9 +187,38 @@ def record_trade(
     emotion: str = "",
 ) -> str:
     """记录一笔交易操作。"""
+    # 入口校验必须在写库之前，避免无效交易留下 journal 流水
+    if isinstance(price, bool):
+        return json.dumps({"error": f"price 必须为正数，收到 {price!r}"}, ensure_ascii=False)
+    try:
+        price_v = float(price)
+    except (TypeError, ValueError):
+        return json.dumps({"error": f"price 必须是数字，收到 {price!r}"}, ensure_ascii=False)
+    if not math.isfinite(price_v) or price_v <= 0:
+        return json.dumps({"error": f"price 必须为正数，收到 {price!r}"}, ensure_ascii=False)
+    if isinstance(shares, bool):
+        return json.dumps({"error": f"shares 必须为正整数，收到 {shares!r}"}, ensure_ascii=False)
+    if isinstance(shares, float) and not shares.is_integer():
+        return json.dumps({"error": f"shares 必须为正整数，收到 {shares!r}"}, ensure_ascii=False)
+    try:
+        shares_v = parse_positive_int(shares, "shares")
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
     j = _get_journal()
+
+    # 卖出/减仓不得超持仓（否则 journal 端 max 截断，流水与持仓不一致）
+    if str(action).strip().casefold() in ("卖出", "减仓", "sell", "reduce"):
+        held = 0
+        for p in j.get_portfolio():
+            if p.get("code") == code:
+                held = int(p.get("shares") or 0)
+                break
+        if shares_v > held:
+            return json.dumps({"error": f"卖出数量{shares_v}超过持仓{held}股，未记录"}, ensure_ascii=False)
+
     result = j.record_trade(
-        code, action, float(price), int(shares), name=name, reason=reason, strategy=strategy, emotion=emotion
+        code, action, price_v, shares_v, name=name, reason=reason, strategy=strategy, emotion=emotion
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -190,7 +274,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "sector_fund_flow",
-            "description": "获取板块资金流向（行业板块+概念板块主力净流入排行Top10）。",
+            "description": "获取板块资金流向（行业板块主力净流入排行Top10）。",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
@@ -203,7 +287,7 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "股票代码"},
-                    "days": {"type": "integer", "description": "查询天数，默认30", "default": 30},
+                    "days": {"type": "integer", "description": "查询天数，默认30", "default": 30, "minimum": 1},
                 },
                 "required": ["code"],
             },
@@ -269,7 +353,7 @@ TOOL_DEFINITIONS = [
                     },
                     "threshold": {
                         "type": "number",
-                        "description": "阈值（price_above/below为价格，pct_change为百分比）",
+                        "description": "阈值（price_above/below为价格，pct_change为百分比），必须为正数",
                         "default": 0,
                     },
                     "zone": {
@@ -277,7 +361,11 @@ TOOL_DEFINITIONS = [
                         "description": "RSI区域（oversold=超卖/overbought=超买），仅rsi_zone类型使用",
                         "default": "",
                     },
-                    "ratio": {"type": "number", "description": "放量倍数，仅volume_spike类型使用", "default": 3},
+                    "ratio": {
+                        "type": "number",
+                        "description": "放量倍数（必须为正数），仅volume_spike类型使用",
+                        "default": 3,
+                    },
                 },
                 "required": ["code", "rule_type"],
             },
@@ -298,7 +386,9 @@ TOOL_DEFINITIONS = [
             "description": "查看告警历史记录。",
             "parameters": {
                 "type": "object",
-                "properties": {"limit": {"type": "integer", "description": "返回条数，默认20", "default": 20}},
+                "properties": {
+                    "limit": {"type": "integer", "description": "返回条数，默认20", "default": 20, "minimum": 1}
+                },
                 "required": [],
             },
         },
@@ -312,7 +402,11 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "股票代码"},
-                    "action": {"type": "string", "description": "操作 - 买入/卖出/加仓/减仓"},
+                    "action": {
+                        "type": "string",
+                        "description": "操作 - 买入/卖出/加仓/减仓",
+                        "enum": ["买入", "卖出", "加仓", "减仓"],
+                    },
                     "price": {"type": "number", "description": "成交价格"},
                     "shares": {"type": "integer", "description": "成交数量"},
                     "name": {"type": "string", "description": "股票名称", "default": ""},
@@ -343,7 +437,9 @@ TOOL_DEFINITIONS = [
             "description": "查看近期交易记录。",
             "parameters": {
                 "type": "object",
-                "properties": {"days": {"type": "integer", "description": "查看天数，默认7", "default": 7}},
+                "properties": {
+                    "days": {"type": "integer", "description": "查看天数，默认7", "default": 7, "minimum": 1}
+                },
                 "required": [],
             },
         },

@@ -27,7 +27,12 @@ class SignalGenerator:
 
         核心逻辑：加载K线 → 计算技术指标 → 用 factor_scores_detail
         逐 bar 计算因子得分 → 超过阈值则生成信号。
+
+        只对「已入库最大 signal_time 之后」的 bar 生成信号，历史触发
+        只入库一次，之后扫描不再作为新信号重复产生。
         """
+        from datetime import datetime
+
         from deeppulse.strategy.spec import factor_scores_detail
 
         signals = []
@@ -42,11 +47,40 @@ class SignalGenerator:
             df = TechnicalIndicators.add_all(df)
             spec = stock_strategy.get_spec()
 
+            # 扫描窗口过滤：跳过已入库信号时间及之前的 bar
+            from deeppulse.strategy.repository import get_repository
+
+            max_saved = get_repository().get_max_signal_time(stock_strategy.id, stock_strategy.stock_code)
+            max_saved_rank = 0.0
+            if max_saved is not None:
+                try:
+                    if isinstance(max_saved, datetime):
+                        max_saved_rank = max_saved.timestamp()
+                    else:
+                        max_saved_rank = datetime.fromisoformat(str(max_saved).replace(" ", "T", 1)).timestamp()
+                except (ValueError, TypeError):
+                    max_saved_rank = 0.0
+
             # 检查最近 5 个交易日
             for i in range(max(0, len(df) - 5), len(df)):
                 sub_df = df.iloc[: i + 1]
                 if len(sub_df) < 30:  # 需要足够的数据计算指标
                     continue
+
+                trade_date = df.iloc[i]["trade_date"]
+                bar_rank = 0.0
+                try:
+                    if isinstance(trade_date, datetime):
+                        bar_rank = trade_date.timestamp()
+                    elif hasattr(trade_date, "isoformat"):
+                        bar_rank = datetime.fromisoformat(trade_date.isoformat()).timestamp()
+                    else:
+                        bar_rank = datetime.fromisoformat(str(trade_date).replace(" ", "T", 1)).timestamp()
+                except (ValueError, TypeError):
+                    bar_rank = 0.0
+                if max_saved_rank and bar_rank <= max_saved_rank:
+                    continue  # 历史触发已入库，不再重复生成
+
                 try:
                     detail = factor_scores_detail(spec, sub_df)
                 except Exception:
@@ -61,7 +95,7 @@ class SignalGenerator:
                             stock_name=stock_strategy.stock_name,
                             signal_type=SignalType.BUY,
                             signal_price=float(df.iloc[i]["close"]),
-                            signal_time=str(df.iloc[i]["trade_date"]),
+                            signal_time=str(trade_date),
                             confidence=round(detail["total_score"], 4),
                             matched_conditions=[f["factor_name"] for f in detail["factors"] if f["score"] > 0.5],
                         )
@@ -73,7 +107,7 @@ class SignalGenerator:
         return signals
 
     def scan_all_stock_strategies(self, stock_codes: list[str] = None) -> list[Signal]:
-        """扫描所有已保存的个股策略，生成信号"""
+        """扫描所有已保存的个股策略，生成信号（仅返回实际新入库的信号）"""
         from deeppulse.strategy.repository import get_repository
 
         repo = get_repository()
@@ -90,8 +124,9 @@ class SignalGenerator:
             try:
                 signals = self.generate_signals_for_strategy(ss)
                 for signal in signals:
-                    repo.save_signal(signal)
-                    all_signals.append(signal)
+                    # 仅当实际新插入时才计入，避免重复通知/重复计数
+                    if repo.save_signal(signal):
+                        all_signals.append(signal)
             except Exception as e:
                 print(f"扫描失败 {ss.stock_code}/{ss.name}: {e}")
                 continue

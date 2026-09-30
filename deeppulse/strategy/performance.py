@@ -33,7 +33,11 @@ class AIAnalyzer:
         if not ss:
             return {"error": "策略不存在"}
 
-        spec = ss.get_spec()
+        try:
+            spec = ss.get_spec()
+        except Exception as e:
+            # spec_json 损坏/形状错误（JSONDecodeError/AttributeError 等）时降级提示
+            return {"error": f"策略规格无法解析（spec_json 可能已损坏），请重建策略: {e}"}
 
         # 加载 K 线数据
         df = self._load_kline(ss.stock_code, days=250)
@@ -44,10 +48,13 @@ class AIAnalyzer:
 
         df = TechnicalIndicators.add_all(df)
 
-        # 计算各因子得分
+        # 计算各因子得分（因子已从因子库移除/改名时降级提示）
         from deeppulse.strategy.spec import factor_scores_detail
 
-        detail = factor_scores_detail(spec, df)
+        try:
+            detail = factor_scores_detail(spec, df)
+        except Exception as e:
+            return {"error": f"策略含无法计算的因子（可能已从因子库移除/改名），请重建策略: {e}"}
 
         # 构建行情画像
         from deeppulse.strategy.llm_generator import build_kline_stats

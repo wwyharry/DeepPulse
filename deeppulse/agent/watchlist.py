@@ -10,6 +10,28 @@ from deeppulse import config
 from deeppulse.src.database import get_connection
 from deeppulse.src.query import StockQuery
 
+
+def _elapsed_trading_minutes(now: datetime) -> int:
+    """A 股交易时段已进行的分钟数（9:30-11:30 + 13:00-15:00 共 240 分钟）。
+
+    9:30 前返回 0（跳过集合竞价噪声）；15:00 后返回 240（全天）。
+    """
+    minutes = now.hour * 60 + now.minute
+    morning_start = 9 * 60 + 30
+    morning_end = 11 * 60 + 30
+    afternoon_start = 13 * 60
+    afternoon_end = 15 * 60
+    if minutes < morning_start:
+        return 0
+    if minutes < morning_end:
+        return minutes - morning_start
+    if minutes < afternoon_start:
+        return 120
+    if minutes < afternoon_end:
+        return 120 + (minutes - afternoon_start)
+    return 240
+
+
 # ============ 自选股管理 ============
 
 
@@ -134,10 +156,12 @@ class WatchlistManager:
             price_above: 价格突破 {threshold}
             price_below: 价格跌破 {threshold}
             pct_change: 涨跌幅超过 {threshold}%
-            volume_spike: 成交量放大 {ratio}倍
-            ma_cross: 均线金叉/死叉 {fast}/{slow}
+            volume_spike: 成交量放大 {ratio}倍（按已交易时间折算）
             rsi_zone: RSI进入 {zone: oversold/overbought}
         """
+        # 白名单校验：拒绝永不会触发的死规则（如未实现的 ma_cross）
+        if rule_type not in ("price_above", "price_below", "pct_change", "volume_spike", "rsi_zone"):
+            return {"status": "error", "message": f"不支持的告警规则: {rule_type}"}
         conn = get_connection(self.db_path)
         conn.execute(
             """
@@ -301,15 +325,24 @@ class MarketMonitor:
 
                 elif rule_type == "volume_spike":
                     ratio = params.get("ratio", 3)
-                    # 需要历史均量对比
+                    # 历史均量对比：排除今日未走完的 bar，并按已交易时间折算预期量
                     kdf = query.get_daily_kline(code, limit=6)
-                    if not kdf.empty and len(kdf) >= 2:
-                        avg_vol = kdf["volume"].iloc[:-1].mean()
-                        vol = rt.get("volume", 0)
-                        if avg_vol > 0 and vol / avg_vol > ratio:
-                            triggered = True
-                            actual_ratio = vol / avg_vol
-                            msg = f"{name}({code}) 成交量放大 {actual_ratio:.1f}倍（超过{ratio}倍阈值）"
+                    if not kdf.empty:
+                        today = datetime.now().date().isoformat()
+                        hist = kdf[kdf["trade_date"].astype(str).str[:10] != today]
+                        if len(hist) >= 1:
+                            avg_vol = float(hist["volume"].mean())
+                            vol = rt.get("volume", 0)
+                            elapsed = _elapsed_trading_minutes(datetime.now())
+                            if elapsed > 0 and avg_vol > 0 and vol > 0:
+                                expected = avg_vol * (elapsed / 240)
+                                if expected > 0 and vol > expected * ratio:
+                                    triggered = True
+                                    actual_ratio = vol / expected
+                                    msg = (
+                                        f"{name}({code}) 成交量放大 {actual_ratio:.1f}倍"
+                                        f"（按已交易时间折算，超过{ratio}倍阈值）"
+                                    )
 
                 elif rule_type == "rsi_zone":
                     zone = params.get("zone", "oversold")
@@ -379,7 +412,30 @@ class MarketMonitor:
 
 
 def send_desktop_notification(title: str, message: str) -> bool:
-    """发送桌面通知（Windows Toast）"""
+    """发送桌面通知（Windows Toast / macOS 通知中心 / Linux notify-send，尽力而为）"""
+    import sys
+
+    # macOS 通知中心
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+
+            script = f"display notification {json.dumps(message)} with title {json.dumps(title)}"
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+            return True
+        except Exception:
+            pass
+
+    # Linux notify-send
+    if sys.platform.startswith("linux"):
+        try:
+            import subprocess
+
+            subprocess.run(["notify-send", title, message], capture_output=True, timeout=5)
+            return True
+        except Exception:
+            pass
+
     try:
         from win10toast_click import ToastNotifier
 

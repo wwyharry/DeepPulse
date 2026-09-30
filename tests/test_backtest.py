@@ -1,7 +1,5 @@
 """Unit tests for agent/backtest.py — technical indicators, signals, and backtesting engine."""
 
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -62,8 +60,8 @@ class TestCalcRSI:
     def test_all_gains(self):
         s = pd.Series(range(1, 30), dtype=float)
         rsi = calc_rsi(s, 14)
-        # When all changes are gains (no losses), avg_loss=0 → division by NaN → NaN
-        assert math.isnan(rsi.iloc[-1])
+        # When all changes are gains (no losses), avg_loss=0 → rs=inf → RSI=100
+        assert rsi.iloc[-1] == pytest.approx(100.0)
 
     def test_all_losses(self):
         s = pd.Series(range(30, 1, -1), dtype=float)
