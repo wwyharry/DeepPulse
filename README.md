@@ -8,9 +8,9 @@
 
 | 能力 | 说明 |
 |------|------|
-| **🌐 Web 平台** | **浏览器可视化界面，AI 对话 + 实时行情 + 分析工具 + 战法库** |
-| **📊 策略平台** | **独立策略工作台：策略管理、回测、信号监控、绩效分析、组合管理** |
-| **✨ AI 策略生成** | **LLM 大模型 + 15 因子库：自动生成多因子策略 → 回测 → 网格搜索 → LLM 分析迭代调优，找出最优混合多因子策略** |
+| **📊 策略平台** | **策略管理、回测、信号监控、绩效分析、组合管理** |
+| **✨ AI 策略生成** | **LLM 大模型 + 104 因子库：自动生成多因子策略 → 回测 → 网格搜索 → LLM 分析迭代调优，找出最优混合多因子策略** |
+| **📊 因子库** | **104 个量化因子，覆盖均线、动量、量能、形态等 13 个大类，可视化展示** |
 | **🖥️ TUI 全屏界面** | **暗色金融主题，三栏布局，命令系统和快捷键** |
 | **⌨️ CLI 命令行** | **快速单次分析或交互式对话** |
 | 自然语言交互 | 中文提问，Agent 自动调度 65 个工具完成分析 |
@@ -24,8 +24,8 @@
 | 财经新闻 | 百度/东方财富/新浪多源聚合 |
 | 实时行情 | 新浪 + 东方财富双源冗余，三态熔断器自动故障切换 |
 | **策略回测** | **7 种策略、参数优化、Monte Carlo 模拟** |
-| K 线图 | 专业 K 线图，Web 端交互式，CLI/TUI 自动生成 |
-| 短线战法库 | 40 个内置战法，**Web 端可视化编辑** |
+| K 线图 | 专业 K 线图，CLI/TUI 自动生成 |
+| 短线战法库 | 40 个内置战法，支持自定义扩展 |
 | 自选股 & 告警 | 分组管理、目标价止损价、价格/放量/RSI 告警 |
 | 交易日志 | 记录买卖、自动更新持仓、生成周/月复盘报告 |
 | 长期记忆 | 跨会话记住分析结论、用户偏好、教学纠错 |
@@ -38,7 +38,6 @@ graph TB
     subgraph 入口层
         CLI[CLI 命令行]
         TUI[TUI 终端界面]
-        WEB[Web 平台<br/>FastAPI + 浏览器]
     end
 
     subgraph Agent 核心
@@ -73,7 +72,6 @@ graph TB
 
     CLI --> REACT
     TUI --> REACT
-    WEB -->|WebSocket| REACT
     REACT --> CLIENT
     REACT --> TOOLS
     REACT --> MEMORY
@@ -255,19 +253,12 @@ cp setting.example.json setting.json
 ### 第三步：启动
 
 ```bash
-# 方式一：Web 平台（推荐）
-python -m webapp
-
-# 方式二：CLI 命令行
+# CLI 命令行
 python -m cli "分析一下贵州茅台"
 
-# 方式三：TUI 终端界面
+# TUI 终端界面
 python -m tui
 ```
-
-Web 平台启动后访问 http://localhost:8000
-
-**策略平台**：访问 http://localhost:8000/strategy 进入独立的策略工作台，支持策略管理、回测、信号监控、绩效分析和组合管理。
 
 | LLM | protocol | base_url |
 |-----|----------|----------|
@@ -317,24 +308,7 @@ python scripts/fetch_kline.py --source baostock --start 2024-01-01 --end 2026-06
 
 ### 第四步：启动 DeepPulse
 
-DeepPulse 提供三种界面模式：
-
-#### 🌐 Web 平台（推荐）— 浏览器可视化界面
-
-```bash
-python -m webapp
-```
-
-启动后访问 http://localhost:8000
-
-**Web 平台特点**：
-- 🤖 **AI 对话** — 流式输出，推理过程展示，工具调用可视化
-- 📊 **行情中心** — 实时行情、K 线图、技术指标、板块动态
-- 🔬 **深度分析** — 趋势强度、背离检测、支撑压力、量价分析、多周期共振
-- 🔍 **条件选股** — DuckDB 高性能选股，支持组合条件
-- 📰 **新闻资讯** — 多源聚合，涨停快讯，板块动态
-- 📚 **战法库** — 40 个内置战法，可视化编辑
-- ⚖️ **智能评测** — 自适应评分，根据问题类型给出改进建议
+DeepPulse 提供两种界面模式：
 
 #### 🎨 TUI 模式 — 全屏终端界面
 
@@ -641,7 +615,7 @@ class TushareSource(BaseDataSource):
 
 ```
 DeepPulse/
-├── deeppulse/                 # Python 核心包（三端共享）
+├── deeppulse/                 # Python 核心包（CLI/TUI 共享）
 │   ├── __init__.py
 │   ├── config.py              # 项目配置
 │   ├── agent/                 # Agent 核心
@@ -652,16 +626,17 @@ DeepPulse/
 │   │   ├── prompts.py         # System Prompt
 │   │   ├── judge_agent.py     # 评判Agent（自适应评分）
 │   │   ├── indicators.py      # 统一技术指标引擎
-│   │   ├── divergence.py      # 背离检测
-│   │   ├── support_resistance.py # 支撑压力位
-│   │   ├── trend.py           # 趋势强度评估
-│   │   ├── volume_analysis.py # 量价分析
-│   │   ├── screener_v2.py     # 高性能选股器
-│   │   ├── backtest_optimizer.py # 回测参数优化
-│   │   ├── timeframe_confluence.py # 多周期共振
-│   │   ├── fund_flow.py       # 多数据源资金流向
 │   │   ├── strategies/        # 40 个短线战法（Markdown）
 │   │   └── ...
+│   ├── strategy/              # 策略平台核心
+│   │   ├── models.py          # 数据模型
+│   │   ├── engine.py          # 策略引擎
+│   │   ├── backtest.py        # 回测引擎
+│   │   ├── factor_library.py  # 因子库（104 因子，13 大类）
+│   │   ├── spec.py            # 策略规格
+│   │   ├── llm_generator.py   # LLM 策略生成
+│   │   ├── optimizer.py       # 自动调优循环
+│   │   └── repository.py      # 策略仓库
 │   └── src/                   # 数据层
 │       ├── database.py        # DuckDB 表操作
 │       ├── query.py           # 数据查询接口
@@ -675,35 +650,12 @@ DeepPulse/
 ├── tui/                       # TUI 入口
 │   └── __main__.py
 │
-├── web/                       # Web 后端
-│   ├── app/
-│   │   ├── main.py            # FastAPI 入口
-│   │   ├── api/               # REST API
-│   │   ├── ws/                # WebSocket
-│   │   └── services/          # 业务逻辑
-│   └── static/
-│       └── index.html         # 前端页面
-│
-├── webapp/                    # 一键启动脚本
-│   └── __main__.py
-│
 ├── scripts/                   # 数据采集脚本
 ├── tests/                     # 测试
 ├── setting.json               # LLM 配置（已 gitignore）
 ├── setting.example.json       # 配置模板
 ├── pyproject.toml             # 打包与工具配置
 └── requirements.txt           # 依赖
-│   ├── test_screener.py       # 选股器测试
-│   ├── test_realtime.py       # 实时行情测试
-│   ├── test_resilience.py     # 韧性基础设施测试
-│   ├── test_client.py         # LLM 客户端测试
-│   ├── test_database.py       # 数据库测试
-│   ├── test_query.py          # 查询接口测试
-│   ├── test_memory_unit.py    # 记忆系统测试
-│   └── test_memory_upgrade.py # 记忆集成测试
-│
-└── db/                        # 数据库（已 gitignore）
-    └── astock.duckdb
 ```
 
 ## 技术栈
@@ -716,7 +668,8 @@ DeepPulse/
 | 实时行情 | 新浪财经 + 东方财富（双源冗余） |
 | 语义搜索 | sentence-transformers（本地 768 维） + BM25 |
 | 新闻爬虫 | curl_cffi + BeautifulSoup |
-| 语言 | Python 3.10+ |
+| 语言/运行时 | Python 3.10+ |
+| 图表 | mplfinance（K 线图） |
 
 ## 注意事项
 

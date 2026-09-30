@@ -170,7 +170,7 @@ def default_spec() -> StrategySpec:
         factors=[
             FactorSpec(factor_id="ma_trend", params={"fast": 5, "slow": 20}, weight=1.0),
             FactorSpec(factor_id="macd_trend", weight=0.8),
-            FactorSpec(factor_id="volume_breakout", params={"vol_ratio": 2.0, "pct": 3.0}, weight=0.6),
+            FactorSpec(factor_id="vol_breakout", params={"vol_ratio": 2.0, "pct": 3.0}, weight=0.6),
         ],
         entry_threshold=0.6,
         exit_preset="balanced",

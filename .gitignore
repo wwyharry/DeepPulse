@@ -45,8 +45,5 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Web data (user sessions, judge history)
-web/data/
+# Runtime data
 deeppulse/data/
-frontend/node_modules/
-frontend/.next/

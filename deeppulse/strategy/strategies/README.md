@@ -115,19 +115,18 @@
 Agent: [自动调用 search_strategy("放量突破")]
 ```
 
-### 通过 Web 界面
-访问 http://localhost:8000 → 战法页面
+### 通过 Python API
+```python
+from deeppulse.strategy import StrategyRepository
 
-### 通过 API
-```bash
+repo = StrategyRepository()
+
 # 列出所有战法
-curl http://localhost:8000/api/strategy/list
+strategies = repo.load_all()
 
 # 搜索战法
-curl -X POST http://localhost:8000/api/strategy/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "放量突破"}'
+results = repo.search("放量突破", top_k=5)
 
 # 获取战法详情
-curl http://localhost:8000/api/strategy/{strategy_id}
+s = repo.get_strategy(strategy_id)
 ```

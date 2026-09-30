@@ -52,7 +52,6 @@ dev = [
 [project.scripts]
 deeppulse = "deeppulse.agent.cli:main"
 deeppulse-tui = "deeppulse.agent.tui_cli:main"
-deeppulse-web = "webapp.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["deeppulse*"]

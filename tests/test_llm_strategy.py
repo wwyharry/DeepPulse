@@ -265,38 +265,3 @@ class TestAutoOptimizer:
         report = optimizer.optimize("600519", days=250, max_iterations=2, kline_stats=None)
         assert report.history[0]["score"] is None
         assert report.best_spec.validate() == []  # 兜底默认策略
-
-
-# ============ API ============
-
-
-class TestLLMStrategyAPI:
-    @pytest.fixture
-    def client(self):
-        from fastapi.testclient import TestClient
-
-        from web.app.main import app
-
-        return TestClient(app)
-
-    def test_factors_endpoint(self, client):
-        resp = client.get("/api/strategy/llm/factors")
-        assert resp.status_code == 200
-        factors = resp.json()["factors"]
-        assert len(factors) >= 15
-        assert {"id", "name", "description", "params"} <= set(factors[0])
-
-    def test_generate_invalid_code(self, client):
-        resp = client.post("/api/strategy/llm/generate", json={"code": "abc"})
-        assert resp.status_code == 400
-
-    def test_generate_invalid_days(self, client):
-        resp = client.post("/api/strategy/llm/generate", json={"code": "600519", "days": 10})
-        assert resp.status_code == 422  # pydantic 校验
-
-    def test_optimize_invalid_iterations(self, client):
-        resp = client.post(
-            "/api/strategy/llm/optimize",
-            json={"code": "600519", "max_iterations": 99},
-        )
-        assert resp.status_code == 422
