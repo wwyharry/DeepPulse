@@ -59,6 +59,9 @@ class Strategy:
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
+    # 来源：builtin=战法库内置，user=用户创建
+    source: str = "user"
+
     # 文件信息（兼容现有文件系统）
     filename: str = ""
 

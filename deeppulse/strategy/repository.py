@@ -31,31 +31,38 @@ class StrategyRepository:
         self._strategies: dict[str, Strategy] = {}
         self._loaded = False
 
-    def load_all(self) -> list[Strategy]:
-        """加载所有策略"""
-        if self._loaded:
-            return list(self._strategies.values())
+    def load_all(self, source: str = None) -> list[Strategy]:
+        """加载所有策略
 
-        self._strategies = {}
+        Args:
+            source: 过滤来源 — "builtin"=战法库内置, "user"=用户创建, None=全部
+        """
+        if not self._loaded:
+            self._strategies = {}
 
-        # 从文件系统加载
-        if self.strategies_dir.exists():
-            for f in sorted(self.strategies_dir.glob("*.md")):
-                if f.name == "README.md":
-                    continue
-                try:
-                    content = f.read_text(encoding="utf-8").strip()
-                    if content:
-                        strategy = Strategy.from_markdown(f.name, content)
-                        self._strategies[strategy.id] = strategy
-                except Exception as e:
-                    print(f"加载策略文件 {f.name} 失败: {e}")
+            # 从文件系统加载（战法库内置策略）
+            if self.strategies_dir.exists():
+                for f in sorted(self.strategies_dir.glob("*.md")):
+                    if f.name == "README.md":
+                        continue
+                    try:
+                        content = f.read_text(encoding="utf-8").strip()
+                        if content:
+                            strategy = Strategy.from_markdown(f.name, content)
+                            strategy.source = "builtin"
+                            self._strategies[strategy.id] = strategy
+                    except Exception as e:
+                        print(f"加载策略文件 {f.name} 失败: {e}")
 
-        # 从DuckDB加载（如果有自定义策略）
-        self._load_from_db()
+            # 从DuckDB加载（用户创建的策略）
+            self._load_from_db()
 
-        self._loaded = True
-        return list(self._strategies.values())
+            self._loaded = True
+
+        strategies = list(self._strategies.values())
+        if source:
+            strategies = [s for s in strategies if s.source == source]
+        return strategies
 
     def _load_from_db(self):
         """从DuckDB加载自定义策略"""
@@ -80,6 +87,7 @@ class StrategyRepository:
                     for row in rows:
                         data = dict(zip(columns, row))
                         strategy = Strategy.from_dict(data)
+                        strategy.source = "user"  # DuckDB中的都是用户创建的
                         if strategy.id not in self._strategies:
                             self._strategies[strategy.id] = strategy
             finally:
@@ -228,6 +236,7 @@ class StrategyRepository:
                         risk_level VARCHAR,
                         status VARCHAR,
                         version INTEGER,
+                        source VARCHAR DEFAULT 'user',
                         filename VARCHAR,
                         created_at TIMESTAMP,
                         updated_at TIMESTAMP
@@ -239,8 +248,8 @@ class StrategyRepository:
                     """
                     INSERT OR REPLACE INTO strategies
                     (id, name, category, tags, description, content, conditions, parameters,
-                     risk_level, status, version, filename, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     risk_level, status, version, source, filename, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     [
                         strategy.id,
@@ -254,6 +263,7 @@ class StrategyRepository:
                         strategy.risk_level,
                         strategy.status,
                         strategy.version,
+                        strategy.source,
                         strategy.filename,
                         strategy.created_at,
                         strategy.updated_at,

@@ -19,12 +19,9 @@ from deeppulse.strategy.llm_generator import LLMStrategyGenerator, apply_actions
 from deeppulse.strategy.models import BacktestResult
 from deeppulse.strategy.spec import StrategySpec, compile_signal_func, default_spec
 
-# 基础训练轮数：前N轮不使用LLM调优
-BASE_TRAINING_ROUNDS = 3
+# 基础训练轮数：前N轮不使用LLM调优（动态计算，最少1轮）
 # 收敛阈值：综合评分提升小于该比例视为无提升
 CONVERGENCE_TOLERANCE = 0.005
-# 最小迭代轮数：至少执行这么多轮才允许收敛
-MIN_ITERATIONS = 5
 # 滑动窗口大小：用于检测趋势
 TREND_WINDOW = 3
 # 每轮回测次数上限：避免参数组合爆炸
@@ -137,17 +134,23 @@ class AutoOptimizer:
 
         流程：
         1. 首轮由 LLM 生成初始策略（失败则用 default_spec() 兜底）
-        2. 前3轮：基础训练，回测 + 简单参数微调
-        3. 第4-N轮：LLM 动态调优，回测 + LLM 分析 + 参数优化
+        2. 前N轮：基础训练，回测 + 简单参数微调
+        3. 后续轮次：LLM 动态调优，回测 + LLM 分析 + 参数优化
         4. 最终：LLM 综合分析所有轮次，选出最优策略 + 原因
 
         Args:
             code: 股票代码
             days: 回测天数
-            max_iterations: 最大迭代轮数（建议5-10）
+            max_iterations: 最大迭代轮数（用户自定义，1-20）
             hint: 用户偏好提示
             kline_stats: K线统计信息
         """
+        # 动态计算基础训练轮数和最小迭代轮数
+        # 基础训练：总轮数的40%（至少1轮，最多3轮）
+        base_training_rounds = max(1, min(3, max_iterations * 2 // 5))
+        # 最小迭代：总轮数的60%（至少2轮，不超过max_iterations）
+        min_iterations = min(max_iterations, max(2, max_iterations * 3 // 5))
+
         # ---- 初始策略 ----
         spec = default_spec()
         init_comment = "使用内置默认策略"
@@ -176,14 +179,14 @@ class AutoOptimizer:
                 history.append({
                     "iteration": iteration, "spec": spec.to_dict(), "score": None,
                     "metrics": {}, "llm_comment": f"回测失败: {e}",
-                    "phase": "base" if iteration <= BASE_TRAINING_ROUNDS else "llm",
+                    "phase": "base" if iteration <= base_training_rounds else "llm",
                 })
                 break
 
             # ============================================================
             #  b) 根据阶段选择调优方式
             # ============================================================
-            phase = "base" if iteration <= BASE_TRAINING_ROUNDS else "llm"
+            phase = "base" if iteration <= base_training_rounds else "llm"
             llm_comment = ""
             next_spec = spec
 
@@ -274,8 +277,8 @@ class AutoOptimizer:
                 else:
                     improvement = float("inf")
 
-                # 至少执行 MIN_ITERATIONS 轮，且最近 TREND_WINDOW 轮平均得分无提升
-                if iteration >= MIN_ITERATIONS and improvement < CONVERGENCE_TOLERANCE:
+                # 至少执行 min_iterations 轮，且最近 TREND_WINDOW 轮平均得分无提升
+                if iteration >= min_iterations and improvement < CONVERGENCE_TOLERANCE:
                     converged = True
 
             if converged:
