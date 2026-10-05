@@ -41,6 +41,12 @@ EMBEDDING_CACHE_MAX = 5000  # 内存中缓存的最大向量数
 # 工具输出限制：单个工具结果的最大字符数，防止上下文溢出导致 LLM 调用卡死
 MAX_TOOL_RESULT_CHARS = 8000
 
+# 消息历史预算：每轮 LLM 调用前按预算做工具组原子折叠 + 滑动窗口（B7 上下文管理）
+HISTORY_MAX_MESSAGES = 60  # 保留历史最大消息条数（不含 system 主提示）；0 = 不限
+HISTORY_MAX_CHARS = 40000  # 保留历史最大字符预算；0 = 不限
+HISTORY_KEEP_LAST_TURNS = 1  # 最近 N 轮用户问答永不折叠
+HISTORY_FOLD_SUMMARY_MAX_CHARS = 600  # 折叠占位符摘要的最大字符数
+
 # 工具调用去重检测窗口：检查最近N次调用是否有重复
 TOOL_REPEAT_DETECTION_WINDOW = 5
 

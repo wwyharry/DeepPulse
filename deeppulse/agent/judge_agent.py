@@ -153,7 +153,10 @@ class JudgeAgent:
 
     def _build_judge_context(self, messages: list) -> str:
         """从 messages 构建评测上下文"""
+        from deeppulse.agent.history import FOLD_MARKER
+
         user_query = ""
+        folded_summary = ""
         rounds = []
         current_round = None
 
@@ -161,6 +164,10 @@ class JudgeAgent:
             role = msg.get("role", "")
 
             if role == "system":
+                content = str(msg.get("content", "") or "")
+                # B7 折叠占位符：早前上下文摘要，注入评测上下文而非丢弃
+                if content.startswith(FOLD_MARKER):
+                    folded_summary = content
                 continue
 
             if role == "user":
@@ -211,14 +218,17 @@ class JudgeAgent:
                 if msg.get("role") == "assistant" and msg.get("content"):
                     last_content, _ = _text_of(msg["content"])
                     break
-            return f"## 用户问题\n{user_query}\n\n## 分析结论\n{last_content}\n\n请评估以上分析。"
+            folded_part = f"\n## 早前上下文（已折叠）\n{folded_summary}\n" if folded_summary else ""
+            return f"## 用户问题\n{user_query}\n{folded_part}\n## 分析结论\n{last_content}\n\n请评估以上分析。"
 
-        return self._build_context(user_query, rounds)
+        return self._build_context(user_query, rounds, folded_summary)
 
-    def _build_context(self, user_query: str, rounds: list) -> str:
+    def _build_context(self, user_query: str, rounds: list, folded_summary: str = "") -> str:
         """构建精简上下文"""
         parts = []
         parts.append(f"## 用户问题\n{user_query}\n")
+        if folded_summary:
+            parts.append(f"## 早前上下文（已折叠）\n{folded_summary}\n")
 
         # 统计
         total_tools = sum(len(r["tool_calls"]) for r in rounds)

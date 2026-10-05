@@ -146,3 +146,171 @@ class TestBuildSystemContent:
         mock_agent.messages = [{"role": "system", "content": "old"}]
         mock_agent.refresh_memory_context()
         assert mock_agent.messages[0]["content"].startswith("test prompt")
+
+
+# ── B7 上下文管理接线 ──────────────────────────────────────
+
+
+class FakeLLM:
+    """记录收到 messages 的假客户端（openai 协议）"""
+
+    protocol = "openai"
+
+    def __init__(self):
+        self.received = []
+        self.last_stream_response = None
+
+    def chat(self, messages, tools=None):
+        self.received.append(list(messages))
+        return {"content": "ok", "tool_calls": None, "stop_reason": "stop"}
+
+    def chat_stream(self, messages, tools=None):
+        self.received.append(list(messages))
+
+        class Chunk:
+            type = "content"
+            text = "ok"
+
+        yield Chunk()
+        self.last_stream_response = {"content": "ok", "tool_calls": None, "stop_reason": "stop"}
+
+    async def chat_stream_async(self, messages, tools=None):
+        self.received.append(list(messages))
+
+        class Chunk:
+            type = "content"
+            text = "ok"
+
+        yield Chunk()
+        self.last_stream_response = {"content": "ok", "tool_calls": None, "stop_reason": "stop"}
+
+    def format_assistant_message(self, response):
+        return {"role": "assistant", "content": response.get("content") or ""}
+
+
+def _seed_long_history(agent, n_turns=6):
+    msgs = [{"role": "system", "content": "test"}]
+    for t in range(n_turns):
+        msgs.append({"role": "user", "content": f"问题{t}"})
+        msgs.append({"role": "assistant", "content": f"回答{t}"})
+    agent.messages = msgs
+    return msgs
+
+
+class TestHistoryBudgetConfig:
+    def test_budget_value_semantics(self):
+        assert StockAgent._budget_value(None, 60) == 60
+        assert StockAgent._budget_value(-5, 60) == 60
+        assert StockAgent._budget_value("abc", 60) == 60
+        assert StockAgent._budget_value(0, 60) == 0  # 0 = 不限
+        assert StockAgent._budget_value("30", 60) == 30
+
+    def test_init_budget_defaults_and_overrides(self):
+        with (
+            patch("deeppulse.agent.agent.LLMClient") as MockClient,
+            patch("deeppulse.agent.agent.MemoryManager") as MockMem,
+            patch("deeppulse.agent.agent.get_strategy_loader") as MockStrat,
+            patch("deeppulse.agent.agent.build_system_prompt", return_value="p"),
+            patch("deeppulse.agent.agent.detect_market_state", return_value=None),
+        ):
+            MockClient.return_value.setting = {"agent": {"verbose": False, "max_rounds": 10}}
+            MockMem.return_value.get_context_block.return_value = ""
+            MockMem.return_value.user_profile.get_profile.return_value = "{}"
+            MockStrat.return_value.get_all_content_summary.return_value = ""
+            # 缺新键 → 默认值
+            agent = StockAgent()
+            assert agent.max_history_messages == 60
+            assert agent.max_history_chars == 40000
+            assert agent.history_keep_last_turns == 1
+            assert agent._compaction_stats == {"folded_messages": 0, "folded_tool_calls": 0}
+            # 显式值生效（0 = 不限）
+            agent2 = StockAgent(
+                setting={
+                    "agent": {
+                        "verbose": False,
+                        "max_rounds": 10,
+                        "max_history_messages": 0,
+                        "max_history_chars": 1234,
+                        "history_keep_last_turns": 3,
+                    }
+                }
+            )
+            assert agent2.max_history_messages == 0
+            assert agent2.max_history_chars == 1234
+            assert agent2.history_keep_last_turns == 3
+
+
+class TestCompactionWiring:
+    def test_chat_folds_before_llm_call(self, mock_agent):
+        mock_agent.client = FakeLLM()
+        mock_agent.max_history_messages = 8
+        mock_agent.max_history_chars = 0
+        mock_agent.history_keep_last_turns = 1
+        mock_agent._tool_call_history = []
+        mock_agent._consecutive_tool_errors = 0
+        mock_agent._truncated_tools = set()
+        msgs = _seed_long_history(mock_agent, n_turns=6)
+
+        mock_agent.chat("新问题")
+
+        received = mock_agent.client.received[0]
+        assert len(received) < len(msgs) + 1  # 发送的是折叠后列表
+        assert {"role": "user", "content": "新问题"} in received
+        assert {"role": "user", "content": "问题1"} not in received  # 旧轮已折叠
+        assert received[0] is msgs[0]  # system 主提示同一引用
+        assert mock_agent.messages[0] is msgs[0]
+        assert mock_agent._compaction_stats["folded_messages"] > 0
+
+    def test_chat_stream_folds_before_llm_call(self, mock_agent):
+        mock_agent.client = FakeLLM()
+        mock_agent.max_history_messages = 8
+        mock_agent.max_history_chars = 0
+        mock_agent.history_keep_last_turns = 1
+        mock_agent._tool_call_history = []
+        mock_agent._consecutive_tool_errors = 0
+        mock_agent._truncated_tools = set()
+        _seed_long_history(mock_agent, n_turns=6)
+
+        list(mock_agent.chat_stream("新问题"))
+
+        received = mock_agent.client.received[0]
+        assert len(received) < 15
+        assert {"role": "user", "content": "问题1"} not in received
+
+    def test_chat_stream_async_folds_before_llm_call(self, mock_agent):
+        import asyncio
+
+        mock_agent.client = FakeLLM()
+        mock_agent.max_history_messages = 8
+        mock_agent.max_history_chars = 0
+        mock_agent.history_keep_last_turns = 1
+        mock_agent._tool_call_history = []
+        mock_agent._consecutive_tool_errors = 0
+        mock_agent._truncated_tools = set()
+        _seed_long_history(mock_agent, n_turns=6)
+
+        async def run():
+            async for _ in mock_agent.chat_stream_async("新问题"):
+                pass
+
+        asyncio.run(run())
+        received = mock_agent.client.received[0]
+        assert len(received) < 15
+        assert {"role": "user", "content": "问题1"} not in received
+
+    def test_session_summary_survives_fold(self, mock_agent):
+        # 早期用户消息已被折叠出 messages，摘要仍从前 3 个用户问题生成
+        mock_agent._user_messages = ["第一问", "第二问", "第三问", "第四问"]
+        mock_agent.messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "第四问"}]
+        summary = mock_agent._generate_session_summary()
+        assert "第一问" in summary and "第三问" in summary
+
+    def test_reset_clears_compaction_stats(self, mock_agent):
+        mock_agent._tool_call_history = []
+        mock_agent._consecutive_tool_errors = 0
+        mock_agent._truncated_tools = set()
+        mock_agent._compaction_stats = {"folded_messages": 9, "folded_tool_calls": 3}
+        mock_agent.memory.user_profile.extract_from_conversation.return_value = {}
+        mock_agent.reset()
+        assert mock_agent._compaction_stats == {"folded_messages": 0, "folded_tool_calls": 0}
+        assert len(mock_agent.messages) == 1 and mock_agent.messages[0]["role"] == "system"

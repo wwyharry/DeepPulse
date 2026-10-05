@@ -624,6 +624,7 @@ DeepPulse/
 │   │   ├── tools/             # 64 个工具定义
 │   │   ├── memory/            # 长期记忆系统
 │   │   ├── prompts.py         # System Prompt
+│   │   ├── history.py         # 消息历史上下文管理（工具组原子折叠 + 滑动窗口）
 │   │   ├── judge_agent.py     # 评判Agent（自适应评分）
 │   │   ├── indicators.py      # 统一技术指标引擎
 │   │   └── ...

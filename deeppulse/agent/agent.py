@@ -7,6 +7,7 @@ import uuid
 
 from deeppulse import config as _config
 from deeppulse.agent.client import LLMClient
+from deeppulse.agent.history import compact_history, count_tool_calls
 from deeppulse.agent.memory import MemoryManager
 from deeppulse.agent.prompts import build_system_prompt
 from deeppulse.agent.reasoning import build_dynamic_system_prompt, detect_market_state
@@ -22,6 +23,17 @@ class StockAgent:
         self.setting = setting or self.client.setting
         self.verbose = verbose if verbose is not None else self.setting["agent"]["verbose"]
         self.max_rounds = self.setting["agent"]["max_rounds"]
+
+        # 消息历史预算（B7 上下文管理）：0 = 该项不限，负数/非法值回退默认
+        agent_cfg = self.setting.get("agent") or {}
+        self.max_history_messages = self._budget_value(
+            agent_cfg.get("max_history_messages"), _config.HISTORY_MAX_MESSAGES
+        )
+        self.max_history_chars = self._budget_value(agent_cfg.get("max_history_chars"), _config.HISTORY_MAX_CHARS)
+        self.history_keep_last_turns = self._budget_value(
+            agent_cfg.get("history_keep_last_turns"), _config.HISTORY_KEEP_LAST_TURNS
+        )
+        self._compaction_stats = {"folded_messages": 0, "folded_tool_calls": 0}
 
         # 记忆系统
         self.session_id = session_id or str(uuid.uuid4())
@@ -70,6 +82,43 @@ class StockAgent:
             system_content += "\n\n## 可用短线战法一览\n" + strategy_summary
         return system_content
 
+    @staticmethod
+    def _budget_value(value, default: int) -> int:
+        """历史预算配置解析：None/负数/非法 → 默认；0 → 不限"""
+        if value is None:
+            return default
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            return default
+        return v if v >= 0 else default
+
+    def _prepare_llm_messages(self) -> None:
+        """每轮 LLM 调用前统一入口：按预算对 self.messages 原地折叠（三 chat 变体共用）"""
+        # 防御式读取：兼容手工组装的 agent（测试 __new__ 构造）缺预算/统计属性
+        protocol = getattr(self.client, "protocol", "openai")
+        max_messages = getattr(self, "max_history_messages", _config.HISTORY_MAX_MESSAGES)
+        max_chars = getattr(self, "max_history_chars", _config.HISTORY_MAX_CHARS)
+        keep_last = getattr(self, "history_keep_last_turns", _config.HISTORY_KEEP_LAST_TURNS)
+        stats = getattr(self, "_compaction_stats", None)
+        if stats is None:
+            stats = self._compaction_stats = {"folded_messages": 0, "folded_tool_calls": 0}
+        before_msgs = len(self.messages)
+        before_calls = count_tool_calls(self.messages)
+        self.messages = compact_history(
+            self.messages,
+            protocol=protocol,
+            max_messages=max_messages,
+            max_chars=max_chars,
+            keep_last_turns=keep_last,
+        )
+        folded_msgs = before_msgs - len(self.messages)
+        folded_calls = before_calls - count_tool_calls(self.messages)
+        if folded_msgs > 0:
+            stats["folded_messages"] += folded_msgs
+        if folded_calls > 0:
+            stats["folded_tool_calls"] += folded_calls
+
     def chat(self, user_input: str) -> str:
         """处理用户输入，返回 Agent 回复（非流式）"""
         self._prepare_user_input(user_input)
@@ -79,6 +128,7 @@ class StockAgent:
                 if self.verbose:
                     print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
+                self._prepare_llm_messages()
                 response = self.client.chat(self.messages, tools=TOOL_DEFINITIONS)
                 self.messages.append(self.client.format_assistant_message(response))
 
@@ -148,6 +198,7 @@ class StockAgent:
                 if self.verbose:
                     print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
+                self._prepare_llm_messages()
                 for chunk in self.client.chat_stream(self.messages, tools=TOOL_DEFINITIONS):
                     if chunk.type == "thinking":
                         yield ("thinking", chunk.text)
@@ -201,6 +252,7 @@ class StockAgent:
                 if self.verbose:
                     print(f"\n[Round {round_num + 1}] 调用 LLM...")
 
+                self._prepare_llm_messages()
                 async for chunk in self.client.chat_stream_async(self.messages, tools=TOOL_DEFINITIONS):
                     if chunk.type == "thinking":
                         yield ("thinking", chunk.text)
@@ -545,12 +597,12 @@ class StockAgent:
         )
 
     def _generate_session_summary(self) -> str:
-        """从对话历史中提取会话摘要"""
-        # 收集用户消息和助手的关键回复
-        user_msgs = []
-        for msg in self.messages:
-            if msg["role"] == "user" and isinstance(msg["content"], str):
-                user_msgs.append(msg["content"][:100])
+        """从对话历史中提取会话摘要
+
+        数据源用 _user_messages（全量留存）：历史折叠（B7）后早期用户消息可能
+        已从 self.messages 移走，从 _user_messages 取才无损。
+        """
+        user_msgs = [m[:100] for m in self._user_messages]
 
         if not user_msgs:
             return ""
@@ -601,5 +653,6 @@ class StockAgent:
         self._tool_call_history.clear()
         self._consecutive_tool_errors = 0
         self._truncated_tools.clear()
+        self._compaction_stats = {"folded_messages": 0, "folded_tool_calls": 0}
         # 重新构建 system prompt（含动态推理链、记忆与战法摘要）
         self.messages = [{"role": "system", "content": self._build_system_content()}]

@@ -487,12 +487,16 @@ class DeepPulseTUI(App):
         msg_count = len(self.agent.messages)
         tool_count = sum(1 for m in self.agent.messages if m.get("role") == "tool")
         session_id = self.agent.session_id[:8]
+        compaction = getattr(self.agent, "_compaction_stats", {}) or {}
+        folded_msgs = compaction.get("folded_messages", 0)
+        folded_calls = compaction.get("folded_tool_calls", 0)
 
         stats_text = (
             f"📊 会话统计\n\n"
             f"  会话ID: {session_id}\n"
             f"  消息总数: {msg_count}\n"
             f"  工具调用: {tool_count} 次\n"
+            f"  历史折叠: {folded_msgs} 条（含 {folded_calls} 次工具调用）\n"
             f"  跟踪股票: {', '.join(self.agent._session_stocks) or '无'}\n"
             f"  讨论主题: {', '.join(self.agent._session_topics) or '无'}"
         )
