@@ -67,43 +67,6 @@ def multi_timeframe_analysis(code: str, limit: int = 50) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
-def backtest_stock(
-    code: str,
-    strategy: str = "macd_cross",
-    days: int = 500,
-    stop_loss: float = 0.05,
-    take_profit: float = 0.10,
-    max_hold: int = 20,
-) -> str:
-    """对单只股票运行指定策略的历史回测，统计胜率、盈亏比、最大回撤等指标。"""
-    from deeppulse.agent.backtest import backtest_stock as _backtest_stock
-
-    try:
-        result = _backtest_stock(
-            code,
-            strategy=strategy,
-            days=int(days),
-            stop_loss=float(stop_loss),
-            take_profit=float(take_profit),
-            max_hold=int(max_hold),
-        )
-        return json.dumps(result.to_dict(), ensure_ascii=False, default=str)
-    except Exception as e:
-        return json.dumps({"error": f"回测失败: {e}"}, ensure_ascii=False)
-
-
-def backtest_multi_stock(strategy: str = "macd_cross", codes: str = "", days: int = 500, top_n: int = 10) -> str:
-    """在多只股票上回测同一策略，汇总统计胜率和收益率。"""
-    from deeppulse.agent.backtest import backtest_strategy_multi_stock
-
-    try:
-        code_list = [c.strip() for c in codes.split(",") if c.strip()] if codes else None
-        result = backtest_strategy_multi_stock(strategy=strategy, codes=code_list, days=int(days), top_n=int(top_n))
-        return json.dumps(result, ensure_ascii=False, default=str)
-    except Exception as e:
-        return json.dumps({"error": f"批量回测失败: {e}"}, ensure_ascii=False)
-
-
 def generate_chart(code: str, days: int = 120, show_macd: bool = True, show_rsi: bool = False) -> str:
     """生成K线图（带均线、MACD等技术指标），保存到本地文件。"""
     from deeppulse.agent.charts import generate_kline_chart

@@ -133,16 +133,6 @@ class TechnicalIndicators:
         cum_vol = volume.cumsum()
         return cum_tp_vol / cum_vol.replace(0, np.nan)
 
-    @staticmethod
-    def williams_alligator(high: pd.Series, low: pd.Series):
-        """一目均衡表（简化版：转换线/基准线/先行带）"""
-        mid = (high + low) / 2
-        tenkan = (mid.rolling(9).max() + mid.rolling(9).min()) / 2  # 转换线
-        kijun = (mid.rolling(26).max() + mid.rolling(26).min()) / 2  # 基准线
-        senkou_a = ((tenkan + kijun) / 2).shift(26)  # 先行带A
-        senkou_b = ((mid.rolling(52).max() + mid.rolling(52).min()) / 2).shift(26)  # 先行带B
-        return tenkan, kijun, senkou_a, senkou_b
-
     # ── 批量计算 ──────────────────────────────────────
 
     @staticmethod
