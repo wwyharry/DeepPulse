@@ -1,13 +1,15 @@
 """A股日K数据库项目配置"""
 
+import json
 from datetime import date, timedelta
 from pathlib import Path
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# 数据库路径
-DB_PATH = PROJECT_ROOT / "db" / "astock.duckdb"
+# 数据库路径（可被 setting.json 的 data.db_path 覆盖，见 reload_data_settings）
+_DEFAULT_DB_PATH = PROJECT_ROOT / "db" / "astock.duckdb"
+DB_PATH = _DEFAULT_DB_PATH
 
 # 数据采集范围
 END_DATE = date.today()
@@ -41,6 +43,15 @@ EMBEDDING_CACHE_MAX = 5000  # 内存中缓存的最大向量数
 # 工具输出限制：单个工具结果的最大字符数，防止上下文溢出导致 LLM 调用卡死
 MAX_TOOL_RESULT_CHARS = 8000
 
+# 数据可选化：在线兜底与本地缓存（股票行情数据可不预先下载）
+DATA_ONLINE_FALLBACK = True  # 本地缺数时在线拉取（默认开）
+DATA_CACHE_TO_DB = False  # 在线兜底结果写回本地库（默认关，每次重新拉取）
+DATA_DEFAULT_SOURCE = None  # 在线日线首选源；None = DATA_SOURCES[0]
+ONLINE_FETCH_TIMEOUT = 30  # 单次在线取数总超时秒数
+ONLINE_MINUTE_INTERVAL = 0.5  # akshare 分钟接口限频间隔（秒）
+SCREEN_ONLINE_MAX_CANDIDATES = 30  # 选股在线路径精筛候选上限
+BACKTEST_ONLINE_MAX_CODES = 10  # 无本地数据时在线回测的 codes 上限
+
 # 消息历史预算：每轮 LLM 调用前按预算做工具组原子折叠 + 滑动窗口（B7 上下文管理）
 HISTORY_MAX_MESSAGES = 60  # 保留历史最大消息条数（不含 system 主提示）；0 = 不限
 HISTORY_MAX_CHARS = 40000  # 保留历史最大字符预算；0 = 不限
@@ -72,3 +83,43 @@ FETCH_TIMEOUT = 30  # 单只股票采集超时秒数
 
 # 数据验证配置
 DATA_VALIDATION_ENABLED = True  # 是否启用数据验证
+
+
+# ── setting.json "data" 段覆盖 ──────────────────────────────────────
+
+
+def load_data_settings() -> dict:
+    """读取 setting.json 的 data 段。
+
+    只取数据相关配置（online_fallback / cache_to_db / default_source / db_path），
+    不做 API Key 校验（不能走 agent.client.load_setting，src 层不应依赖 agent）。
+    文件缺失/无 data 段/解析失败 → 返回 {}（用默认值）。
+    """
+    try:
+        with open(PROJECT_ROOT / "setting.json", encoding="utf-8") as f:
+            data = json.load(f)
+        data = (data or {}).get("data") or {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def reload_data_settings() -> None:
+    """按 setting.json 的 data 段覆盖模块级常量（import 期自动调用一次，测试可重载）。
+
+    每次从默认值重新合并，重复调用不会叠加覆盖。
+    """
+    global DB_PATH, DATA_ONLINE_FALLBACK, DATA_CACHE_TO_DB, DATA_DEFAULT_SOURCE
+    data = load_data_settings()
+
+    db_path = data.get("db_path")
+    DB_PATH = Path(db_path) if db_path else _DEFAULT_DB_PATH
+
+    DATA_ONLINE_FALLBACK = bool(data.get("online_fallback", True))
+    DATA_CACHE_TO_DB = bool(data.get("cache_to_db", False))
+
+    source = data.get("default_source")
+    DATA_DEFAULT_SOURCE = source if source in DATA_SOURCES else None
+
+
+reload_data_settings()

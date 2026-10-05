@@ -58,6 +58,9 @@ def backtest_stock(
     if use_dynamic_exit is None:
         use_dynamic_exit = True
     try:
+        from deeppulse.src.online import local_kline_available
+
+        data_source = "local" if local_kline_available() else "online-fallback"
         result = _backtest_stock(
             code,
             strategy=strategy,
@@ -68,7 +71,9 @@ def backtest_stock(
             use_dynamic_exit=use_dynamic_exit,
             exit_strategy_preset=exit_strategy_preset,
         )
-        return json.dumps(result.to_dict(), ensure_ascii=False, default=str)
+        d = result.to_dict()
+        d["data_source"] = data_source
+        return json.dumps(d, ensure_ascii=False, default=str)
     except Exception as e:
         return json.dumps({"error": f"回测失败: {e}"}, ensure_ascii=False)
 
@@ -79,13 +84,35 @@ def backtest_multi_stock(strategy: str = "macd_cross", codes: str = "", days: in
     codes 为空时从全市场随机抽样最多 100 只（固定种子 random_state=42，可复现）；
     avg_return/median_return/avg_win_rate/positive_rate 仅统计有交易的股票，
     零交易样本在 stocks_without_trades 中披露，另含 coverage/positive_rate_all 等口径字段。
+    无本地历史数据时需显式指定少量 codes（在线逐只拉取，有上限）。
     """
-    from deeppulse.strategy.backtest import backtest_strategy_multi_stock
+    from deeppulse import config as _config
+    from deeppulse.src.online import local_kline_available
 
     days = parse_positive_int(days, "days")
     try:
         code_list = [c.strip() for c in codes.split(",") if c.strip()] if codes else None
+        if not local_kline_available():
+            if not code_list:
+                return json.dumps(
+                    {
+                        "error": "本地无历史数据，批量回测需先 /fetch all 采集全市场数据，"
+                        f"或指定不超过 {_config.BACKTEST_ONLINE_MAX_CODES} 只 codes 在线回测",
+                    },
+                    ensure_ascii=False,
+                )
+            if len(code_list) > _config.BACKTEST_ONLINE_MAX_CODES:
+                return json.dumps(
+                    {
+                        "error": f"无本地数据时在线回测最多 {_config.BACKTEST_ONLINE_MAX_CODES} 只 codes，"
+                        f"收到 {len(code_list)} 只；全市场批量请先 /fetch all 采集",
+                    },
+                    ensure_ascii=False,
+                )
+        from deeppulse.strategy.backtest import backtest_strategy_multi_stock
+
         result = backtest_strategy_multi_stock(strategy=strategy, codes=code_list, days=days, top_n=int(top_n))
+        result["data_source"] = "local" if local_kline_available() else "online-fallback"
         return json.dumps(result, ensure_ascii=False, default=str)
     except Exception as e:
         return json.dumps({"error": f"批量回测失败: {e}"}, ensure_ascii=False)

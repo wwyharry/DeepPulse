@@ -7,6 +7,7 @@ from deeppulse.agent.patterns import format_patterns as _format_patterns
 from deeppulse.agent.patterns import recognize_patterns as _recognize_patterns
 from deeppulse.agent.screener import screen_stocks as _screen_stocks
 from deeppulse.agent.tools._shared import convert_volume_in_records, get_query, parse_positive_int
+from deeppulse.src.query import result_source
 
 
 def recognize_kline_patterns(code: str, days: int = 60) -> str:
@@ -21,14 +22,35 @@ def recognize_kline_patterns(code: str, days: int = 60) -> str:
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
 
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
     df = df.sort_values("trade_date").reset_index(drop=True)
     patterns = _recognize_patterns(df)
     formatted = _format_patterns(patterns)
-    return json.dumps({"code": code, "patterns": patterns, "summary": formatted}, ensure_ascii=False, default=str)
+    return json.dumps(
+        {"code": code, "data_source": data_source, "patterns": patterns, "summary": formatted},
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 def screen_stocks(conditions: str, limit: int = 20) -> str:
     """根据技术条件筛选股票（支持MA、RSI、MACD、成交量、涨跌幅等条件）"""
+    from deeppulse import config as _config
+    from deeppulse.src.online import local_kline_available
+
+    if not local_kline_available() and _config.DATA_ONLINE_FALLBACK:
+        # 无本地数据：走在线路径（v1 自然语言条件先解析成 v2 同构字典）
+        cond_list, errors = _parse_conditions(conditions)
+        if errors or not cond_list:
+            detail = f"不支持的条件: {', '.join(errors)}" if errors else "条件为空或无法解析"
+            return json.dumps(
+                {"error": detail, "supported": _V2_SUPPORTED_CONDITIONS_DOC, "mode": "online"},
+                ensure_ascii=False,
+            )
+        from deeppulse.agent.screen_online import screen_online
+
+        return json.dumps(screen_online(cond_list, limit=int(limit)), ensure_ascii=False, default=str)
+
     result = _screen_stocks(conditions, limit)
     return result
 
@@ -113,6 +135,7 @@ def detect_divergence(code: str, indicator: str = "all", days: int = 60) -> str:
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
 
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
     df = df.sort_values("trade_date").reset_index(drop=True)
 
     if indicator == "all":
@@ -120,7 +143,11 @@ def detect_divergence(code: str, indicator: str = "all", days: int = 60) -> str:
     else:
         results = _detect(df, indicator=indicator, lookback=min(int(days), 30))
 
-    return json.dumps({"code": code, "divergences": results, "count": len(results)}, ensure_ascii=False, default=str)
+    return json.dumps(
+        {"code": code, "data_source": data_source, "divergences": results, "count": len(results)},
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 def detect_support_resistance(code: str, days: int = 60) -> str:
@@ -137,9 +164,11 @@ def detect_support_resistance(code: str, days: int = 60) -> str:
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
 
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
     df = df.sort_values("trade_date").reset_index(drop=True)
     result = _detect(df)
     result["code"] = code
+    result.setdefault("data_source", data_source)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -157,9 +186,11 @@ def assess_trend(code: str, days: int = 60) -> str:
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
 
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
     df = df.sort_values("trade_date").reset_index(drop=True)
     result = _assess(df)
     result["code"] = code
+    result.setdefault("data_source", data_source)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -177,9 +208,11 @@ def analyze_volume_price(code: str, days: int = 60) -> str:
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
 
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
     df = df.sort_values("trade_date").reset_index(drop=True)
     result = _analyze(df)
     result["code"] = code
+    result.setdefault("data_source", data_source)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -209,6 +242,13 @@ def screen_stocks_v2(conditions: str, limit: int = 20) -> str:
         )
 
     screener = StockScreener()
+    from deeppulse import config as _config
+    from deeppulse.src.online import local_kline_available
+
+    if not local_kline_available() and _config.DATA_ONLINE_FALLBACK:
+        from deeppulse.agent.screen_online import screen_online
+
+        return json.dumps(screen_online(cond_list, limit=int(limit)), ensure_ascii=False, default=str)
     return screener.screen(cond_list, limit=int(limit))
 
 

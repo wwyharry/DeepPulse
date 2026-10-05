@@ -26,6 +26,7 @@ COMMAND_HELP = """
 📋 可用命令：
 
   /help              显示此帮助
+  /fetch [子命令]     数据采集 (stocks/kline/all/update/status，无需预先下载数据)
   /memory [子命令]    记忆管理 (list/search/predictions/profile/knowledge)
   /strategy [关键词]  战法库搜索
   /watchlist          查看自选股
@@ -473,10 +474,37 @@ class DeepPulseTUI(App):
         elif command in ("/portfolio", "/持仓"):
             await self._handle_portfolio_command(arg)
 
+        elif command == "/fetch":
+            self._handle_fetch_command(arg)
+
         else:
             self.chat_log.add_system_message(f"❓ 未知命令: {command}\n输入 /help 查看可用命令")
 
         self.chat_input.focus()
+
+    def _handle_fetch_command(self, arg: str):
+        """处理 /fetch：短命令同步执行，all/update 后台 worker（不卡 UI）"""
+        from deeppulse.agent.fetch_commands import run_fetch_command
+
+        sub = (arg or "").split()[:1]
+        sub = sub[0].lower() if sub else ""
+        long_haul = sub in ("all", "update")
+
+        if not long_haul:
+            self.chat_log.add_system_message(f"▶️ /fetch {arg or 'help'}")
+            result = run_fetch_command(arg, log=lambda m: self.chat_log.add_system_message(f"  {m}"))
+            self.chat_log.add_system_message(result)
+            return
+
+        self.chat_log.add_system_message(f"▶️ /fetch {arg}（后台运行，期间可继续对话）")
+
+        def work():
+            result = run_fetch_command(
+                arg, log=lambda m: self.call_from_thread(self.chat_log.add_system_message, f"  {m}")
+            )
+            self.call_from_thread(self.chat_log.add_system_message, result)
+
+        self.run_worker(work, thread=True, name="fetch", group="fetch")
 
     async def _show_stats(self):
         """显示会话统计"""

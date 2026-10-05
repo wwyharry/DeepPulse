@@ -405,11 +405,11 @@ class StrategyEngine:
     def _get_latest_price(self, code: str) -> float:
         """获取最新价格"""
         try:
-            from deeppulse.src.realtime.manager import get_realtime_manager
+            from deeppulse.agent.tools._shared import get_realtime_manager
 
             manager = get_realtime_manager()
-            quote = manager.get_quote(code)
-            return quote.get("price", 0) if quote else 0
+            quote = manager.fetch_quote(code)  # 返回 RealtimeQuote（字段 .current）
+            return float(quote.current or 0) if quote else 0
         except Exception:
             return 0
 

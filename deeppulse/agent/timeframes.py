@@ -2,8 +2,10 @@
 
 from datetime import date, timedelta
 
+import duckdb
 import pandas as pd
 
+from deeppulse import config
 from deeppulse.src.database import get_connection
 
 # 支持的周期
@@ -195,8 +197,48 @@ def update_timeframe(code: str, timeframe: str = "5m", days: int = 5) -> dict:
         return {"code": code, "timeframe": timeframe, "error": str(e)}
 
 
+def _df_to_records(df: pd.DataFrame) -> list[dict]:
+    """DataFrame → JSON 友好的记录列表（时间转 str、浮点保留 4 位）"""
+    records = []
+    for _, row in df.iterrows():
+        r = {}
+        for k, v in row.items():
+            if hasattr(v, "isoformat"):
+                r[k] = str(v)
+            elif isinstance(v, float):
+                r[k] = round(v, 4)
+            elif hasattr(v, "item"):
+                r[k] = v.item()
+            else:
+                r[k] = v
+        records.append(r)
+    return records
+
+
+def _fallback_timeframe_online(code: str, timeframe: str, limit: int) -> tuple[pd.DataFrame, str]:
+    """本地缺数时在线拉分钟/周线（默认不写库；cache_to_db 开启才落库）。"""
+    from deeppulse.src.online import fetch_minute_kline_online, fetch_weekly_kline_online
+
+    info = TIMEFRAMES[timeframe]
+    if timeframe == "weekly":
+        end = date.today()
+        start = end - timedelta(days=max(30, int(limit) * 7 + 14))
+        df = fetch_weekly_kline_online(code, start, end)
+        if "trade_datetime" not in df.columns and "trade_date" in df.columns:
+            df = df.rename(columns={"trade_date": "trade_datetime"})
+    else:
+        days = min(30, max(2, int(limit) // 20 + 2))
+        df = fetch_minute_kline_online(code, info["akshare_period"], days)
+
+    if df is not None and not df.empty:
+        df = df.sort_values("trade_datetime").tail(int(limit)).reset_index(drop=True)
+        if config.DATA_CACHE_TO_DB:
+            save_timeframe_data(get_connection(), df, info["db_table"])
+    return (df if df is not None else pd.DataFrame()), "online-akshare"
+
+
 def query_timeframe(code: str, timeframe: str = "5m", limit: int = 100) -> dict:
-    """查询多周期K线数据
+    """查询多周期K线数据。本地缺数时在线兜底（data_source 标注来源）。
 
     Args:
         code: 股票代码
@@ -208,47 +250,43 @@ def query_timeframe(code: str, timeframe: str = "5m", limit: int = 100) -> dict:
 
     table = TIMEFRAMES[timeframe]["db_table"]
     conn = get_connection()
+    data_source = "local"
 
     try:
-        df = conn.execute(
-            f"""
-            SELECT * FROM {table}
-            WHERE code = ?
-            ORDER BY trade_datetime DESC
-            LIMIT ?
-        """,
-            [code, int(limit)],
-        ).fetchdf()
+        try:
+            df = conn.execute(
+                f"""
+                SELECT * FROM {table}
+                WHERE code = ?
+                ORDER BY trade_datetime DESC
+                LIMIT ?
+            """,
+                [code, int(limit)],
+            ).fetchdf()
+        except duckdb.CatalogException:
+            df = pd.DataFrame()  # 表未建（空库）→ 走在线兜底
         conn.close()
 
         if df.empty:
-            return {
-                "code": code,
-                "timeframe": timeframe,
-                "count": 0,
-                "message": f"无{timeframe}数据，请先用 update_timeframe 更新",
-            }
+            if config.DATA_ONLINE_FALLBACK:
+                df, data_source = _fallback_timeframe_online(code, timeframe, limit)
+            if df.empty:
+                return {
+                    "code": code,
+                    "timeframe": timeframe,
+                    "count": 0,
+                    "message": f"无{timeframe}数据，可在线获取（请检查网络）或用 update_timeframe 更新",
+                }
 
         df = df.sort_values("trade_datetime")
-        records = []
-        for _, row in df.iterrows():
-            r = {}
-            for k, v in row.items():
-                if hasattr(v, "isoformat"):
-                    r[k] = str(v)
-                elif isinstance(v, float):
-                    r[k] = round(v, 4)
-                elif hasattr(v, "item"):
-                    r[k] = v.item()
-                else:
-                    r[k] = v
-            records.append(r)
+        records = _df_to_records(df)
 
         return {
             "code": code,
             "timeframe": timeframe,
             "label": TIMEFRAMES[timeframe]["label"],
             "count": len(records),
+            "data_source": data_source,
             "kline": records,
         }
     except Exception as e:
@@ -271,28 +309,16 @@ def get_multi_timeframe_data(code: str, timeframes: list[str] = None, limit: int
 
     for tf in timeframes:
         if tf == "daily":
-            from deeppulse.src.query import StockQuery
+            from deeppulse.src.query import StockQuery, result_source
 
             query = StockQuery()
             df = query.get_daily_kline(code, limit=limit)
             if not df.empty:
-                records = []
-                for _, row in df.iterrows():
-                    r = {}
-                    for k, v in row.items():
-                        if hasattr(v, "isoformat"):
-                            r[k] = str(v)
-                        elif isinstance(v, float):
-                            r[k] = round(v, 4)
-                        elif hasattr(v, "item"):
-                            r[k] = v.item()
-                        else:
-                            r[k] = v
-                    records.append(r)
                 result["timeframes"]["daily"] = {
                     "label": "日线",
-                    "count": len(records),
-                    "kline": records,
+                    "count": len(df),
+                    "data_source": result_source(df),
+                    "kline": _df_to_records(df),
                 }
         elif tf in TIMEFRAMES:
             data = query_timeframe(code, tf, limit)

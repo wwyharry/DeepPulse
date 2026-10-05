@@ -328,6 +328,7 @@ def main():
     print(f"会话ID: {agent.session_id[:8]}...")
     print("输入股票名称或代码开始分析")
     print("命令: quit=退出 | reset=重置 | /thinking=切换思考显示")
+    print("      /fetch=数据采集（/fetch 查看用法，无需预先下载数据）")
     print("      /memory=查看记忆 | /memory search <关键词>=搜索记忆")
     print("      /memory predictions=预测准确率 | /memory profile=用户画像")
     print("      /memory knowledge=知识图谱 | /strategy=查看战法")
@@ -365,6 +366,12 @@ def main():
             continue
         if user_input.lower().startswith("/portfolio") or user_input.lower().startswith("/持仓"):
             _handle_portfolio_command(user_input)
+            continue
+        if user_input.lower().startswith("/fetch"):
+            from deeppulse.agent.fetch_commands import run_fetch_command
+
+            arg = user_input[6:].strip() if len(user_input) > 6 else ""
+            print(run_fetch_command(arg, log=lambda m: print(f"  {m}")))
             continue
 
         print(f"\n{BOLD}分析师:{RESET}", end="")

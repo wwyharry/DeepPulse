@@ -20,5 +20,11 @@
     "max_history_messages": 60,
     "max_history_chars": 40000,
     "history_keep_last_turns": 1
+  },
+  "data": {
+    "online_fallback": true,
+    "cache_to_db": false,
+    "default_source": null,
+    "db_path": null
   }
 }

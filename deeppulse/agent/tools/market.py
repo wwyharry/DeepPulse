@@ -5,8 +5,11 @@ import time
 from datetime import date, timedelta
 
 import duckdb
+import pandas as pd
 
+from deeppulse import config
 from deeppulse.agent.tools._shared import get_query, get_realtime_manager, parse_positive_int, shares_to_lots
+from deeppulse.src.query import result_source
 
 
 def search_stock(keyword: str) -> str:
@@ -16,13 +19,19 @@ def search_stock(keyword: str) -> str:
     query = get_query()
     df = query.search_stocks(keyword)
     if df.empty:
-        return json.dumps({"keyword": keyword, "results": [], "message": "未找到匹配的股票"}, ensure_ascii=False)
+        return json.dumps(
+            {"keyword": keyword, "results": [], "message": "未找到匹配的股票", "data_source": result_source(df)},
+            ensure_ascii=False,
+        )
     records = df.to_dict("records")
     for r in records:
         for k, v in r.items():
             if v is not None and hasattr(v, "isoformat"):
                 r[k] = str(v)
-    return json.dumps({"keyword": keyword, "count": len(records), "results": records}, ensure_ascii=False)
+    return json.dumps(
+        {"keyword": keyword, "count": len(records), "data_source": result_source(df), "results": records},
+        ensure_ascii=False,
+    )
 
 
 def query_stock_info(code: str) -> str:
@@ -35,6 +44,7 @@ def query_stock_info(code: str) -> str:
     for k, v in record.items():
         if v is not None and hasattr(v, "isoformat"):
             record[k] = str(v)
+    record.setdefault("data_source", result_source(df))
     return json.dumps(record, ensure_ascii=False, default=str)
 
 
@@ -47,6 +57,7 @@ def query_kline(code: str, days: int = 60, source: str = "") -> str:
     df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
     df = df.sort_values("trade_date").tail(days)
     records = df.to_dict("records")
     for r in records:
@@ -57,7 +68,10 @@ def query_kline(code: str, days: int = 60, source: str = "") -> str:
         # 成交量：数据库存储为股，转为手（1手=100股）
         if r.get("volume") is not None:
             r["volume"] = shares_to_lots(r["volume"])
-    return json.dumps({"code": code, "count": len(records), "volume_unit": "手", "kline": records}, ensure_ascii=False)
+    return json.dumps(
+        {"code": code, "count": len(records), "volume_unit": "手", "data_source": data_source, "kline": records},
+        ensure_ascii=False,
+    )
 
 
 def latest_price(codes: str) -> str:
@@ -68,7 +82,8 @@ def latest_price(codes: str) -> str:
         return json.dumps({"error": "codes 不能为空，请提供至少一个股票代码"}, ensure_ascii=False)
     df = query.get_latest_price(code_list)
     if df.empty:
-        return json.dumps({"error": "无数据"}, ensure_ascii=False)
+        return json.dumps({"error": "无数据", "data_source": result_source(df)}, ensure_ascii=False)
+    data_source = result_source(df)
     records = df.to_dict("records")
     for r in records:
         for k, v in r.items():
@@ -81,7 +96,9 @@ def latest_price(codes: str) -> str:
         # 成交量：股→手
         if "volume" in r and r["volume"] is not None:
             r["volume"] = shares_to_lots(r["volume"])
-    return json.dumps({"results": records, "volume_unit": "手"}, ensure_ascii=False, default=str)
+    return json.dumps(
+        {"results": records, "volume_unit": "手", "data_source": data_source}, ensure_ascii=False, default=str
+    )
 
 
 def realtime_price(code: str) -> str:
@@ -119,26 +136,69 @@ def realtime_prices(codes: str) -> str:
     return json.dumps({"results": results, "count": len(results), "volume_unit": "手"}, ensure_ascii=False)
 
 
+def _market_overview_online() -> dict:
+    """无本地K线时用东财全市场快照在线统计（当日口径）"""
+    from deeppulse.src.online import OnlineFetchError, fetch_market_snapshot
+
+    snap = fetch_market_snapshot()  # 失败抛 OnlineFetchError
+    pct_col = next((c for c in ("涨跌幅", "change_pct") if c in snap.columns), None)
+    if pct_col is None:
+        raise OnlineFetchError("全市场快照缺少涨跌幅列")
+    pct = pd.to_numeric(snap[pct_col], errors="coerce")
+    up = int((pct > 0).sum())
+    down = int((pct < 0).sum())
+    flat = int((pct == 0).sum())
+    buckets = {
+        "涨停/涨>9%": int((pct > 9).sum()),
+        "涨7~9%": int(((pct > 7) & (pct <= 9)).sum()),
+        "涨3~7%": int(((pct > 3) & (pct <= 7)).sum()),
+        "涨0~3%": int(((pct > 0) & (pct <= 3)).sum()),
+        "平盘": flat,
+        "跌0~3%": int(((pct < 0) & (pct >= -3)).sum()),
+        "跌3~7%": int(((pct < -3) & (pct >= -7)).sum()),
+        "跌7~9%": int(((pct < -7) & (pct >= -9)).sum()),
+        "跌停/跌>9%": int((pct < -9).sum()),
+    }
+    return {
+        "最近交易日涨跌": {"总数": int(pct.notna().sum()), "上涨": up, "下跌": down, "平盘": flat},
+        "涨跌幅分布": buckets,
+        "data_source": "online-eastmoney-spot",
+        "note": "当日全市场快照口径，与本地K线统计口径略有差异",
+    }
+
+
 def market_overview() -> str:
-    """获取市场概览统计信息"""
+    """获取市场概览统计信息（本地缺数据时用全市场在线快照统计，标注来源）"""
+    from deeppulse.src.online import OnlineFetchError, local_kline_available
+
     query = get_query()
+    if not local_kline_available(query.db_path):
+        if not config.DATA_ONLINE_FALLBACK:
+            return json.dumps({"error": "本地无K线数据，请先采集（/fetch all）"}, ensure_ascii=False)
+        try:
+            return json.dumps(_market_overview_online(), ensure_ascii=False)
+        except OnlineFetchError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+
     stats = query.get_data_stats()
     conn = duckdb.connect(str(query.db_path))
-    today_stats = conn.execute("""
-        WITH ranked AS (
-            SELECT code, close, open,
-                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) AS rn
-            FROM daily_kline
-            WHERE trade_date >= current_date - INTERVAL '7' DAY
-        )
-        SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN close > open THEN 1 ELSE 0 END) AS up_count,
-            SUM(CASE WHEN close < open THEN 1 ELSE 0 END) AS down_count,
-            SUM(CASE WHEN close = open THEN 1 ELSE 0 END) AS flat_count
-        FROM ranked WHERE rn = 1
-    """).fetchone()
-    conn.close()
+    try:
+        today_stats = conn.execute("""
+            WITH ranked AS (
+                SELECT code, close, open,
+                       ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) AS rn
+                FROM daily_kline
+                WHERE trade_date >= current_date - INTERVAL '7' DAY
+            )
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN close > open THEN 1 ELSE 0 END) AS up_count,
+                SUM(CASE WHEN close < open THEN 1 ELSE 0 END) AS down_count,
+                SUM(CASE WHEN close = open THEN 1 ELSE 0 END) AS flat_count
+            FROM ranked WHERE rn = 1
+        """).fetchone()
+    finally:
+        conn.close()
     return json.dumps(
         {
             "数据库统计": {
@@ -152,6 +212,7 @@ def market_overview() -> str:
                 "下跌": today_stats[2],
                 "平盘": today_stats[3],
             },
+            "data_source": "local",
         },
         ensure_ascii=False,
     )
@@ -166,6 +227,7 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kd
     df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
     if df.empty:
         return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
+    data_source = result_source(df)
 
     df = df.sort_values("trade_date").reset_index(drop=True)
     known_indicators = {"ma", "macd", "rsi", "kdj", "boll"}
@@ -180,7 +242,7 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kd
             {"error": f"indicators 中无有效指标: {indicators!r}，可选 ma,macd,rsi,kdj,boll"},
             ensure_ascii=False,
         )
-    result = {"code": code, "count": len(df)}
+    result = {"code": code, "count": len(df), "data_source": data_source}
     if unknown:
         result["warning"] = f"忽略未知指标: {','.join(unknown)}，可选 ma,macd,rsi,kdj,boll"
 
