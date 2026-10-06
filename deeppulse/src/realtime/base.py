@@ -29,6 +29,8 @@ class RealtimeQuote:
     trade_date: str = ""
     trade_time: str = ""
     data_source: str = ""
+    # 数据新鲜度提示：trade_date 无法确认归属今日时由数据源给出（空串 = 无提示）
+    stale_hint: str = ""
 
     def to_dict(self) -> dict:
         """转换为字典，None值不包含"""

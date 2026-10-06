@@ -96,19 +96,28 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
     # 尚无今日数据不足以否认今日开市；窗口外仍缺今日数据则按未开市处理
     _BACKFILL_CUTOFF = dtime(17, 0)
 
-    def _session_stamp(self, now: datetime | None = None) -> tuple[str, str]:
-        """返回数据所属交易时段日的 (trade_date, trade_time)
+    def _session_stamp(self, now: datetime | None = None) -> tuple[str, str, str]:
+        """返回数据所属交易时段日的 (trade_date, trade_time, stale_hint)
 
         快照是东财全市场缓存里的最后交易数据，非交易时段/节假日查询时
         不能把陈旧快照标成今天。trade_time 仅在实时会话内写当前时间，
         否则置空（to_dict() 会省略空串），不再伪造为 now()。
+
+        快照不带最后成交时间字段，无法彻底确认归属日：工作日开盘后仍拿不到
+        今日确认（本地库未回补）时，trade_date 保守标为最近交易日并附
+        stale_hint 提示价格可能已含最新行情，宁保守标注也不伪造今日。
         """
         now = datetime.now() if now is None else now
         t = now.time()
         if now.weekday() < 5 and t >= self._SESSION_OPEN and self._opened_today(now):
             trade_time = now.strftime("%H:%M:%S") if t <= self._SESSION_CLOSE else ""
-            return now.date().isoformat(), trade_time
-        return self._recent_trade_date(now), ""
+            return now.date().isoformat(), trade_time, ""
+        recent = self._recent_trade_date(now)
+        # 开盘后无法确认今日开市：日期可能低估了快照新鲜度，附提示
+        stale_hint = ""
+        if now.weekday() < 5 and t >= self._SESSION_OPEN and recent != now.date().isoformat():
+            stale_hint = "trade_date 为保守标注（本地库未回补时无法确认今日开市），价格可能已含最新行情"
+        return recent, "", stale_hint
 
     def _opened_today(self, now: datetime) -> bool:
         """今天是否确认已开市——工作日盘中也不能臆断（法定节假日照常休市）
@@ -155,12 +164,12 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
             d -= timedelta(days=1)
         return d.isoformat()
 
-    def _row_to_quote(self, row: pd.Series, stamp: tuple[str, str] | None = None) -> RealtimeQuote | None:
+    def _row_to_quote(self, row: pd.Series, stamp: tuple[str, str, str] | None = None) -> RealtimeQuote | None:
         """将DataFrame行转换为RealtimeQuote（修复数据保真问题）
 
         Args:
             row: 快照行
-            stamp: 可选的 (trade_date, trade_time) 预计算会话戳，批量路径复用
+            stamp: 可选的 (trade_date, trade_time, stale_hint) 预计算会话戳，批量路径复用
         """
         try:
             current = self._safe_float(row.get("最新价"))
@@ -171,7 +180,7 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
             change_amt_raw = self._safe_float(row.get("涨跌额"))
             change_pct_raw = self._safe_float(row.get("涨跌幅"))
 
-            trade_date, trade_time = stamp if stamp else self._session_stamp()
+            trade_date, trade_time, stale_hint = stamp if stamp else self._session_stamp()
 
             return RealtimeQuote(
                 code=str(row.get("代码", "")).zfill(6),
@@ -189,6 +198,7 @@ class EastMoneyRealtimeSource(RealtimeQuoteSource):
                 trade_date=trade_date,
                 trade_time=trade_time,
                 data_source="eastmoney",
+                stale_hint=stale_hint,
             )
         except (ValueError, TypeError):
             return None

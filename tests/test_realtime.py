@@ -27,10 +27,16 @@ class TestRealtimeQuote:
         assert "current" not in d
 
     def test_to_dict_excludes_empty_string(self):
-        q = RealtimeQuote(code="600000", name="浦发银行", trade_date="", trade_time="")
+        q = RealtimeQuote(code="600000", name="浦发银行", trade_date="", trade_time="", stale_hint="")
         d = q.to_dict()
         assert "trade_date" not in d
         assert "trade_time" not in d
+        assert "stale_hint" not in d
+
+    def test_to_dict_includes_stale_hint(self):
+        q = RealtimeQuote(code="600000", name="浦发银行", trade_date="2026-10-05", stale_hint="日期保守标注")
+        d = q.to_dict()
+        assert d["stale_hint"] == "日期保守标注"
 
     def test_to_dict_rounds_floats(self):
         q = RealtimeQuote(code="600000", name="浦发银行", current=10.12345678)
@@ -177,6 +183,52 @@ class TestEastMoneySource:
         assert quote is not None
         assert quote.change_amount is None  # 不应默认为 0
         assert quote.change_pct is None
+
+    def test_session_stamp_confirmed_today_has_no_hint(self, monkeypatch):
+        """本地库确认今日开市：trade_date=today，无 stale_hint。"""
+        from datetime import datetime
+
+        src = EastMoneyRealtimeSource()
+        monkeypatch.setattr(src, "_opened_today", lambda now: True)
+        now = datetime(2026, 10, 5, 10, 30)  # 周一盘中
+        trade_date, trade_time, stale_hint = src._session_stamp(now)
+        assert trade_date == "2026-10-05"
+        assert trade_time == "10:30:00"
+        assert stale_hint == ""
+
+    def test_session_stamp_unconfirmed_during_session_has_hint(self, monkeypatch):
+        """工作日开盘后无法确认今日开市（本地库未回补）：保守标注 + stale_hint。"""
+        from datetime import datetime
+
+        src = EastMoneyRealtimeSource()
+        monkeypatch.setattr(src, "_opened_today", lambda now: False)
+        monkeypatch.setattr(src, "_recent_trade_date", staticmethod(lambda now: "2026-10-02"))
+        now = datetime(2026, 10, 5, 10, 30)  # 周一盘中
+        trade_date, trade_time, stale_hint = src._session_stamp(now)
+        assert trade_date == "2026-10-02"  # 保守标注为上一交易日
+        assert trade_time == ""
+        assert stale_hint != ""  # 提示价格可能已含最新行情
+
+    def test_session_stamp_weekend_no_hint(self, monkeypatch):
+        """周末查询：快照确属上一交易日，无 stale_hint。"""
+        from datetime import datetime
+
+        src = EastMoneyRealtimeSource()
+        monkeypatch.setattr(src, "_opened_today", lambda now: False)
+        monkeypatch.setattr(src, "_recent_trade_date", staticmethod(lambda now: "2026-10-02"))
+        now = datetime(2026, 10, 4, 11, 0)  # 周日
+        trade_date, _, stale_hint = src._session_stamp(now)
+        assert trade_date == "2026-10-02"
+        assert stale_hint == ""
+
+    def test_row_to_quote_carries_stale_hint(self):
+        """stamp 里的 stale_hint 透传到 RealtimeQuote。"""
+        src = EastMoneyRealtimeSource()
+        row = pd.Series({"代码": "600000", "名称": "浦发银行", "最新价": 10.5, "成交量": 100})
+        quote = src._row_to_quote(row, stamp=("2026-10-02", "", "日期保守标注"))
+        assert quote is not None
+        assert quote.trade_date == "2026-10-02"
+        assert quote.stale_hint == "日期保守标注"
 
 
 # ── RealtimeQuoteManager (circuit breaker) ──────────────────────────

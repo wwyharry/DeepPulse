@@ -221,6 +221,7 @@ class TestHistoryBudgetConfig:
             agent = StockAgent()
             assert agent.max_history_messages == 60
             assert agent.max_history_chars == 40000
+            assert agent.max_history_tokens == 16000
             assert agent.history_keep_last_turns == 1
             assert agent._compaction_stats == {"folded_messages": 0, "folded_tool_calls": 0}
             # 显式值生效（0 = 不限）
@@ -231,12 +232,14 @@ class TestHistoryBudgetConfig:
                         "max_rounds": 10,
                         "max_history_messages": 0,
                         "max_history_chars": 1234,
+                        "max_history_tokens": 0,
                         "history_keep_last_turns": 3,
                     }
                 }
             )
             assert agent2.max_history_messages == 0
             assert agent2.max_history_chars == 1234
+            assert agent2.max_history_tokens == 0
             assert agent2.history_keep_last_turns == 3
 
 

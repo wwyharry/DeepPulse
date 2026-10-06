@@ -250,16 +250,6 @@ cp setting.example.json setting.json
 
 支持 OpenAI 和 Anthropic 两种主流 API 调用协议。
 
-### 第三步：启动
-
-```bash
-# CLI 命令行
-python -m cli "分析一下贵州茅台"
-
-# TUI 终端界面
-python -m tui
-```
-
 | LLM | protocol | base_url |
 |-----|----------|----------|
 | OpenAI协议 | `openai` | `https://api.openai.com/v1` |
@@ -295,6 +285,12 @@ python scripts/fetch_all.py
 > 采集统一走 `DataCollector`，内置断点续传、周期性重连、指数退避重试、socket 错误自动恢复、数据验证等韧性机制，可放心中断后重新运行。所有韧性参数可在 `config.py` 中调整。
 
 在线兜底行为可在 `setting.json` 的 `data` 段配置（`online_fallback` 默认开；`cache_to_db` 默认关——不落库、每次重新拉取，开启后在线结果写回本地缓存）。
+
+> **在线兜底的覆盖边界**（免费接口的固有取舍，重度使用建议 `/fetch all` 采集到本地）：
+> - 缺数才兜底（查询结果为空时在线拉取），本地/在线不合并补洞；补尾部请用 `/fetch update`
+> - 在线选股只对成交额前 30 只候选做精筛，非全市场精筛
+> - 无本地数据时批量回测最多支持 10 只
+> - 分钟线在线接口有限频间隔，稳定性不及本地数据
 
 也可以使用通用采集脚本（支持指定数据源）：
 

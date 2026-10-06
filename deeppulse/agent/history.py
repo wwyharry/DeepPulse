@@ -9,7 +9,7 @@
   anthropic: tool_use.id ↔ tool_result.tool_use_id）。
 - **滑动窗口**：按用户文本边界切 turn，从最新向前保留；最近 keep_last_turns
   个 turn 硬底保留，仅折叠旧 turn。
-- **预算配置**：max_messages / max_chars 任一超限即触发折叠（0 = 该项不限）。
+- **预算配置**：max_messages / max_chars / max_tokens 任一超限即触发折叠（0 = 该项不限）。
 
 折叠产物是单条 `{"role": "system", "content": "[上下文折叠] ..."}` 占位摘要
 （对 openai 与既有中段 system 注释同形；对 anthropic 会被合并进顶层 system
@@ -51,6 +51,10 @@ class HistoryUnit:
     def chars(self) -> int:
         return sum(message_chars(m) for m in self.messages)
 
+    @property
+    def tokens(self) -> int:
+        return sum(message_tokens(m) for m in self.messages)
+
 
 def message_chars(msg: dict) -> int:
     """消息长度度量：JSON 序列化字符数（与项目既有字符度量口径一致）"""
@@ -61,15 +65,23 @@ def message_chars(msg: dict) -> int:
 
 
 def estimate_tokens(text: str) -> int:
-    """粗略 token 估算留口（CJK 字符≈1 token，其余≈0.25 token/字符）。
+    """粗略 token 估算（CJK 字符≈1 token，其余≈0.25 token/字符）。
 
-    本版仅供外部参考与单测，不接入预算（预算统一用字符数）。
+    max_tokens 预算的计量口径；不追求分词精度，只要求同输入稳定、随长度单调。
     """
     if not text:
         return 0
     cjk = sum(1 for ch in text if "一" <= ch <= "鿿" or "　" <= ch <= "〿" or "＀" <= ch <= "￯")
     other = len(text) - cjk
     return cjk + math.ceil(other * 0.25)
+
+
+def message_tokens(msg: dict) -> int:
+    """消息 token 度量：JSON 序列化文本过 estimate_tokens 粗估"""
+    try:
+        return estimate_tokens(json.dumps(msg, ensure_ascii=False, default=str))
+    except (TypeError, ValueError):
+        return estimate_tokens(str(msg))
 
 
 # ── 协议感知的形状判定 ──────────────────────────────────────
@@ -201,14 +213,19 @@ def build_fold_summary(folded: list[HistoryUnit], prev_summary: str | None = Non
 # ── 滑动窗口 + 折叠主入口 ──────────────────────────────────────
 
 
-def _turn_size(turn: list[HistoryUnit]) -> tuple[int, int]:
+def _turn_size(turn: list[HistoryUnit]) -> tuple[int, int, int]:
     msgs = sum(len(u.messages) for u in turn)
     chars = sum(u.chars for u in turn)
-    return msgs, chars
+    tokens = sum(u.tokens for u in turn)
+    return msgs, chars, tokens
 
 
-def _over_budget(msgs: int, chars: int, max_messages: int, max_chars: int) -> bool:
-    return (max_messages > 0 and msgs > max_messages) or (max_chars > 0 and chars > max_chars)
+def _over_budget(msgs: int, chars: int, tokens: int, max_messages: int, max_chars: int, max_tokens: int) -> bool:
+    return (
+        (max_messages > 0 and msgs > max_messages)
+        or (max_chars > 0 and chars > max_chars)
+        or (max_tokens > 0 and tokens > max_tokens)
+    )
 
 
 def compact_history(
@@ -217,6 +234,7 @@ def compact_history(
     protocol: str,
     max_messages: int,
     max_chars: int,
+    max_tokens: int = 0,
     keep_last_turns: int = 1,
     fold_summary_max_chars: int | None = None,
 ) -> list[dict]:
@@ -224,14 +242,14 @@ def compact_history(
 
     - messages[0]（system 主提示）以同一 dict 引用保留在 [0]（refresh_memory_context
       原地改写 messages[0]["content"] 的契约）。
-    - max_messages / max_chars 为 0 表示该项不限；两者都为 0 时恒不折叠。
+    - max_messages / max_chars / max_tokens 为 0 表示该项不限；全为 0 时恒不折叠。
     - 硬底：最近 keep_last_turns（至少 1）个完整 turn、每个 turn 的 user_text、
       会话最后一条 assistant 文本永不折叠。
     - 首个 user_text 原消息钉住于占位符之后（保 JudgeAgent 的 user_query）。
     """
     if not messages or len(messages) <= 1:
         return list(messages)
-    if max_messages <= 0 and max_chars <= 0:
+    if max_messages <= 0 and max_chars <= 0 and max_tokens <= 0:
         return list(messages)
 
     head = messages[0]
@@ -253,18 +271,21 @@ def compact_history(
     keep_from = 0
     used_msgs = 0
     used_chars = 0
+    used_tokens = 0
     for ti in range(len(turns) - 1, -1, -1):
-        tm, tc = _turn_size(turns[ti])
+        tm, tc, tk = _turn_size(turns[ti])
         is_hard_floor = ti >= len(turns) - floor
         if is_hard_floor:
             keep_from = ti
             used_msgs += tm
             used_chars += tc
+            used_tokens += tk
             continue
-        if not _over_budget(used_msgs + tm, used_chars + tc, max_messages, max_chars):
+        if not _over_budget(used_msgs + tm, used_chars + tc, used_tokens + tk, max_messages, max_chars, max_tokens):
             keep_from = ti
             used_msgs += tm
             used_chars += tc
+            used_tokens += tk
         else:
             break
 
@@ -272,8 +293,8 @@ def compact_history(
     kept_turns = [list(t) for t in turns[keep_from:]]
 
     # 兜底削减：硬底 turn 仍超预算时，从保留区最旧的 tool_group/system_note 并入折叠区
-    if kept_turns and _over_budget(used_msgs, used_chars, max_messages, max_chars):
-        while kept_turns and _over_budget(used_msgs, used_chars, max_messages, max_chars):
+    if kept_turns and _over_budget(used_msgs, used_chars, used_tokens, max_messages, max_chars, max_tokens):
+        while kept_turns and _over_budget(used_msgs, used_chars, used_tokens, max_messages, max_chars, max_tokens):
             target = None
             for turn in kept_turns:
                 for ui, u in enumerate(turn):
@@ -291,6 +312,7 @@ def compact_history(
             folded_turns.append([u])
             used_msgs -= len(u.messages)
             used_chars -= u.chars
+            used_tokens -= u.tokens
         # 保持 folded_turns 时序：兜底单元来自保留区最旧侧，追加到折叠区末尾即有序
 
     if not folded_turns:

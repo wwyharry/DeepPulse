@@ -55,6 +55,7 @@ BACKTEST_ONLINE_MAX_CODES = 10  # 无本地数据时在线回测的 codes 上限
 # 消息历史预算：每轮 LLM 调用前按预算做工具组原子折叠 + 滑动窗口（B7 上下文管理）
 HISTORY_MAX_MESSAGES = 60  # 保留历史最大消息条数（不含 system 主提示）；0 = 不限
 HISTORY_MAX_CHARS = 40000  # 保留历史最大字符预算；0 = 不限
+HISTORY_MAX_TOKENS = 16000  # 保留历史最大 token 预算（estimate_tokens 粗估）；0 = 不限
 HISTORY_KEEP_LAST_TURNS = 1  # 最近 N 轮用户问答永不折叠
 HISTORY_FOLD_SUMMARY_MAX_CHARS = 600  # 折叠占位符摘要的最大字符数
 

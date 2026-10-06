@@ -30,6 +30,7 @@ class StockAgent:
             agent_cfg.get("max_history_messages"), _config.HISTORY_MAX_MESSAGES
         )
         self.max_history_chars = self._budget_value(agent_cfg.get("max_history_chars"), _config.HISTORY_MAX_CHARS)
+        self.max_history_tokens = self._budget_value(agent_cfg.get("max_history_tokens"), _config.HISTORY_MAX_TOKENS)
         self.history_keep_last_turns = self._budget_value(
             agent_cfg.get("history_keep_last_turns"), _config.HISTORY_KEEP_LAST_TURNS
         )
@@ -99,6 +100,7 @@ class StockAgent:
         protocol = getattr(self.client, "protocol", "openai")
         max_messages = getattr(self, "max_history_messages", _config.HISTORY_MAX_MESSAGES)
         max_chars = getattr(self, "max_history_chars", _config.HISTORY_MAX_CHARS)
+        max_tokens = getattr(self, "max_history_tokens", _config.HISTORY_MAX_TOKENS)
         keep_last = getattr(self, "history_keep_last_turns", _config.HISTORY_KEEP_LAST_TURNS)
         stats = getattr(self, "_compaction_stats", None)
         if stats is None:
@@ -110,6 +112,7 @@ class StockAgent:
             protocol=protocol,
             max_messages=max_messages,
             max_chars=max_chars,
+            max_tokens=max_tokens,
             keep_last_turns=keep_last,
         )
         folded_msgs = before_msgs - len(self.messages)

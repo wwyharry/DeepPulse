@@ -12,6 +12,7 @@ from deeppulse.agent.history import (
     estimate_tokens,
     iter_units,
     message_chars,
+    message_tokens,
     validate_pairing,
 )
 
@@ -219,6 +220,24 @@ class TestSlidingWindow:
         total = sum(message_chars(m) for m in out[1:])
         assert total < sum(message_chars(m) for m in msgs[1:])
 
+    def test_max_tokens_triggers_fold(self):
+        msgs = [system_note("主提示")]
+        for t in range(4):
+            msgs.append(user(f"问题{t}"))
+            msgs.append(oa_assistant(tool_calls=[(f"c{t}", "t")]))
+            msgs.append(oa_tool(f"c{t}", content=BIG))
+            msgs.append(oa_assistant(f"回答{t}"))
+        out = compact_history(msgs, protocol="openai", max_messages=0, max_chars=0, max_tokens=2500)
+        assert len(out) < len(msgs)
+        total = sum(message_tokens(m) for m in out[1:])
+        assert total < sum(message_tokens(m) for m in msgs[1:])
+        assert validate_pairing(out, "openai") == []
+
+    def test_max_tokens_zero_means_unlimited(self):
+        msgs = mk_history_oa(n_turns=5, tools_per_turn=1)
+        out = compact_history(msgs, protocol="openai", max_messages=0, max_chars=0, max_tokens=0)
+        assert out == msgs
+
     def test_keep_last_turns(self):
         msgs = mk_history_oa(n_turns=5, tools_per_turn=1)
         out = compact_history(msgs, protocol="openai", max_messages=6, max_chars=0, keep_last_turns=2)
@@ -336,3 +355,9 @@ class TestSummaryAndHelpers:
     def test_message_chars(self):
         assert message_chars({"role": "user", "content": "数" * 10}) > 10
         assert message_chars({"a": object()}) > 0  # default=str 兜底
+
+    def test_message_tokens(self):
+        zh = message_tokens({"role": "user", "content": "数" * 100})
+        en = message_tokens({"role": "user", "content": "a" * 100})
+        assert zh > en  # CJK 更贵
+        assert message_tokens({"a": object()}) > 0  # default=str 兜底
