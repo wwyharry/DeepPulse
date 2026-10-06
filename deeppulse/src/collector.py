@@ -19,20 +19,17 @@ from deeppulse.src.database import (
     log_fetch,
     upsert_stock_info,
 )
-from deeppulse.src.sources import AkShareSource, BaoStockSource
+from deeppulse.src.sources import SOURCE_CLASSES
 from deeppulse.src.validation import validate_kline_df
 
 logger = logging.getLogger(__name__)
 
 # 数据源注册表
-SOURCE_REGISTRY = {
-    "akshare": AkShareSource,
-    "baostock": BaoStockSource,
-}
+SOURCE_REGISTRY: dict[str, type] = SOURCE_CLASSES
 
 
 def get_sources() -> list:
-    """获取配置中启用的数据源实例"""
+    """按 config.DATA_SOURCES 优先级返回启用的数据源实例"""
     return [SOURCE_REGISTRY[name]() for name in config.DATA_SOURCES if name in SOURCE_REGISTRY]
 
 
@@ -58,6 +55,93 @@ def fetch_kline_with_timeout(source, code: str, start: date, end: date, timeout:
     if error[0]:
         raise error[0]
     return result[0] if result[0] is not None else pd.DataFrame()
+
+
+class SourceFailover:
+    """按优先级维护活动数据源的多源故障切换器（空结果/异常都换下一源）
+
+    - 活动源返回数据 → 记住该源，后续优先用它（在线源新鲜度可能优于配置首选）
+    - 连续 QUIET_EMPTY_STREAK 只代码全部源皆空 → 进入安静模式：只查活动源，
+      避免全市场无新数据（周末/节假日/已是最新）时把所有源都打一遍
+    - 单源异常 → 清理该源会话后换下一源；只有全部源都异常才抛 RuntimeError
+      （「全部源都说没数据」不抛，返回空 DataFrame——那是有效答案）
+    """
+
+    QUIET_EMPTY_STREAK = 3
+
+    def __init__(self, sources: list = None, timeout: int = None):
+        self._sources = list(sources) if sources is not None else get_sources()
+        if not self._sources:
+            raise ValueError("无可用数据源（检查 config.DATA_SOURCES）")
+        self._timeout = timeout
+        self.active_index = 0
+        self._all_empty_streak = 0
+        self._quiet = False
+
+    @property
+    def active(self):
+        """当前活动数据源（失败切换中会变化）"""
+        return self._sources[self.active_index]
+
+    @property
+    def source_names(self) -> list[str]:
+        return [s.name for s in self._sources]
+
+    def fetch(self, code: str, start: date, end: date) -> tuple[pd.DataFrame, str]:
+        """取日K，自动故障切换。返回 (df, source_name)
+
+        Raises:
+            RuntimeError: 所有数据源均异常失败（区别于「无数据」）
+        """
+        errors = []
+        saw_empty = False
+        n = len(self._sources)
+        for step in range(n):
+            if self._quiet and step > 0:
+                break  # 安静模式只试活动源
+            idx = (self.active_index + step) % n
+            source = self._sources[idx]
+            try:
+                df = fetch_kline_with_timeout(source, code, start, end, self._timeout)
+            except Exception as e:  # noqa: BLE001 — 多源切换需要吞掉单源异常
+                errors.append(f"[{source.name}] {e}")
+                self._release(source)
+                self._quiet = False  # 活动源异常：退出安静模式继续换源
+                continue
+            if df is not None and not df.empty:
+                self.active_index = idx
+                self._all_empty_streak = 0
+                self._quiet = False
+                return df, source.name
+            saw_empty = True
+            errors.append(f"[{source.name}] 无数据")
+            if self._quiet:
+                break
+
+        if saw_empty:
+            self._all_empty_streak += 1
+            if self._all_empty_streak >= self.QUIET_EMPTY_STREAK:
+                self._quiet = True
+            return pd.DataFrame(), self.active.name
+        raise RuntimeError("所有数据源均失败: " + "；".join(errors))
+
+    def cleanup_active(self):
+        """清理活动数据源会话（批量任务的周期性重连用）"""
+        self._release(self.active)
+
+    def cleanup(self):
+        """清理全部数据源资源"""
+        for source in self._sources:
+            self._release(source)
+
+    @staticmethod
+    def _release(source):
+        """释放数据源会话：优先有界清理（BaoStock 残留线程在会话上时跳过 logout）"""
+        try_cleanup = getattr(source, "try_cleanup", None)
+        if callable(try_cleanup):
+            try_cleanup()
+        else:
+            source.cleanup()
 
 
 @contextmanager
@@ -101,16 +185,21 @@ def fetch_and_store_stock_list() -> int:
         return count
 
 
-def fetch_kline_for_stock(code: str, source, start: date, end: date, conn) -> int:
-    """为单只股票采集日K数据（带验证、按端点覆盖分段续传）
+def fetch_kline_for_stock(code: str, failover: SourceFailover, start: date, end: date, conn, cover_all_sources: bool = True) -> int:
+    """为单只股票采集日K数据（带验证、按端点覆盖分段续传，经多源故障切换取数）
 
     断点续传不只看 MAX(trade_date)：库中已有近期数据时，调用方请求更早
     区间补历史不能被静默跳过。按已有数据的 [min, max] 端点把请求区间切成
     至多两段——前缀补历史 (start, min-1) 与后缀增量 (max(start, last+1), end)。
     注意：MIN/MAX 分段不会填补 [min, max] 内部的空洞。
+
+    cover_all_sources=True（多源互备）：续传端点取全部源的合并覆盖——任一源
+    有数即算已覆盖，只补本地真正缺失的日期（数据源可互换，不重复存副本）；
+    False（显式单源采集）：按该源自身覆盖续传，允许整段源内副本。
     """
-    first_date = get_earliest_kline_date(conn, code, source.name)
-    last_date = get_latest_kline_date(conn, code, source.name)
+    scope = None if cover_all_sources else failover.active.name
+    first_date = get_earliest_kline_date(conn, code, scope)
+    last_date = get_latest_kline_date(conn, code, scope)
 
     segments: list[tuple[date, date]] = []
     if not first_date or not last_date:
@@ -128,19 +217,19 @@ def fetch_kline_for_stock(code: str, source, start: date, end: date, conn) -> in
 
     total = 0
     for seg_start, seg_end in segments:
-        df = fetch_kline_with_timeout(source, code, seg_start, seg_end)
+        df, src_name = failover.fetch(code, seg_start, seg_end)
 
         # 数据验证
         if not df.empty and config.DATA_VALIDATION_ENABLED:
             df = validate_kline_df(df, code)
 
         if df.empty:
-            log_fetch(conn, code, source.name, seg_start, seg_end, 0, "success")
+            log_fetch(conn, code, failover.active.name, seg_start, seg_end, 0, "success")
             continue
 
         records = df.to_dict("records")
         count = insert_daily_kline(conn, records)
-        log_fetch(conn, code, source.name, seg_start, seg_end, count, "success")
+        log_fetch(conn, code, src_name, seg_start, seg_end, count, "success")
         total += count
     return total
 
@@ -151,12 +240,16 @@ def fetch_all_kline(
     source_names: list[str] = None,
     codes: list[str] = None,
 ) -> dict:
-    """批量采集所有股票日K数据（带周期性重连、连续失败检测、数据验证）
+    """批量采集所有股票日K数据（多源故障切换、周期性重连、连续失败检测、数据验证）
+
+    多源语义：数据源互为备份——按优先级取数，单源失败/无数据自动换下一源，
+    任一源补齐该代码的缺口即算完成（不为每个源各存一份副本）。显式指定单一
+    source_names 时按该源自身覆盖续传（可整段采集指定源的副本）。
 
     Args:
         start_date: 开始日期（默认配置中的5年前）
         end_date: 结束日期（默认今天）
-        source_names: 指定数据源（默认全部）
+        source_names: 指定数据源（默认全部，按 config.DATA_SOURCES 优先级）
         codes: 指定股票代码列表（默认全部）
 
     Returns:
@@ -175,76 +268,56 @@ def fetch_all_kline(
         sources_to_use = get_sources()
         if source_names:
             sources_to_use = [s for s in sources_to_use if s.name in source_names]
+        if not sources_to_use:
+            raise ValueError(f"无可用数据源: {source_names or config.DATA_SOURCES}")
+
+        failover = SourceFailover(sources_to_use)
+        cover_all_sources = len(sources_to_use) > 1
+        logger.info(f"数据源: {' / '.join(failover.source_names)}")
+        logger.info(f"采集范围: {start} ~ {end}, 共 {len(codes)} 只股票")
 
         stats = {"total": len(codes), "success": 0, "failed": 0, "rows": 0}
 
-        for source in sources_to_use:
-            logger.info(f"\n=== 数据源: {source.name} ===")
-            logger.info(f"采集范围: {start} ~ {end}, 共 {len(codes)} 只股票")
+        consecutive_failures = 0
+        last_reconnect_time = time.time()
+        RECONNECT_TIME_INTERVAL = 40  # 每40秒主动重连（BaoStock session约50秒超时）
 
-            consecutive_failures = 0
-            last_reconnect_time = time.time()
-            RECONNECT_TIME_INTERVAL = 40  # 每40秒主动重连（BaoStock session约50秒超时）
+        for i, code in enumerate(codes):
+            # 周期性重连：按数量 或 按时间，先到先触发
+            time_since_reconnect = time.time() - last_reconnect_time
+            should_reconnect = (
+                i > 0 and i % config.FETCH_RECONNECT_INTERVAL == 0
+            ) or time_since_reconnect > RECONNECT_TIME_INTERVAL
+            if should_reconnect:
+                logger.info(f"--- 定期重连 {failover.active.name} (第{i}只, 距上次重连{time_since_reconnect:.0f}秒) ---")
+                failover.cleanup_active()
+                time.sleep(1)
+                last_reconnect_time = time.time()
 
-            for i, code in enumerate(codes):
-                # 周期性重连：按数量 或 按时间，先到先触发
-                time_since_reconnect = time.time() - last_reconnect_time
-                should_reconnect = (
-                    i > 0 and i % config.FETCH_RECONNECT_INTERVAL == 0
-                ) or time_since_reconnect > RECONNECT_TIME_INTERVAL
-                if should_reconnect:
-                    logger.info(f"--- 定期重连 {source.name} (第{i}只, 距上次重连{time_since_reconnect:.0f}秒) ---")
-                    source.cleanup()
-                    time.sleep(1)
-                    last_reconnect_time = time.time()
+            try:
+                count = fetch_kline_for_stock(code, failover, start, end, conn, cover_all_sources=cover_all_sources)
+                stats["rows"] += count
+                stats["success"] += 1
+                consecutive_failures = 0
+                if (i + 1) % 100 == 0:
+                    logger.info(f"  进度: {i + 1}/{len(codes)}")
+            except Exception as e:
+                stats["failed"] += 1
+                consecutive_failures += 1
+                log_fetch(conn, code, failover.active.name, start, end, 0, "failed", str(e))
+                logger.warning(f"  [{failover.active.name}] {code} 失败: {e}")
 
-                try:
-                    count = fetch_kline_for_stock(code, source, start, end, conn)
-                    stats["rows"] += count
-                    stats["success"] += 1
-                    consecutive_failures = 0
-                    if (i + 1) % 100 == 0:
-                        logger.info(f"  进度: {i + 1}/{len(codes)}")
-                except TimeoutError as e:
-                    stats["failed"] += 1
-                    consecutive_failures += 1
-                    log_fetch(conn, code, source.name, start, end, 0, "timeout", str(e))
-                    logger.warning(f"  [{source.name}] {code} 超时: {e}")
-                    # 超时后尝试重连；残留采集线程仍在会话上时跳过 logout，避免竞态
-                    try_cleanup = getattr(source, "try_cleanup", None)
-                    if callable(try_cleanup):
-                        if not try_cleanup():
-                            logger.warning(f"  [{source.name}] 残留采集线程仍在使用会话，跳过 logout")
-                    else:
-                        source.cleanup()
-                    time.sleep(2)
-                except (ConnectionError, ConnectionResetError, OSError) as e:
-                    stats["failed"] += 1
-                    consecutive_failures += 1
-                    log_fetch(conn, code, source.name, start, end, 0, "failed", str(e))
-                    logger.warning(f"  [{source.name}] {code} 连接异常: {e}")
-                    # 连接类错误立即重连
-                    logger.info("  连接异常，立即重连...")
-                    source.cleanup()
+                # 连续失败达阈值，尝试重连
+                if consecutive_failures >= config.FETCH_CONSECUTIVE_FAIL_THRESHOLD:
+                    logger.info(f"  连续失败{consecutive_failures}次，重连...")
+                    failover.cleanup_active()
                     time.sleep(3)
                     consecutive_failures = 0
-                except Exception as e:
-                    stats["failed"] += 1
-                    consecutive_failures += 1
-                    log_fetch(conn, code, source.name, start, end, 0, "failed", str(e))
-                    logger.warning(f"  [{source.name}] {code} 失败: {e}")
 
-                    # 连续失败达阈值，尝试重连
-                    if consecutive_failures >= config.FETCH_CONSECUTIVE_FAIL_THRESHOLD:
-                        logger.info(f"  连续失败{consecutive_failures}次，重连...")
-                        source.cleanup()
-                        time.sleep(3)
-                        consecutive_failures = 0
+            time.sleep(config.FETCH_DELAY_SECONDS)
 
-                time.sleep(config.FETCH_DELAY_SECONDS)
-
-            # 数据源采集完毕，清理资源
-            source.cleanup()
+        # 采集完毕，清理全部数据源资源
+        failover.cleanup()
 
         logger.info(f"\n采集完成: 成功{stats['success']}, 失败{stats['failed']}, 写入{stats['rows']}行")
         return stats

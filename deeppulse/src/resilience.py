@@ -19,6 +19,10 @@ class RetryPolicy:
         backoff_factor: 退避因子（每次重试延迟乘以此值）
         retryable_errors: 可重试的异常类型元组
         non_retryable_errors: 不可重试的异常类型（匹配时立即失败，不重试）
+        fast_fail_conn_errors: 连接类关键词（remote disconnected/connection reset 等）
+            是否快速失败不重试。长连接会话（BaoStock 等）默认 True——连接断了
+            重试无意义，交给上层重连；HTTP 公开接口限频常表现为连接被掐断，
+            传 False 让退避重试生效
         jitter: 是否添加随机抖动，防止惊群
     """
 
@@ -30,6 +34,7 @@ class RetryPolicy:
         backoff_factor: float = 2.0,
         retryable_errors: tuple = (Exception,),
         non_retryable_errors: tuple = (),
+        fast_fail_conn_errors: bool = True,
         jitter: bool = True,
     ):
         self.max_retries = max_retries
@@ -38,6 +43,7 @@ class RetryPolicy:
         self.backoff_factor = backoff_factor
         self.retryable_errors = retryable_errors
         self.non_retryable_errors = non_retryable_errors
+        self.fast_fail_conn_errors = fast_fail_conn_errors
         self.jitter = jitter
 
     def _calc_delay(self, attempt: int) -> float:
@@ -52,6 +58,8 @@ class RetryPolicy:
         """判断错误是否不可重试（连接被拒、协议错误等）"""
         if self.non_retryable_errors and isinstance(error, self.non_retryable_errors):
             return True
+        if not self.fast_fail_conn_errors:
+            return False
         # 检查错误消息中的关键词
         msg = str(error).lower()
         non_retryable_keywords = [

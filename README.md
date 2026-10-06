@@ -22,7 +22,7 @@
 | 板块与资金 | 行业板块排行（同花顺+东方财富）、资金流向、龙虎榜 |
 | **条件选股** | **DuckDB 高性能选股，支持组合条件** |
 | 财经新闻 | 百度/东方财富/新浪多源聚合 |
-| 实时行情 | 新浪 + 东方财富双源冗余，三态熔断器自动故障切换 |
+| 实时行情 | 新浪 / 腾讯 / 东方财富三源冗余，三态熔断器自动故障切换 |
 | **策略回测** | **7 种策略、参数优化、Monte Carlo 模拟** |
 | K 线图 | 专业 K 线图，CLI/TUI 自动生成 |
 | 短线战法库 | 40 个内置战法，支持自定义扩展 |
@@ -66,7 +66,8 @@ graph TB
     subgraph 数据源
         BS[BaoStock]
         AK[AkShare]
-        THS[同花顺]
+        EM[东方财富]
+        TX[腾讯行情]
         SINA[新浪财经]
     end
 
@@ -78,8 +79,8 @@ graph TB
     REACT --> JUDGE
     TOOLS --> TREND & DIV & SR & VP & CONF & SCREEN
     TOOLS --> DB & REALTIME & COLLECT
-    COLLECT --> BS & AK
-    REALTIME --> SINA & THS
+    COLLECT --> BS & AK & EM & TX & SINA
+    REALTIME --> SINA & TX & EM
     DB --> COLLECT
 ```
 
@@ -202,16 +203,20 @@ DeepPulse 拥有跨会话的长期记忆能力，包含 6 个子模块协同工�
 
 DeepPulse 对数据源的稳定性做了全面加固：
 
-**历史数据源（BaoStock / AkShare）：**
+**历史数据源（BaoStock / AkShare / 东方财富 / 腾讯 / 新浪，五源互备）：**
+- **多源故障切换** — 按优先级取数，单源失败、限频或数据滞后（返回空）自动切换下一源；活动源可用后批量任务优先复用它
 - **健康检查式连接管理** — BaoStock 每次调用前探活，session 断开自动重连，不再出现"僵死连接"问题
-- **统一指数退避重试** — 所有数据源共享 `RetryPolicy`，指数退避 + 随机抖动防止惊群效应
+- **统一指数退避重试** — 所有数据源共享 `RetryPolicy`，指数退避 + 随机抖动防止惊群效应；HTTP 源的限频掐线也走退避重试
+- **主机轮换** — 东财接口按分片域名轮换，绕开单域限频
 - **周期性重连** — 全量采集每 150 只股票主动重连一次，防止长时间运行后的连接老化
 - **连续失败检测** — 连续 3 次失败触发立即重连；超时和 socket 错误触发即时重连
 - **数据验证层** — 入库前自动检查 NaN 价格、high < low 等异常、负成交量，拦截脏数据
+- **多源去重合并** — 采集端只补全库真正缺失的日期（源间互为备份，不存重复副本）；查询端同一天多源各有一行时按优先级取一行
 
-**实时行情（新浪 / 东方财富）：**
+**实时行情（新浪 / 腾讯 / 东方财富）：**
 - **三态熔断器** — closed → open → half_open 状态机，恢复时先少量试探再全量放行，避免刚恢复就压垮服务
-- **连接复用** — 新浪源复用 curl_cffi Session，省去每次请求的 TLS 握手开销
+- **连接复用** — 新浪/腾讯源复用 curl_cffi Session，省去每次请求的 TLS 握手开销
+- **真实成交时间戳** — 腾讯源带最后成交时间（YYYYMMDDHHMMSS），行情归属日期可直接采信
 - **缓存竞态修复** — 东方财富的全市场快照缓存修复了双重检查锁中的时间戳竞态问题
 
 **数据库层：**
@@ -272,7 +277,7 @@ API Key 支持环境变量：`"${ENV_VAR_NAME}"`
 /fetch all             # 全量采集（约30-60分钟，可中断续传）
 /fetch status          # 查看本地数据统计
 
-# 方式二：脚本一键全量采集（约 3500 只股票 x 5 年日K，使用 BaoStock 数据源）
+# 方式二：脚本一键全量采集（约 3500 只股票 x 5 年日K，按优先级取数、单源故障自动切换）
 python scripts/fetch_all.py
 
 # 方式三：与 Agent 对话触发 update_stock / update_all_stocks 工具
@@ -426,53 +431,72 @@ DeepPulse: [自动保存为 learning 记忆，后续分析中应用]
 
 ## 更换数据源
 
-DeepPulse 默认使用免费的 BaoStock 作为首选历史数据源（连接稳定、无限流），AkShare 作为备选。数据源优先级可在 `config.py` 的 `DATA_SOURCES` 中调整。如果你有更好的私有数据源，可以自行替换。
+DeepPulse 内置五个免费历史数据源，互为备份——单源失败、限频或数据滞后时自动切换下一源。优先级在 `config.py` 的 `DATA_SOURCES` 中调整。如果你有更好的私有数据源，可以自行替换。
+
+| 数据源 | 复权口径 | 股票列表 | 成交额/换手率 | 说明 |
+|--------|----------|----------|---------------|------|
+| `baostock` | 前复权 | ✅ 含上市日期 | ✅ | 首选：连接稳定、无限流 |
+| `akshare` | 前复权 | ✅ | ✅ | 备选（底层走东财接口） |
+| `eastmoney` | 前复权 | ✅ 含上市日期 | ✅ | 直连东财，主机轮换抗限频 |
+| `tencent` | 前复权 | ❌ | ❌ | 轻量快速，长区间自动分页 |
+| `sina` | **不复权** | ✅ | ❌ | 最后兜底；除权日附近与前复权源拼接有价格跳变 |
+
+> **口径说明**：前复权源（baostock/akshare/eastmoney/tencent）的价格锚定各自拉取时刻，跨期混用在除权除息附近可能出现小幅价格跳变（免费接口的固有取舍）。sina 为不复权价，仅作兜底；同一天多源数据在查询端按优先级自动去重，普通使用无需关心副本。
 
 ### 数据源接口
 
-数据源需实现 `src/sources/base.py` 中的 `BaseDataSource` 接口：
+历史数据源需实现 `deeppulse/src/sources/base.py` 中的 `DataSourceBase` 接口：
 
 ```python
-class BaseDataSource(ABC):
+class DataSourceBase(ABC):
+    @property
     @abstractmethod
-    def get_stock_list(self) -> list[dict]:
+    def name(self) -> str:
+        """数据源名称标识"""
+
+    @abstractmethod
+    def fetch_stock_list(self) -> list[dict]:
         """返回股票列表，每项包含 code, name, market, board, list_date"""
 
     @abstractmethod
-    def get_daily_kline(self, code: str, start_date: str, end_date: str) -> list[dict]:
-        """返回日K线数据，每项包含 code, trade_date, open, high, low, close, volume, amount, turnover"""
+    def fetch_daily_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """返回日K线 DataFrame，列: trade_date, open, high, low, close, volume(股), amount, turnover"""
 ```
 
 ### 添加私有数据源
 
-1. 在 `src/sources/` 下创建新文件，如 `tushare_source.py`
-2. 继承 `BaseDataSource` 并实现接口
-3. 在 `src/collector.py` 中注册新数据源
+1. 在 `deeppulse/src/sources/` 下创建新文件，如 `tushare_source.py`
+2. 继承 `DataSourceBase` 并实现接口（注意 volume 统一为**股**，接口单位为手时 ×100）
+3. 在 `deeppulse/src/sources/__init__.py` 的 `SOURCE_CLASSES` 中注册，并把名称加入 `config.DATA_SOURCES`
 
 ```python
-# src/sources/tushare_source.py
-from src.sources.base import BaseDataSource
+# deeppulse/src/sources/tushare_source.py
+from deeppulse.src.sources.base import DataSourceBase
 
-class TushareSource(BaseDataSource):
+class TushareSource(DataSourceBase):
     def __init__(self, token: str):
         import tushare as ts
         self.pro = ts.pro_api(token)
 
-    def get_stock_list(self) -> list[dict]:
+    @property
+    def name(self) -> str:
+        return "tushare"
+
+    def fetch_stock_list(self) -> list[dict]:
         df = self.pro.stock_basic(exchange='', list_status='L')
         return df[['ts_code', 'name', 'market']].to_dict('records')
 
-    def get_daily_kline(self, code: str, start_date: str, end_date: str) -> list[dict]:
+    def fetch_daily_kline(self, code: str, start_date, end_date) -> pd.DataFrame:
         df = self.pro.daily(ts_code=code, start_date=start_date, end_date=end_date)
-        return df.to_dict('records')
+        return df  # 列名需对齐 base.py 的约定
 ```
 
 ### 替换实时行情源
 
-实时行情模块位于 `src/realtime/`，同样支持插件式扩展：
+实时行情模块位于 `deeppulse/src/realtime/`，同样支持插件式扩展：
 
-1. 继承 `src/realtime/base.py` 中的 `RealtimeQuoteSource`
-2. 在 `src/realtime/manager.py` 的 `priority` 列表中注册
+1. 继承 `deeppulse/src/realtime/base.py` 中的 `RealtimeQuoteSource`
+2. 在 `deeppulse/src/realtime/manager.py` 的 `SOURCE_REGISTRY` 中注册，并加入 `config.REALTIME_SOURCES` 优先级
 
 ## 工具一览
 
@@ -484,7 +508,7 @@ class TushareSource(BaseDataSource):
 |------|------|
 | `update_stock` | 更新单只股票 K 线（分析前自动调用） |
 | `update_all_stocks` | 更新全部股票数据 |
-| `realtime_price` | 实时行情（新浪 + 东财双源） |
+| `realtime_price` | 实时行情（新浪 / 腾讯 / 东财三源） |
 | `realtime_prices` | 批量实时行情 |
 | `update_timeframe_data` | 多周期 K 线数据 |
 
@@ -676,8 +700,8 @@ DeepPulse/
 |------|------|
 | LLM | DeepSeek / OpenAI / Claude |
 | 数据库 | DuckDB（嵌入式列式引擎） |
-| 历史数据 | BaoStock（首选） + AkShare（备选），均为免费 |
-| 实时行情 | 新浪财经 + 东方财富（双源冗余） |
+| 历史数据 | BaoStock / AkShare / 东方财富 / 腾讯 / 新浪（五源互备，自动故障切换），均为免费 |
+| 实时行情 | 新浪财经 / 腾讯行情 / 东方财富（三源冗余） |
 | 语义搜索 | sentence-transformers（本地 768 维） + BM25 |
 | 新闻爬虫 | curl_cffi + BeautifulSoup |
 | 语言/运行时 | Python 3.10+ |

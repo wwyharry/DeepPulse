@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from deeppulse import config
-from deeppulse.src.collector import fetch_and_store_stock_list, fetch_kline_with_timeout, get_sources
+from deeppulse.src.collector import SourceFailover, fetch_and_store_stock_list
 from deeppulse.src.database import (
     get_connection,
     get_latest_kline_date,
@@ -65,27 +65,18 @@ def update_kline(max_days: int = 5) -> dict:
         conn.close()
         return {"total": 0, "success": 0, "failed": 0, "rows": 0, "skipped": 0}
 
-    # 用BaoStock（免费无限制）
-    sources = [s for s in get_sources() if s.name == "baostock"]
-    if not sources:
-        conn.close()
-        return {"error": "BaoStock数据源不可用"}
-
-    source = sources[0]
+    # 多源故障切换：按 config.DATA_SOURCES 优先级取数，单源失败/数据滞后自动换源
+    failover = SourceFailover(timeout=FETCH_TIMEOUT)
     stats = {"total": len(codes), "success": 0, "failed": 0, "rows": 0, "skipped": 0}
     consecutive_failures = 0
 
     for i, code in enumerate(codes):
         if i > 0 and i % RECONNECT_INTERVAL == 0:
-            try:
-                source._logout()
-            except Exception:
-                pass
+            failover.cleanup_active()
             time.sleep(1)
-            source = sources[0].__class__()
 
-        # 断点续传：检查真实K线最后交易日，而不是fetch_log请求结束日期
-        last = get_latest_kline_date(conn, code, "baostock")
+        # 断点续传：检查真实K线最后交易日，而不是fetch_log请求结束日期（全源合并覆盖）
+        last = get_latest_kline_date(conn, code)
         if last:
             last_d = date.fromisoformat(last)
             if last_d >= end:
@@ -96,37 +87,23 @@ def update_kline(max_days: int = 5) -> dict:
             actual_start = start
 
         try:
-            df = fetch_kline_with_timeout(source, code, actual_start, end, FETCH_TIMEOUT)
+            df, src_name = failover.fetch(code, actual_start, end)
             if df is not None and not df.empty:
                 records = df.to_dict("records")
                 count = insert_daily_kline(conn, records)
-                log_fetch(conn, code, "baostock", actual_start, end, count, "success")
+                log_fetch(conn, code, src_name, actual_start, end, count, "success")
                 stats["rows"] += count
             else:
-                log_fetch(conn, code, "baostock", actual_start, end, 0, "success")
+                log_fetch(conn, code, failover.active.name, actual_start, end, 0, "success")
             stats["success"] += 1
             consecutive_failures = 0
-        except TimeoutError as e:
-            stats["failed"] += 1
-            consecutive_failures += 1
-            log_fetch(conn, code, "baostock", actual_start, end, 0, "timeout", str(e))
-            try:
-                source._logout()
-            except Exception:
-                pass
-            time.sleep(1)
-            source = sources[0].__class__()
         except Exception as e:
             stats["failed"] += 1
             consecutive_failures += 1
-            log_fetch(conn, code, "baostock", actual_start, end, 0, "failed", str(e))
+            log_fetch(conn, code, failover.active.name, actual_start, end, 0, "failed", str(e))
             if consecutive_failures >= 3:
-                try:
-                    source._logout()
-                except Exception:
-                    pass
+                failover.cleanup_active()
                 time.sleep(2)
-                source = sources[0].__class__()
                 consecutive_failures = 0
 
         # 进度报告
@@ -135,10 +112,7 @@ def update_kline(max_days: int = 5) -> dict:
 
         time.sleep(config.FETCH_DELAY_SECONDS)
 
-    try:
-        source._logout()
-    except Exception:
-        pass
+    failover.cleanup()
     conn.close()
     return stats
 

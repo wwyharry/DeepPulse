@@ -57,13 +57,21 @@ _HINT = "本地无数据，且在线获取失败（网络不可用或数据源�
 
 
 def _source_names() -> list[str]:
-    return [config.DATA_DEFAULT_SOURCE] if config.DATA_DEFAULT_SOURCE else list(config.DATA_SOURCES)
+    """在线取数的数据源降级链：default_source 优先，其余按 DATA_SOURCES 顺序殿后。
+
+    始终返回完整链条（而非只回首选）——首选源失败/无数据时自动切换下一源。
+    """
+    names = list(config.DATA_SOURCES)
+    if config.DATA_DEFAULT_SOURCE and config.DATA_DEFAULT_SOURCE in names:
+        names.remove(config.DATA_DEFAULT_SOURCE)
+        names.insert(0, config.DATA_DEFAULT_SOURCE)
+    return names
 
 
 def _make_source(name: str):
-    from deeppulse.src.sources import AkShareSource, BaoStockSource
+    from deeppulse.src.sources import make_source
 
-    return BaoStockSource() if name == "baostock" else AkShareSource()
+    return make_source(name)
 
 
 def fetch_daily_kline_online(code: str, start: date, end: date, source_name: str = None) -> tuple[pd.DataFrame, str]:

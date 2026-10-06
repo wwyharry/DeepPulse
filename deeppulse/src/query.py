@@ -33,6 +33,19 @@ def result_source(df: pd.DataFrame) -> str:
     return str(df.attrs.get("data_source") or SOURCE_LOCAL)
 
 
+def _source_priority_expr(col: str = "data_source") -> str:
+    """多源同日期去重的排序表达式：按 config.DATA_SOURCES 优先级，未知名排最后"""
+    order = list(getattr(config, "DATA_SOURCES", []) or [])
+    case = " ".join(f"WHEN '{name}' THEN {i}" for i, name in enumerate(order))
+    return f"CASE COALESCE({col}, '') {case} ELSE {len(order)} END"
+
+
+def _dedup_by_trade_date_sql(extra_partition: str = "") -> str:
+    """同一天多源各有一行时按优先级保留一行的 QUALIFY 子句（数据源互为备份，读者不看副本）"""
+    partition = ", ".join(p for p in (extra_partition, "trade_date") if p)
+    return f"QUALIFY ROW_NUMBER() OVER (PARTITION BY {partition} ORDER BY {_source_priority_expr()}) = 1"
+
+
 class StockQuery:
     """A股日K数据库查询接口，供Agent使用"""
 
@@ -131,6 +144,9 @@ class StockQuery:
         if source:
             sql += " AND data_source = ?"
             params.append(source)
+        else:
+            # 多源同日期去重（源间互为备份）；指定 source 时保留该源原始行
+            sql += " " + _dedup_by_trade_date_sql()
 
         sql += " ORDER BY trade_date"
         if limit:
@@ -165,6 +181,8 @@ class StockQuery:
             sql += " AND trade_date <= ?"
             params.append(end_date)
 
+        # 多源同日期去重（源间互为备份）
+        sql += " " + _dedup_by_trade_date_sql(extra_partition="code")
         sql += " ORDER BY code, trade_date"
         df = self._fetch_df(sql, params)
         if df.empty and self._fallback_enabled():

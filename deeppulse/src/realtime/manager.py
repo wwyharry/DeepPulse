@@ -8,17 +8,19 @@ from deeppulse.src.resilience import CircuitBreaker
 from .base import RealtimeQuote, RealtimeQuoteSource
 from .eastmoney_source import EastMoneyRealtimeSource
 from .sina_source import SinaRealtimeSource
+from .tencent_source import TencentRealtimeSource
 
 logger = logging.getLogger(__name__)
 
 # 数据源注册表
 SOURCE_REGISTRY: dict[str, type[RealtimeQuoteSource]] = {
     "sina": SinaRealtimeSource,
+    "tencent": TencentRealtimeSource,
     "eastmoney": EastMoneyRealtimeSource,
 }
 
-# 默认优先级顺序
-DEFAULT_PRIORITY = ["sina", "eastmoney"]
+# 默认优先级顺序（tencent 带真实成交时间戳且轻量，排在东财快照前）
+DEFAULT_PRIORITY = ["sina", "tencent", "eastmoney"]
 
 
 class RealtimeQuoteManager:

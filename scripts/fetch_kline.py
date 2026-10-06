@@ -24,7 +24,13 @@ def main():
     parser = argparse.ArgumentParser(description="采集A股日K线数据")
     parser.add_argument("--start", type=str, help="开始日期 YYYY-MM-DD", default=str(config.START_DATE))
     parser.add_argument("--end", type=str, help="结束日期 YYYY-MM-DD", default=str(config.END_DATE))
-    parser.add_argument("--source", type=str, nargs="*", help="指定数据源", choices=["akshare", "baostock"])
+    parser.add_argument(
+        "--source",
+        type=str,
+        nargs="*",
+        help="指定数据源（多源互为备份；单源指定时整段采集该源副本）",
+        choices=["akshare", "baostock", "eastmoney", "tencent", "sina"],
+    )
     parser.add_argument("--codes", type=str, nargs="*", help="指定股票代码")
     parser.add_argument("--delay", type=float, help="每只股票间隔秒数（默认0，BaoStock无限流）", default=0)
     args = parser.parse_args()

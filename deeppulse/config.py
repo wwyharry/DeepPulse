@@ -15,8 +15,9 @@ DB_PATH = _DEFAULT_DB_PATH
 END_DATE = date.today()
 START_DATE = END_DATE - timedelta(days=5 * 365)  # 过去5年
 
-# 数据源列表（按优先级排序，首选BaoStock，AkShare作为备选）
-DATA_SOURCES = ["baostock", "akshare"]
+# 数据源列表（按优先级排序，互为备份；单源失败/无数据自动切换下一源）
+# baostock/akshare/eastmoney/tencent 为前复权口径；sina 为不复权，仅作最后兜底
+DATA_SOURCES = ["baostock", "akshare", "eastmoney", "tencent", "sina"]
 
 # 采集控制
 FETCH_DELAY_SECONDS = 0  # 每次API调用间隔（秒），BaoStock无限流可设0，AkShare建议0.3
@@ -62,8 +63,8 @@ HISTORY_FOLD_SUMMARY_MAX_CHARS = 600  # 折叠占位符摘要的最大字符数
 # 工具调用去重检测窗口：检查最近N次调用是否有重复
 TOOL_REPEAT_DETECTION_WINDOW = 5
 
-# 实时行情配置
-REALTIME_SOURCES = ["sina", "eastmoney"]  # 按优先级排序
+# 实时行情配置（按优先级排序，三态熔断自动故障切换）
+REALTIME_SOURCES = ["sina", "tencent", "eastmoney"]  # tencent 带真实成交时间戳
 REALTIME_TIMEOUT = 10.0  # 单源超时秒数
 
 # 重试策略配置

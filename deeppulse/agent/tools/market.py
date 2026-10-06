@@ -401,17 +401,16 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kd
 
 
 def update_stock(code: str, max_days: int = 5) -> str:
-    """检查并更新单只股票的K线数据到最新"""
-    from deeppulse.src.collector import fetch_kline_with_timeout
+    """检查并更新单只股票的K线数据到最新（多源故障切换，空/失败自动换源）"""
+    from deeppulse.src.collector import SourceFailover
     from deeppulse.src.database import get_connection, get_latest_kline_date, init_tables, insert_daily_kline, log_fetch
-    from deeppulse.src.sources import BaoStockSource
 
     conn = get_connection()
     init_tables(conn)
     end = date.today()
     start = end - timedelta(days=max_days)
 
-    last = get_latest_kline_date(conn, code, "baostock")
+    last = get_latest_kline_date(conn, code)  # 全源合并覆盖：任一源已到最新即视为最新
     if last:
         last_d = date.fromisoformat(last)
         if last_d >= end:
@@ -429,22 +428,19 @@ def update_stock(code: str, max_days: int = 5) -> str:
     else:
         actual_start = start
 
+    failover = SourceFailover(timeout=30)
     try:
-        source = BaoStockSource()
-        source._ensure_login()
-        df = fetch_kline_with_timeout(source, code, actual_start, end, timeout=30)
+        df, src_name = failover.fetch(code, actual_start, end)
         if df is not None and not df.empty:
             records = df.to_dict("records")
             count = insert_daily_kline(conn, records)
-            log_fetch(conn, code, "baostock", actual_start, end, count, "success")
+            log_fetch(conn, code, src_name, actual_start, end, count, "success")
         else:
             count = 0
-            log_fetch(conn, code, "baostock", actual_start, end, 0, "success")
-        try:
-            source._logout()
-        except Exception:
-            pass
-        latest = get_latest_kline_date(conn, code, "baostock")
+            src_name = failover.active.name
+            log_fetch(conn, code, src_name, actual_start, end, 0, "success")
+        failover.cleanup()
+        latest = get_latest_kline_date(conn, code)
         conn.close()
         return json.dumps(
             {
@@ -454,7 +450,8 @@ def update_stock(code: str, max_days: int = 5) -> str:
                 "to_date": str(end),
                 "latest_date": latest,
                 "new_rows": count,
-                "message": f"股票{code}已更新：{actual_start}~{end}，新增{count}行",
+                "data_source": src_name,
+                "message": f"股票{code}已更新：{actual_start}~{end}，新增{count}行（数据源: {src_name}）",
             },
             ensure_ascii=False,
         )
@@ -464,8 +461,8 @@ def update_stock(code: str, max_days: int = 5) -> str:
 
 
 def update_all_stocks(max_days: int = 5) -> str:
-    """更新全部股票的K线数据"""
-    from deeppulse.src.collector import fetch_kline_with_timeout
+    """更新全部股票的K线数据（多源故障切换：单源失败/数据滞后自动换源）"""
+    from deeppulse.src.collector import SourceFailover
     from deeppulse.src.database import (
         get_connection,
         get_latest_kline_date,
@@ -474,7 +471,6 @@ def update_all_stocks(max_days: int = 5) -> str:
         insert_daily_kline,
         log_fetch,
     )
-    from deeppulse.src.sources import BaoStockSource
 
     conn = get_connection()
     init_tables(conn)
@@ -485,13 +481,12 @@ def update_all_stocks(max_days: int = 5) -> str:
 
     end = date.today()
     start = end - timedelta(days=max_days)
-    source = BaoStockSource()
-    source._ensure_login()
+    failover = SourceFailover(timeout=30)
 
     stats = {"total": len(codes), "success": 0, "failed": 0, "rows": 0, "skipped": 0}
 
     for i, code in enumerate(codes):
-        last = get_latest_kline_date(conn, code, "baostock")
+        last = get_latest_kline_date(conn, code)  # 全源合并覆盖
         if last:
             last_d = date.fromisoformat(last)
             if last_d >= end:
@@ -502,41 +497,27 @@ def update_all_stocks(max_days: int = 5) -> str:
             actual_start = start
 
         try:
-            df = fetch_kline_with_timeout(source, code, actual_start, end, timeout=30)
+            df, src_name = failover.fetch(code, actual_start, end)
             if df is not None and not df.empty:
                 records = df.to_dict("records")
                 count = insert_daily_kline(conn, records)
-                log_fetch(conn, code, "baostock", actual_start, end, count, "success")
+                log_fetch(conn, code, src_name, actual_start, end, count, "success")
                 stats["rows"] += count
             else:
-                log_fetch(conn, code, "baostock", actual_start, end, 0, "success")
+                log_fetch(conn, code, failover.active.name, actual_start, end, 0, "success")
             stats["success"] += 1
         except Exception as e:
             stats["failed"] += 1
-            log_fetch(conn, code, "baostock", actual_start, end, 0, "failed", str(e))
-            try:
-                source._logout()
-            except Exception:
-                pass
+            log_fetch(conn, code, failover.active.name, actual_start, end, 0, "failed", str(e))
             time.sleep(1)
-            source = BaoStockSource()
-            source._ensure_login()
 
         if (i + 1) % 300 == 0:
-            try:
-                source._logout()
-            except Exception:
-                pass
+            failover.cleanup_active()
             time.sleep(1)
-            source = BaoStockSource()
-            source._ensure_login()
 
         time.sleep(0.1)
 
-    try:
-        source._logout()
-    except Exception:
-        pass
+    failover.cleanup()
     conn.close()
 
     return json.dumps(
@@ -547,10 +528,11 @@ def update_all_stocks(max_days: int = 5) -> str:
             "skipped": stats["skipped"],
             "failed": stats["failed"],
             "new_rows": stats["rows"],
+            "data_source": failover.active.name,
             "message": (
                 f"全量更新完成：共{stats['total']}只，"
                 f"更新{stats['success']}只，跳过{stats['skipped']}只，"
-                f"失败{stats['failed']}只，新增{stats['rows']}行"
+                f"失败{stats['failed']}只，新增{stats['rows']}行（活动数据源: {failover.active.name}）"
             ),
         },
         ensure_ascii=False,
