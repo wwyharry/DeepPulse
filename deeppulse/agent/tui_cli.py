@@ -44,7 +44,8 @@ def main():
     parser = argparse.ArgumentParser(description="DeepPulse - TUI模式")
     parser.add_argument("--model", type=str, help="覆盖配置中的模型名称")
     parser.add_argument("--verbose", action="store_true", help="显示详细日志")
-    parser.add_argument("--no-judge", action="store_true", help="禁用评判Agent")
+    parser.add_argument("--judge", action="store_true", help="启用评判Agent（默认关闭）")
+    parser.add_argument("--no-judge", action="store_true", help="禁用评判Agent（覆盖配置）")
 
     args = parser.parse_args()
 
@@ -63,11 +64,12 @@ def main():
     if args.model:
         setting["llm"]["model"] = args.model
 
-    # 禁用评判Agent（TUI 读取 setting.agent.enable_judge）
+    # 评判Agent 开关（TUI 读取 setting.agent.enable_judge，默认关闭）
+    # 仅在显式传旗标时覆盖配置；都不传则尊重配置值
     if args.no_judge:
-        setting["agent"]["enable_judge"] = False
-    else:
-        setting["agent"]["enable_judge"] = True
+        setting.setdefault("agent", {})["enable_judge"] = False
+    elif args.judge:
+        setting.setdefault("agent", {})["enable_judge"] = True
 
     _safe_print("✨ 正在启动 DeepPulse TUI...")
     _safe_print("💡 提示: Ctrl+Q 退出, Ctrl+R 重置对话, Ctrl+L 清屏")

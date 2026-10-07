@@ -3,42 +3,54 @@
 from unittest.mock import MagicMock, patch
 
 
-class TestSearchBaiduNews:
-    """测试百度新闻搜索"""
+class TestSearchEastmoneyNews:
+    """测试东方财富快讯搜索"""
 
     @patch("deeppulse.agent.news.requests.get")
     def test_returns_results(self, mock_get):
         """正常返回新闻列表"""
         mock_resp = MagicMock()
-        mock_resp.text = (
-            '<html><body><div class="result"><h3><a href="http://example.com/1">A股大涨</a></h3></div></body></html>'
-        )
-        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {
+                "list": [
+                    {"title": "A股大涨", "content": "<p>沪指收涨</p>", "digest": "", "showtime": "2026-10-07 10:00:00", "art_code": "1"},
+                ]
+            }
+        }
         mock_get.return_value = mock_resp
-        from deeppulse.agent.news import search_baidu_news
+        from deeppulse.agent.news import search_eastmoney_news
 
-        results = search_baidu_news("A股", num=5)
+        results = search_eastmoney_news(num=5)
         assert isinstance(results, list)
+        assert results[0]["title"] == "A股大涨"
+        assert "<" not in results[0]["summary"]  # HTML 标签已清理
 
     @patch("deeppulse.agent.news.requests.get")
-    def test_empty_query_returns_list(self, mock_get):
-        """空查询返回列表"""
+    def test_keyword_filters(self, mock_get):
+        """关键词过滤生效"""
         mock_resp = MagicMock()
-        mock_resp.text = "<html><body></body></html>"
-        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {
+                "list": [
+                    {"title": "贵州茅台业绩", "content": "", "digest": "", "showtime": "", "art_code": "1"},
+                    {"title": "宁德时代扩产", "content": "", "digest": "", "showtime": "", "art_code": "2"},
+                ]
+            }
+        }
         mock_get.return_value = mock_resp
-        from deeppulse.agent.news import search_baidu_news
+        from deeppulse.agent.news import search_eastmoney_news
 
-        results = search_baidu_news("", num=5)
-        assert isinstance(results, list)
+        results = search_eastmoney_news(keyword="茅台", num=5)
+        assert len(results) == 1
+        assert "茅台" in results[0]["title"]
 
     @patch("deeppulse.agent.news.requests.get")
     def test_network_error_handled(self, mock_get):
         """网络异常应返回错误信息而非崩溃"""
         mock_get.side_effect = Exception("Connection timeout")
-        from deeppulse.agent.news import search_baidu_news
+        from deeppulse.agent.news import search_eastmoney_news
 
-        results = search_baidu_news("A股", num=5)
+        results = search_eastmoney_news("A股", num=5)
         # 应返回包含 error 键的列表或空列表
         assert isinstance(results, list)
 
@@ -46,13 +58,14 @@ class TestSearchBaiduNews:
 class TestSearchStockNews:
     """测试个股新闻搜索"""
 
-    @patch("deeppulse.agent.news.search_baidu_news")
     @patch("deeppulse.agent.news.search_eastmoney_news")
-    def test_merges_sources(self, mock_em, mock_baidu):
-        """应合并多源新闻"""
-        mock_baidu.return_value = [{"title": "百度新闻", "url": "http://baidu.com", "source": "百度", "time": ""}]
+    def test_returns_envelope(self, mock_em):
+        """返回标准信封结构（query/total/sources/results）"""
         mock_em.return_value = [{"title": "东财快讯", "url": "http://eastmoney.com", "source": "东财", "time": ""}]
         from deeppulse.agent.news import search_stock_news
 
         result = search_stock_news("600519", num=5)
         assert isinstance(result, dict)
+        assert result["query"] == "600519"
+        assert result["sources"] == ["东方财富"]
+        assert len(result["results"]) == 1

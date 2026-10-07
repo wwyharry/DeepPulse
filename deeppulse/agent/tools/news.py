@@ -2,12 +2,12 @@
 
 import json
 
-from deeppulse.agent.news import search_baidu_news, search_market_hot_news, search_stock_news
+from deeppulse.agent.news import search_eastmoney_news, search_market_hot_news, search_stock_news
 
 
 def search_news(query: str, num: int = 8) -> str:
     """搜索财经新闻热点"""
-    results = search_baidu_news(query, num=int(num))
+    results = search_eastmoney_news(keyword=query, num=int(num))
     if not results:
         return json.dumps({"query": query, "results": [], "message": "未搜索到相关新闻"}, ensure_ascii=False)
     if "error" in results[0]:
@@ -32,7 +32,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_news",
-            "description": "搜索财经新闻热点。可用于搜索个股相关新闻、行业新闻或宏观财经消息。数据来源为百度新闻。",
+            "description": "搜索财经新闻热点。可用于搜索个股相关新闻、行业新闻或宏观财经消息。数据来源为东方财富快讯（关键词过滤）。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -47,7 +47,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "stock_news",
-            "description": "搜索某只股票的相关新闻，综合百度新闻和东方财富快讯多源搜索，结果更全面。",
+            "description": "搜索某只股票的相关新闻（东方财富快讯关键词搜索）。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -62,7 +62,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "market_hot_news",
-            "description": "获取A股市场今日热点新闻，综合东方财富、新浪财经、百度新闻多源聚合。适合了解市场整体动态。",
+            "description": "获取A股市场今日热点新闻，综合东方财富、新浪财经多源聚合。适合了解市场整体动态。",
             "parameters": {
                 "type": "object",
                 "properties": {"num": {"type": "integer", "description": "每个源返回条数，默认10", "default": 10}},

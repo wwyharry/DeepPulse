@@ -1,7 +1,6 @@
 """热点新闻搜索 - 纯爬虫方案，无外部 API 依赖
 
 数据源:
-- 百度新闻: 综合财经新闻聚合
 - 东方财富: A股快讯/要闻
 - 新浪财经: 财经热点
 """
@@ -9,9 +8,7 @@
 import re
 import time
 from datetime import datetime
-from urllib.parse import quote
 
-from bs4 import BeautifulSoup
 from curl_cffi import requests
 
 # 通用请求头
@@ -23,79 +20,6 @@ _HEADERS = {
 }
 
 _TIMEOUT = 15
-
-
-def search_baidu_news(keyword: str, num: int = 10) -> list[dict]:
-    """百度新闻搜索
-
-    Args:
-        keyword: 搜索关键词（股票名称、代码、或任意财经关键词）
-        num: 返回条数，默认10
-
-    Returns:
-        [{"title": str, "source": str, "time": str, "summary": str, "url": str}]
-    """
-    url = f"https://www.baidu.com/s?tn=news&rtt=1&bsst=1&cl=2&wd={quote(keyword)}"
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT, impersonate="chrome")
-        resp.raise_for_status()
-    except Exception as e:
-        return [{"error": f"百度新闻请求失败: {e}"}]
-
-    soup = BeautifulSoup(resp.text, "lxml")
-    results = []
-
-    for item in soup.select(".result, .c-container"):
-        # 标题：尝试多种选择器
-        title_tag = (
-            item.select_one(".news-title a")
-            or item.select_one("h3 a")
-            or item.select_one(".c-title a")
-            or item.select_one("a[href]")
-        )
-        if not title_tag:
-            continue
-
-        title = title_tag.get_text(strip=True)
-        if not title or len(title) < 4:
-            continue
-
-        link = title_tag.get("href", "")
-
-        # 来源和时间
-        source_tag = item.select_one(".news-source, .c-color-gray, .source, .c-gap-top-xsmall")
-        source_text = source_tag.get_text(strip=True) if source_tag else ""
-
-        source_name = ""
-        pub_time = ""
-        if source_text:
-            parts = re.split(r"\s+", source_text, maxsplit=1)
-            source_name = parts[0] if parts else ""
-            if len(parts) > 1:
-                pub_time = parts[1]
-
-        # 摘要
-        summary_tag = item.select_one(".c-font-normal, .news-summary, .content-right, .c-abstract")
-        summary = summary_tag.get_text(strip=True) if summary_tag else ""
-        if not summary:
-            # fallback: 取所有文本，去掉标题
-            all_text = item.get_text(strip=True)
-            summary = all_text[len(title) :].strip()
-
-        results.append(
-            {
-                "title": title,
-                "source": source_name or "百度新闻",
-                "time": pub_time,
-                "summary": summary[:200],
-                "url": link,
-            }
-        )
-
-        if len(results) >= num:
-            break
-
-    return results
 
 
 def search_eastmoney_news(keyword: str = "", num: int = 10) -> list[dict]:
@@ -226,14 +150,6 @@ def search_stock_news(code_or_name: str, num: int = 10) -> dict:
     all_results = []
     sources_used = []
 
-    # 百度新闻搜索
-    baidu_results = search_baidu_news(f"{code_or_name} 股票", num=num)
-    if baidu_results and "error" not in baidu_results[0]:
-        for r in baidu_results:
-            r["source"] = f"百度新闻/{r.get('source', '')}"
-        all_results.extend(baidu_results)
-        sources_used.append("百度新闻")
-
     # 东方财富快讯（关键词过滤）
     em_results = search_eastmoney_news(keyword=code_or_name, num=num)
     if em_results and "error" not in em_results[0]:
@@ -280,14 +196,6 @@ def search_market_hot_news(num: int = 10) -> dict:
     if sina and "error" not in sina[0]:
         all_results.extend(sina)
         sources_used.append("新浪财经")
-
-    # 百度 A股热搜
-    baidu = search_baidu_news("A股 今日", num=num)
-    if baidu and "error" not in baidu[0]:
-        for r in baidu:
-            r["source"] = f"百度新闻/{r.get('source', '')}"
-        all_results.extend(baidu)
-        sources_used.append("百度新闻")
 
     # 按时间排序（有时间的排前面）
     def time_sort_key(r):

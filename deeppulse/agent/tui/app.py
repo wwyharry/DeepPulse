@@ -172,7 +172,7 @@ class DeepPulseTUI(App):
         self._history_file = HISTORY_FILE
         self._judge_history_dir = None  # 测试可注入；None=默认目录
         agent_cfg = (setting or {}).get("agent", {}) if isinstance(setting, dict) else {}
-        self._judge_enabled = bool(agent_cfg.get("enable_judge", True))
+        self._judge_enabled = bool(agent_cfg.get("enable_judge", False))
 
         # 后台任务管理（防止 GC 回收 + 异常捕获）
         self._background_tasks: set[asyncio.Task] = set()
@@ -308,7 +308,8 @@ class DeepPulseTUI(App):
                 self._init_done = True
 
                 self.chat_log.add_system_message(
-                    "✅ Agent 初始化完成！现在可以开始提问。\n💡 输入「评判一下」或按 Ctrl+J 让评判Agent检查分析质量。"
+                    "✅ Agent 初始化完成！现在可以开始提问。"
+                    + ("\n💡 按 Ctrl+J 或输入 /judge 让评判Agent检查分析质量。" if self._judge_enabled else "")
                 )
 
                 # 加载面板数据并启动定时刷新
@@ -552,27 +553,8 @@ class DeepPulseTUI(App):
         self.current_query = query
         self.chat_log.add_user_message(query)
 
-        # 检测评判命令：仅明确评判意图才进评判流程；
-        # “帮我看看/检查一下/对吗”等中性分析用语走主分析，避免劫持正常分析请求
-        is_judge_request = "评判" in query
-        if not is_judge_request:
-            # 整句等于短语（去空白与结尾标点）时仍视为评判指令
-            query_norm = query.strip().rstrip("。！？!?；;，, ")
-            is_judge_request = query_norm in {"对吗", "对不对", "有问题吗", "检查一下", "帮我看看", "评判", "评判一下"}
-
-        if is_judge_request and self.agent and len(self.agent.messages) > 2:
-            if not self._judge_enabled:
-                self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（--no-judge）")
-                self.chat_input.focus()
-                return
-            last_msg = self.agent.messages[-1]
-            if last_msg.get("role") == "assistant" and last_msg.get("content"):
-                self._spawn_agent(self.run_judge_agent(), "judge_agent")
-            else:
-                self.chat_log.add_system_message("⚠️ 没有可以评判的内容，请先进行分析")
-                self.chat_input.focus()
-        else:
-            self._spawn_agent(self.run_main_agent(query), "main_agent")
+        # 评判Agent 仅手动触发（/judge 或 Ctrl+J），用户输入一律走主分析
+        self._spawn_agent(self.run_main_agent(query), "main_agent")
 
     async def action_history_prev(self):
         """上一条历史命令"""
@@ -683,7 +665,7 @@ class DeepPulseTUI(App):
 
         elif command == "/judge":
             if not self._judge_enabled:
-                self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（--no-judge）")
+                self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（默认关闭，用 --judge 启动或配置 setting.agent.enable_judge=true 开启）")
             elif self._busy:
                 self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")
             elif self.agent and len(self.agent.messages) > 2:
@@ -1176,7 +1158,7 @@ class DeepPulseTUI(App):
 
     async def action_judge(self) -> None:
         if not self._judge_enabled:
-            self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（--no-judge）")
+            self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（默认关闭，用 --judge 启动或配置 setting.agent.enable_judge=true 开启）")
             self.chat_input.focus()
         elif self._busy:
             self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")

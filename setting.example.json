@@ -9,7 +9,7 @@
     "temperature": 0.3
   },
   "embedding": {
-    "provider": "local",
+    "provider": "none",
     "model": "shibing624/text2vec-base-chinese",
     "api_key": "",
     "base_url": ""
@@ -20,7 +20,8 @@
     "max_history_messages": 60,
     "max_history_chars": 40000,
     "max_history_tokens": 16000,
-    "history_keep_last_turns": 1
+    "history_keep_last_turns": 1,
+    "enable_judge": false
   },
   "data": {
     "online_fallback": true,
