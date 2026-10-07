@@ -8,6 +8,7 @@ import baostock as bs
 import pandas as pd
 
 from deeppulse import config
+from deeppulse.src import codes
 from deeppulse.src.resilience import RetryPolicy
 
 from .base import DataSourceBase
@@ -120,16 +121,13 @@ class BaoStockSource(DataSourceBase):
     def name(self) -> str:
         return "baostock"
 
-    def _to_bs_code(self, code: str) -> str:
-        """将6位代码转为BaoStock格式 (sh.600000 / sz.000001)"""
-        code = str(code).zfill(6)
-        if code.startswith("6"):
-            return f"sh.{code}"
-        else:
-            return f"sz.{code}"
+    @staticmethod
+    def _to_bs_code(code: str) -> str | None:
+        """将6位代码转为BaoStock格式 (sh.600000 / sz.000001)；北交所不支持返回 None"""
+        return codes.to_bs_code(code)
 
     def fetch_stock_list(self) -> list[dict]:
-        """通过BaoStock获取沪深A股列表（带重试）"""
+        """通过BaoStock获取沪深A股列表（带重试；无北交所）"""
         if not self._io_lock.acquire(timeout=self.IO_LOCK_TIMEOUT):
             raise ConnectionError("BaoStock 会话忙（残留线程占用），跳过本次股票列表查询")
         try:
@@ -158,15 +156,12 @@ class BaoStockSource(DataSourceBase):
                 continue
 
             code = bs_code.split(".")[1]
-            market = bs_code.split(".")[0]
 
-            # 筛选主板（排除科创板 68x，含 689 CDR）
-            if market == "sh" and code.startswith("6") and not code.startswith("68"):
-                board = "main"
-            elif market == "sz" and code.startswith("0"):
-                board = "main"
-            else:
+            # 全板块分类（BaoStock 只有沪深代码，创业板/科创板在此归类）
+            info = codes.classify_board(code)
+            if info is None:
                 continue
+            market, board = info
 
             results.append(
                 {
@@ -191,8 +186,11 @@ class BaoStockSource(DataSourceBase):
             self._io_lock.release()
 
     def _fetch_kline_impl(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
-        self._ensure_login()
         bs_code = self._to_bs_code(code)
+        if bs_code is None:
+            # BaoStock 不支持北交所：直接返回空，让故障切换落到 akshare/eastmoney
+            return pd.DataFrame()
+        self._ensure_login()
         fields = "date,open,high,low,close,volume,amount,turn"
 
         rs = bs.query_history_k_data_plus(

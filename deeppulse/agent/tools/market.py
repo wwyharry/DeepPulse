@@ -137,7 +137,8 @@ def realtime_prices(codes: str) -> str:
 
 
 def _market_overview_online() -> dict:
-    """无本地K线时用东财全市场快照在线统计（当日口径）"""
+    """无本地K线时用东财全市场快照在线统计（当日口径，涨跌停按板块判定）"""
+    from deeppulse.src.codes import price_limit_pct
     from deeppulse.src.online import OnlineFetchError, fetch_market_snapshot
 
     snap = fetch_market_snapshot()  # 失败抛 OnlineFetchError
@@ -148,22 +149,43 @@ def _market_overview_online() -> dict:
     up = int((pct > 0).sum())
     down = int((pct < 0).sum())
     flat = int((pct == 0).sum())
+
+    # 涨跌停按板块判定（主板10%/ST 5%、创业板科创板20%、北交所30%）。
+    # 价格取整使显示涨跌幅与名义限制有约 ±0.1 个百分点的舍入偏差，故留容差。
+    code_col = next((c for c in ("代码", "code") if c in snap.columns), None)
+    name_col = next((c for c in ("名称", "name") if c in snap.columns), None)
+    limits = []
+    if code_col is not None:
+        codes_s = snap[code_col].astype(str).str.zfill(6)
+        names_s = snap[name_col].astype(str) if name_col is not None else [None] * len(snap)
+        for c, n in zip(codes_s, names_s, strict=True):
+            try:
+                limits.append(price_limit_pct(c, n))
+            except ValueError:
+                limits.append(float("nan"))  # 非A股代码不参与涨跌停判定
+    else:
+        limits = [float("nan")] * len(snap)
+    limit_arr = pd.Series(limits, index=snap.index, dtype="float64")
+    is_up_limit = pct >= (limit_arr - 0.1)
+    is_down_limit = pct <= -(limit_arr - 0.1)
+
     buckets = {
-        "涨停/涨>9%": int((pct > 9).sum()),
-        "涨7~9%": int(((pct > 7) & (pct <= 9)).sum()),
-        "涨3~7%": int(((pct > 3) & (pct <= 7)).sum()),
-        "涨0~3%": int(((pct > 0) & (pct <= 3)).sum()),
+        "涨停": int(is_up_limit.sum()),
+        "涨>9%": int(((pct > 9) & ~is_up_limit).sum()),
+        "涨7~9%": int(((pct > 7) & (pct <= 9) & ~is_up_limit).sum()),
+        "涨3~7%": int(((pct > 3) & (pct <= 7) & ~is_up_limit).sum()),
+        "涨0~3%": int(((pct > 0) & (pct <= 3) & ~is_up_limit).sum()),
         "平盘": flat,
-        "跌0~3%": int(((pct < 0) & (pct >= -3)).sum()),
-        "跌3~7%": int(((pct < -3) & (pct >= -7)).sum()),
-        "跌7~9%": int(((pct < -7) & (pct >= -9)).sum()),
-        "跌停/跌>9%": int((pct < -9).sum()),
+        "跌0~3%": int(((pct < 0) & (pct >= -3) & ~is_down_limit).sum()),
+        "跌3~7%": int(((pct < -3) & (pct >= -7) & ~is_down_limit).sum()),
+        "跌7~9%": int(((pct < -7) & (pct >= -9) & ~is_down_limit).sum()),
+        "跌停": int(is_down_limit.sum()),
     }
     return {
         "最近交易日涨跌": {"总数": int(pct.notna().sum()), "上涨": up, "下跌": down, "平盘": flat},
         "涨跌幅分布": buckets,
         "data_source": "online-eastmoney-spot",
-        "note": "当日全市场快照口径，与本地K线统计口径略有差异",
+        "note": "当日全市场快照口径，涨跌停按板块涨跌幅限制判定，与本地K线统计口径略有差异",
     }
 
 
@@ -565,7 +587,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_all_stocks",
-            "description": "更新全部沪深主板股票的K线数据到最新。当用户要求更新完整数据库时调用。耗时较长（约10-15分钟），调用前应告知用户。",
+            "description": "更新全部沪深京A股（含创业板/科创板/北交所）的K线数据到最新。当用户要求更新完整数据库时调用。耗时较长（约20-40分钟），调用前应告知用户。",
             "parameters": {
                 "type": "object",
                 "properties": {

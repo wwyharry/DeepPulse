@@ -16,7 +16,9 @@ def get_stock_fund_flow(code: str) -> dict:
     try:
         import akshare as ak
 
-        market = "sh" if code.startswith("6") else "sz"
+        from deeppulse.src import codes
+
+        market = codes.market_of(code)  # sh/sz/bj；bj 下游不支持时走后续降级
         df = ak.stock_individual_fund_flow(stock=code, market=market)
         if df is not None and not df.empty:
             latest = df.iloc[-1]

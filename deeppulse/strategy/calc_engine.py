@@ -403,6 +403,19 @@ def _regime_descriptors(df) -> dict:
 # ═══════════════════ 保守仓位计算 ═══════════════════
 
 
+def _min_lot(code: str | None) -> int:
+    """最小买入股数：科创板最低 200 股（超出部分以 100 股递增），其余板块 100 股"""
+    if code is not None:
+        try:
+            from deeppulse.src import codes as _codes
+
+            if _codes.classify_board(code) == ("sh", "star"):
+                return 200
+        except Exception:  # noqa: BLE001 — 仓位计算不因代码分类失败而中断
+            pass
+    return LOT_SIZE
+
+
 def position_size(
     capital: float,
     entry_price: float,
@@ -414,13 +427,16 @@ def position_size(
     avg_loss: float | None = None,
     sample_trades: int = 0,
     kelly_fraction: float = DEFAULT_KELLY_FRACTION,
+    code: str | None = None,
 ) -> dict:
     """保守仓位：固定风险预算 + 半Kelly（样本充足时）+ 硬性仓位上限。
 
     - 单笔风险默认 2%，硬上限 5%（超出自动收缩）
     - Kelly 仅在样本 >= 20 笔且胜率/盈亏可用时给出，仓位硬上限 25%
     - 不足 Kelly 条件时输出轻/中/重档位而非精确数字
+    - code 可选：科创板最小买入 200 股（步长 100），其余板块 100 股
     """
+    min_lot = _min_lot(code)
     try:
         capital = float(capital)
         entry_price = float(entry_price)
@@ -442,10 +458,10 @@ def position_size(
 
     risk_pct = min(max(float(risk_pct or DEFAULT_RISK_PCT), 0.001), RISK_PCT_MAX)
     risk_budget = capital * risk_pct
-    shares = int(risk_budget / risk_per_share // LOT_SIZE) * LOT_SIZE
+    shares = int(risk_budget / risk_per_share // min_lot) * min_lot
     if shares <= 0:
         return {
-            "error": "按当前风险预算不足 1 手（100 股）",
+            "error": f"按当前风险预算不足 1 手（{min_lot} 股）",
             "risk_per_share": round(risk_per_share, 4),
             "risk_budget": round(risk_budget, 2),
         }
@@ -469,8 +485,8 @@ def position_size(
             kelly_used = max(0.0, min(float(kelly_fraction) * kelly_full, KELLY_POSITION_CAP))
             # 仓位不超过 Kelly 上限
             if position_pct > kelly_used > 0:
-                shares = int(capital * kelly_used / entry_price // LOT_SIZE) * LOT_SIZE
-                shares = max(shares, LOT_SIZE)
+                shares = int(capital * kelly_used / entry_price // min_lot) * min_lot
+                shares = max(shares, min_lot)
                 position_value = shares * entry_price
                 position_pct = position_value / capital
         else:

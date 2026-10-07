@@ -1,4 +1,4 @@
-"""采集沪深主板股票列表"""
+"""采集沪深京A股列表（含创业板/科创板/北交所）"""
 
 import sys
 
@@ -9,7 +9,7 @@ from deeppulse.src.collector import fetch_and_store_stock_list
 
 def main():
     print("=" * 40)
-    print("采集沪深主板股票列表")
+    print("采集沪深京A股列表（含创业板/科创板/北交所）")
     print("=" * 40)
     count = fetch_and_store_stock_list()
     print(f"\n完成，共 {count} 只股票")

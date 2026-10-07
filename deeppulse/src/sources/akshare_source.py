@@ -7,6 +7,7 @@ import akshare as ak
 import pandas as pd
 
 from deeppulse import config
+from deeppulse.src import codes
 from deeppulse.src.resilience import RetryPolicy
 
 from .base import DataSourceBase
@@ -29,7 +30,7 @@ class AkShareSource(DataSourceBase):
         return "akshare"
 
     def fetch_stock_list(self) -> list[dict]:
-        """通过AkShare获取沪深A股列表，筛选主板（带重试）"""
+        """通过AkShare获取沪深京A股列表（带重试）"""
         return self._retry_policy.execute(self._fetch_stock_list_impl)
 
     def _fetch_stock_list_impl(self) -> list[dict]:
@@ -37,15 +38,11 @@ class AkShareSource(DataSourceBase):
         results = []
         for _, row in df.iterrows():
             code = str(row["code"]).zfill(6)
-            # 筛选主板：沪市6开头，深市0开头（排除创业板3开头、科创板68x开头、北交所8开头）
-            if code.startswith("6") and not code.startswith("68"):
-                market = "sh"
-                board = "main"
-            elif code.startswith("0"):
-                market = "sz"
-                board = "main"
-            else:
+            # 全板块分类（接口已含沪深京，B股/基金等非A股代码在此拒绝）
+            info = codes.classify_board(code)
+            if info is None:
                 continue
+            market, board = info
             results.append(
                 {
                     "code": code,

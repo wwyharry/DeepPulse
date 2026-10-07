@@ -16,6 +16,7 @@ from datetime import date
 import pandas as pd
 
 from deeppulse import config
+from deeppulse.src import codes
 from deeppulse.src.resilience import RetryPolicy
 
 from .base import DataSourceBase
@@ -86,14 +87,12 @@ class EastMoneySource(DataSourceBase):
 
     @staticmethod
     def _secid(code: str) -> str:
-        symbol = str(code).zfill(6)
-        market = "1" if symbol.startswith("6") else "0"
-        return f"{market}.{symbol}"
+        return codes.to_em_secid(code)
 
     # ── 股票列表 ───────────────────────────────────────────────────
 
     def fetch_stock_list(self) -> list[dict]:
-        """通过东财 clist 接口获取沪深A股列表，筛选主板（带重试）"""
+        """通过东财 clist 接口获取沪深京A股列表（带重试）"""
         return self._retry_policy.execute(self._fetch_stock_list_impl)
 
     def _fetch_stock_list_impl(self) -> list[dict]:
@@ -111,7 +110,7 @@ class EastMoneySource(DataSourceBase):
                     "fltt": 2,
                     "invt": 2,
                     "ut": _UT,
-                    "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",  # 沪深A股
+                    "fs": "m:0+t:6,m:0+t:80,m:0+t:81,m:1+t:2,m:1+t:23",  # 沪深京A股（t:81 北证A股）
                     "fields": "f12,f14,f26",
                 },
             )
@@ -120,13 +119,11 @@ class EastMoneySource(DataSourceBase):
                 break
             for row in diffs:
                 code = str(row.get("f12", "")).zfill(6)
-                # 筛选主板：沪市6开头（排除68x科创板），深市0开头
-                if code.startswith("6") and not code.startswith("68"):
-                    market, board = "sh", "main"
-                elif code.startswith("0"):
-                    market, board = "sz", "main"
-                else:
+                # 全板块分类（B股/基金/转债等非A股代码在此拒绝）
+                info = codes.classify_board(code)
+                if info is None:
                     continue
+                market, board = info
                 raw_date = str(row.get("f26") or "")
                 list_date = None
                 if len(raw_date) == 8 and raw_date.isdigit():

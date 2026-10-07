@@ -23,12 +23,6 @@ DATA_SOURCES = ["baostock", "akshare", "eastmoney", "tencent", "sina"]
 FETCH_DELAY_SECONDS = 0  # 每次API调用间隔（秒），BaoStock无限流可设0，AkShare建议0.3
 BATCH_SIZE = 50  # 批量写入数据库的行数
 
-# 市场筛选：沪深主板
-MARKETS = {
-    "sh": {"prefix": ["6"], "name": "上海主板"},
-    "sz": {"prefix": ["0"], "name": "深圳主板"},
-}
-
 # 记忆系统配置
 MEMORY_DECAY_THRESHOLD = 0.1  # 有效权重低于此值的记忆将被遗忘
 MEMORY_CONTEXT_MAX_CHARS = 4000  # 注入 system prompt 的记忆上下文最大字符数

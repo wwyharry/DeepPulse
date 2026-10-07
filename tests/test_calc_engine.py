@@ -312,6 +312,21 @@ class TestPositionSize:
         assert "error" in calc_engine.position_size(capital=-1, entry_price=10, stop_price=9)
         assert "error" in calc_engine.position_size(capital="x", entry_price=10, stop_price=9)
 
+    def test_star_board_min_200_shares(self):
+        """科创板最小买入 200 股：不足 200 股的预算应报错，且股数是 200 的整数倍"""
+        out = calc_engine.position_size(capital=2000, entry_price=10, stop_price=9.5, code="688001")
+        # 风险预算 40 / 0.5 = 80 股 < 200 股 → 不足 1 手
+        assert "error" in out and "200" in out["error"]
+
+        out2 = calc_engine.position_size(capital=100000, entry_price=10, stop_price=9.5, code="688001")
+        assert out2["suggested_shares"] % 200 == 0
+
+    def test_main_board_min_100_shares(self):
+        out = calc_engine.position_size(capital=100000, entry_price=10, stop_price=9.5, code="600000")
+        assert out["suggested_shares"] % 100 == 0
+        out2 = calc_engine.position_size(capital=100000, entry_price=10, stop_price=9.5, code="920000")
+        assert out2["suggested_shares"] % 100 == 0  # 北交所与主板同 100 股步长
+
 
 # ═══════════════════ 工具接线 ═══════════════════
 

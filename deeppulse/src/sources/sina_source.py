@@ -17,6 +17,7 @@ from datetime import date
 import pandas as pd
 
 from deeppulse import config
+from deeppulse.src import codes
 from deeppulse.src.resilience import RetryPolicy
 
 from .base import DataSourceBase
@@ -63,20 +64,18 @@ class SinaSource(DataSourceBase):
 
     @staticmethod
     def _sina_symbol(code: str) -> str:
-        symbol = str(code).zfill(6)
-        prefix = "sh" if symbol.startswith("6") else "sz"
-        return f"{prefix}{symbol}"
+        return codes.to_sina_symbol(code)
 
     # ── 股票列表 ───────────────────────────────────────────────────
 
     def fetch_stock_list(self) -> list[dict]:
-        """通过新浪 Market_Center 分页获取沪深主板股票列表（带重试）"""
+        """通过新浪 Market_Center 分页获取沪深京A股列表（带重试）"""
         return self._retry_policy.execute(self._fetch_stock_list_impl)
 
     def _fetch_stock_list_impl(self) -> list[dict]:
         results = []
         page = 1
-        while page <= 80:  # 防御性翻页上限（hs_a 含非主板，翻页数偏多）
+        while page <= 120:  # 防御性翻页上限（hs_a 含沪深京全板块，翻页数偏多）
             resp = self._get_session().get(
                 _LIST_URL,
                 params={"page": page, "num": 100, "sort": "symbol", "asc": 1, "node": "hs_a", "_s_r_a": "page"},
@@ -88,15 +87,12 @@ class SinaSource(DataSourceBase):
             if not batch:
                 break
             for row in batch:
-                symbol = str(row.get("symbol") or "")
                 code = str(row.get("code") or "").zfill(6)
-                # hs_a 节点混有科创板/创业板/北交所，仅保留沪深主板
-                if symbol.startswith("sh6") and not symbol.startswith("sh68"):
-                    market, board = "sh", "main"
-                elif symbol.startswith("sz0"):
-                    market, board = "sz", "main"
-                else:
+                # 全板块分类（B股/基金/转债等非A股代码在此拒绝）
+                info = codes.classify_board(code)
+                if info is None:
                     continue
+                market, board = info
                 results.append(
                     {
                         "code": code,

@@ -3,6 +3,8 @@
 import logging
 from datetime import date
 
+from deeppulse.src import codes
+
 from .base import RealtimeQuote, RealtimeQuoteSource
 
 logger = logging.getLogger(__name__)
@@ -29,10 +31,9 @@ class SinaRealtimeSource(RealtimeQuoteSource):
     def name(self) -> str:
         return "sina"
 
-    def _to_sina_code(self, code: str) -> str:
-        code = str(code).zfill(6)
-        prefix = "sh" if code.startswith("6") else "sz"
-        return f"{prefix}{code}"
+    @staticmethod
+    def _to_sina_code(code: str) -> str:
+        return codes.to_sina_symbol(code)
 
     def fetch_quote(self, code: str) -> RealtimeQuote | None:
         """通过新浪接口获取单只股票实时行情"""

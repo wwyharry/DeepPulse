@@ -45,13 +45,22 @@ class TestEastMoneyLive:
         assert df["trade_date"].is_monotonic_increasing
 
     def test_stock_list_live(self):
+        from deeppulse.src.codes import classify_board
         from deeppulse.src.sources.eastmoney_source import EastMoneySource
 
         stocks = EastMoneySource().fetch_stock_list()
         codes = {s["code"] for s in stocks}
-        assert len(stocks) > 1000, f"东财股票列表过少: {len(stocks)}"
+        assert len(stocks) > 4500, f"东财股票列表过少（应含沪深京全板块）: {len(stocks)}"
         assert "600000" in codes and "000001" in codes
-        assert all(s["code"].startswith(("6", "0")) and not s["code"].startswith("68") for s in stocks)
+        # 全板块样本：创业板 / 科创板 / 北交所各至少一只
+        assert any(c.startswith("30") for c in codes), "缺创业板样本"
+        assert any(c.startswith("688") for c in codes), "缺科创板样本"
+        assert any(c.startswith(("43", "83", "87", "92")) for c in codes), "缺北交所样本"
+        # board 字段与 classify_board 一致
+        for s in stocks:
+            assert classify_board(s["code"]) == (s["market"], s["board"]), s["code"]
+        bse_count = sum(1 for s in stocks if s["board"] == "bse")
+        assert bse_count < 400, f"北交所行数异常（疑似新三板口径漂移）: {bse_count}"
         by_code = {s["code"]: s for s in stocks}
         assert by_code["600000"]["name"] == "浦发银行"
         assert by_code["600000"]["list_date"]  # 东财提供上市日期
@@ -97,13 +106,17 @@ class TestSinaLive:
         assert abs(int(last["volume"]) - _BASE_VOLUME_LOTS * 100) < _BASE_VOLUME_LOTS * 100 * 0.001
 
     def test_stock_list_live(self):
+        from deeppulse.src.codes import classify_board
         from deeppulse.src.sources.sina_source import SinaSource
 
         stocks = SinaSource().fetch_stock_list()
         codes = {s["code"] for s in stocks}
-        assert len(stocks) > 1000, f"新浪股票列表过少: {len(stocks)}"
+        assert len(stocks) > 4500, f"新浪股票列表过少（应含沪深京全板块）: {len(stocks)}"
         assert "600000" in codes and "000001" in codes
-        assert all(s["code"].startswith(("6", "0")) and not s["code"].startswith("68") for s in stocks)
+        assert any(c.startswith("30") for c in codes), "缺创业板样本"
+        assert any(c.startswith("688") for c in codes), "缺科创板样本"
+        for s in stocks:
+            assert classify_board(s["code"]) == (s["market"], s["board"]), s["code"]
 
 
 # ── 多源一致性（前复权口径互验 + 故障切换） ─────────────────────────

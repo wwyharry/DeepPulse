@@ -164,7 +164,7 @@ def fetch_and_store_stock_list() -> int:
             logger.info(f"[{source.name}] 获取股票列表...")
             try:
                 stocks = source.fetch_stock_list()
-                logger.info(f"  获取到 {len(stocks)} 只主板股票")
+                logger.info(f"  获取到 {len(stocks)} 只A股")
                 for s in stocks:
                     if s["code"] not in all_stocks:
                         all_stocks[s["code"]] = s

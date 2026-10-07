@@ -57,6 +57,9 @@ class TestEastMoneySource:
     def test_secid_mapping(self):
         assert EastMoneySource._secid("600000") == "1.600000"
         assert EastMoneySource._secid("000001") == "0.000001"
+        assert EastMoneySource._secid("300750") == "0.300750"
+        assert EastMoneySource._secid("688001") == "1.688001"
+        assert EastMoneySource._secid("920000") == "0.920000"  # 北交所同深市市场号
 
     def test_kline_parse_units_and_columns(self, monkeypatch):
         src = EastMoneySource()
@@ -97,26 +100,45 @@ class TestEastMoneySource:
         monkeypatch.setattr(src, "_get_json", lambda *a, **k: {"data": {"klines": []}})
         assert src._fetch_kline_impl("600000", date(2026, 9, 1), date(2026, 9, 30)).empty
 
-    def test_stock_list_filters_main_board_and_list_date(self, monkeypatch):
+    def test_stock_list_filters_boards_and_list_date(self, monkeypatch):
         src = EastMoneySource()
         payload = {
             "data": {
                 "diff": [
                     {"f12": "600000", "f14": "浦发银行", "f26": "19991110"},
-                    {"f12": "688001", "f14": "华兴源创", "f26": "20190722"},  # 科创板，排除
+                    {"f12": "688001", "f14": "华兴源创", "f26": "20190722"},
                     {"f12": "000001", "f14": "平安银行", "f26": "19910403"},
-                    {"f12": "300750", "f14": "宁德时代", "f26": "20180611"},  # 创业板，排除
+                    {"f12": "300750", "f14": "宁德时代", "f26": "20180611"},
+                    {"f12": "920000", "f14": "北证股", "f26": "20240101"},
+                    {"f12": "900901", "f14": "B股", "f26": "19991110"},  # B股，拒绝
                 ]
             }
         }
         monkeypatch.setattr(src, "_get_json", lambda *a, **k: payload)
         stocks = src._fetch_stock_list_impl()
-        codes = {s["code"] for s in stocks}
-        assert codes == {"600000", "000001"}
+        code_set = {s["code"] for s in stocks}
+        assert code_set == {"600000", "000001", "688001", "300750", "920000"}
         by_code = {s["code"]: s for s in stocks}
         assert by_code["600000"]["list_date"] == "1999-11-10"
         assert by_code["600000"]["market"] == "sh"
+        assert by_code["600000"]["board"] == "main"
+        assert by_code["688001"]["board"] == "star"
+        assert by_code["300750"]["board"] == "chinext"
+        assert by_code["920000"]["board"] == "bse"
         assert by_code["000001"]["market"] == "sz"
+
+    def test_stock_list_fs_includes_bse(self, monkeypatch):
+        """东财列表 fs 需含北证A股 t:81，否则北交所收不进来"""
+        src = EastMoneySource()
+        seen = {}
+
+        def fake_get_json(hosts, path, params):
+            seen.update(params)
+            return {"data": {"diff": []}}
+
+        monkeypatch.setattr(src, "_get_json", fake_get_json)
+        src._fetch_stock_list_impl()
+        assert "m:0+t:81" in seen["fs"]
 
     def test_unknown_source_raises(self):
         with pytest.raises(KeyError, match="未知历史数据源"):
@@ -206,19 +228,19 @@ class TestSinaSource:
         assert pd.isna(row["amount"])
         assert row["data_source"] == "sina"
 
-    def test_stock_list_filters_main_board(self, monkeypatch):
+    def test_stock_list_keeps_all_boards(self, monkeypatch):
         src = SinaSource()
+        # 全样本放首页：不足 num=100 条时实现会在首页后提前收尾
         pages = {
             1: [
                 {"symbol": "sh600000", "code": "600000", "name": "浦发银行"},
-                {"symbol": "sh688001", "code": "688001", "name": "华兴源创"},  # 科创板，排除
+                {"symbol": "sh688001", "code": "688001", "name": "华兴源创"},
                 {"symbol": "sz000001", "code": "000001", "name": "平安银行"},
+                {"symbol": "bj920000", "code": "920000", "name": "北证股"},
+                {"symbol": "sz300750", "code": "300750", "name": "宁德时代"},
+                {"symbol": "sh900901", "code": "900901", "name": "B股"},  # B股，拒绝
             ],
-            2: [
-                {"symbol": "bj920000", "code": "920000", "name": "北证股"},  # 北交所，排除
-                {"symbol": "sz300750", "code": "300750", "name": "宁德时代"},  # 创业板，排除
-            ],
-            3: [],
+            2: [],
         }
 
         class _Resp:
@@ -237,9 +259,69 @@ class TestSinaSource:
 
         monkeypatch.setattr(src, "_get_session", lambda: _Sess())
         stocks = src._fetch_stock_list_impl()
-        codes = {s["code"] for s in stocks}
-        assert codes == {"600000", "000001"}
-        assert all(s["board"] == "main" for s in stocks)
+        code_set = {s["code"] for s in stocks}
+        assert code_set == {"600000", "000001", "688001", "300750", "920000"}
+        by_code = {s["code"]: s for s in stocks}
+        assert by_code["688001"]["board"] == "star"
+        assert by_code["300750"]["board"] == "chinext"
+        assert by_code["920000"]["board"] == "bse"
+
+
+# ── BaoStockSource ──────────────────────────────────────────────────
+
+
+class TestBaoStockSource:
+    def test_bj_kline_short_circuits_without_network(self, monkeypatch):
+        """BaoStock 不支持北交所：直接返回空 DataFrame，不触发会话/网络"""
+        from deeppulse.src.sources.baostock_source import BaoStockSource
+
+        src = BaoStockSource()
+
+        def boom():
+            raise AssertionError("北交所短路不应触发 BaoStock 登录/网络")
+
+        monkeypatch.setattr(src, "_ensure_login", boom)
+        df = src._fetch_kline_impl("920000", date(2026, 9, 1), date(2026, 9, 30))
+        assert df.empty
+
+    def test_bs_code_mapping(self):
+        from deeppulse.src.sources.baostock_source import BaoStockSource
+
+        assert BaoStockSource._to_bs_code("600000") == "sh.600000"
+        assert BaoStockSource._to_bs_code("300750") == "sz.300750"
+        assert BaoStockSource._to_bs_code("920000") is None
+
+    def test_stock_list_classifies_boards(self, monkeypatch):
+        from deeppulse.src.sources import baostock_source
+
+        class _RS:
+            error_code = "0"
+            error_msg = ""
+            _rows = [
+                ("sh.600000", "浦发银行", "1999-11-10", "", "1", "1"),
+                ("sh.688001", "华兴源创", "2019-07-22", "", "1", "1"),
+                ("sz.000001", "平安银行", "1991-04-03", "", "1", "1"),
+                ("sz.300750", "宁德时代", "2018-06-11", "", "1", "1"),
+                ("sh.900901", "B股", "1999-11-10", "", "1", "1"),  # 非A股，拒绝
+            ]
+            _i = -1
+
+            def next(self):
+                self._i += 1
+                return self._i < len(self._rows)
+
+            def get_row_data(self):
+                return list(self._rows[self._i])
+
+        monkeypatch.setattr(baostock_source.bs, "query_stock_basic", lambda: _RS())
+        src = baostock_source.BaoStockSource()
+        monkeypatch.setattr(src, "_ensure_login", lambda: None)
+        stocks = src._fetch_stock_list_impl()
+        by_code = {s["code"]: s for s in stocks}
+        assert set(by_code) == {"600000", "688001", "000001", "300750"}
+        assert by_code["688001"]["board"] == "star"
+        assert by_code["300750"]["board"] == "chinext"
+        assert by_code["600000"]["list_date"] == "1999-11-10"
 
 
 # ── SourceFailover ──────────────────────────────────────────────────

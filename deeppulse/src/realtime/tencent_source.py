@@ -12,6 +12,8 @@
 
 import logging
 
+from deeppulse.src import codes
+
 from .base import RealtimeQuote, RealtimeQuoteSource
 
 logger = logging.getLogger(__name__)
@@ -37,10 +39,9 @@ class TencentRealtimeSource(RealtimeQuoteSource):
     def name(self) -> str:
         return "tencent"
 
-    def _to_tencent_code(self, code: str) -> str:
-        code = str(code).zfill(6)
-        prefix = "sh" if code.startswith("6") else "sz"
-        return f"{prefix}{code}"
+    @staticmethod
+    def _to_tencent_code(code: str) -> str:
+        return codes.to_tencent_symbol(code)
 
     def fetch_quote(self, code: str) -> RealtimeQuote | None:
         """通过腾讯接口获取单只股票实时行情"""

@@ -15,6 +15,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 from deeppulse import config
+from deeppulse.src import codes
 from deeppulse.src.resilience import RetryPolicy
 
 from .base import DataSourceBase
@@ -61,9 +62,7 @@ class TencentSource(DataSourceBase):
 
     @staticmethod
     def _tencent_symbol(code: str) -> str:
-        symbol = str(code).zfill(6)
-        prefix = "sh" if symbol.startswith("6") else "sz"
-        return f"{prefix}{symbol}"
+        return codes.to_tencent_symbol(code)
 
     def fetch_stock_list(self) -> list[dict]:
         """腾讯无可用的股票列表接口（旧 rank/mktHs 接口已下线）"""

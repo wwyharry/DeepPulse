@@ -103,11 +103,13 @@ def position_size(
     avg_win: float = None,
     avg_loss: float = None,
     sample_trades: int = 0,
+    code: str = None,
 ) -> str:
     """保守仓位计算：固定风险预算（默认单笔 2%）+ 半 Kelly（样本充足时）+ 单股 25% 硬上限。
 
     stop_price 应低于 entry_price（做多）；缺止损位时可传 atr 由引擎按 2 倍 ATR 推算。
     样本 < 20 笔时不给 Kelly，仅输出轻/中/重仓档位——请勿向用户报精确 Kelly 数字。
+    code 可选：科创板最小买入 200 股（其余板块 100 股），算股数时按板块最小手取整。
     """
     from deeppulse.strategy import calc_engine
 
@@ -121,6 +123,7 @@ def position_size(
         avg_win=avg_win,
         avg_loss=avg_loss,
         sample_trades=int(sample_trades or 0),
+        code=code,
     )
     return json.dumps(out, ensure_ascii=False, default=str)
 
@@ -214,6 +217,7 @@ TOOL_DEFINITIONS = [
                     "avg_win": {"type": "number", "description": "平均盈利幅度（如 0.05=5%）"},
                     "avg_loss": {"type": "number", "description": "平均亏损幅度（正数，如 0.03=3%）"},
                     "sample_trades": {"type": "integer", "description": "上述胜率/盈亏的样本笔数，<20 不给 Kelly"},
+                    "code": {"type": "string", "description": "股票代码（可选）：科创板按最小 200 股取整，其余板块 100 股"},
                 },
                 "required": ["capital", "entry_price", "stop_price"],
             },

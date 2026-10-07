@@ -407,11 +407,10 @@ def get_stock_fund_flow(code: str, market: str = "sh") -> dict:
     """
     import akshare as ak
 
+    from deeppulse.src import codes
+
     try:
-        if code.startswith("6"):
-            market = "sh"
-        else:
-            market = "sz"
+        market = codes.market_of(code)  # sh/sz/bj
         df = ak.stock_individual_fund_flow(stock=code, market=market)
         if df is None or df.empty:
             return {"error": f"股票 {code} 无资金流向数据"}
