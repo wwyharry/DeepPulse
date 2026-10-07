@@ -30,7 +30,7 @@ COMMAND_HELP = """
   /help              显示此帮助
   /fetch [子命令]     数据采集 (stocks/kline/all/update/status，无需预先下载数据)
   /chart <代码> [天数] 生成K线图并打开（缺省代码取会话最近讨论的股票）
-  /memory [子命令]    记忆管理 (list/search/predictions/profile/knowledge)
+  /memory [子命令]    记忆管理 (list/search/predictions/profile)
   /strategy [关键词]  战法库搜索
   /watchlist          查看自选股
   /portfolio          查看持仓
@@ -827,20 +827,8 @@ class DeepPulseTUI(App):
                         lines.append(f"  {key}: {info['value']} (置信度: {conf:.0%})")
                     self.chat_log.add_system_message("\n".join(lines))
 
-            elif sub == "knowledge":
-                result = self.agent.memory.knowledge_graph.query_related()
-                data = json.loads(result)
-                results = data.get("results", [])
-                if not results:
-                    self.chat_log.add_system_message("🕸 知识图谱暂无数据")
-                else:
-                    lines = [f"🕸 知识图谱 ({data.get('total', 0)} 条关系):\n"]
-                    for r in results[:10]:
-                        lines.append(f"  {r['source']['name']} --[{r['relation']}]--> {r['target']['name']}")
-                    self.chat_log.add_system_message("\n".join(lines))
-
             else:
-                self.chat_log.add_system_message("可用子命令: list, search, predictions, profile, knowledge")
+                self.chat_log.add_system_message("可用子命令: list, search, predictions, profile")
 
         except Exception as e:
             self.chat_log.add_system_message(f"⚠️ 记忆命令执行失败: {str(e)}")

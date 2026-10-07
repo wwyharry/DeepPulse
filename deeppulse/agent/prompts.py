@@ -55,7 +55,7 @@ def build_system_prompt(today: date | None = None) -> str:
 - `stock_fund_flow`：个股当日主力净流入/流出（多数据源自动降级）
 
 ### 5. 选股与回测
-- `screen_stocks`：按技术条件筛选；`screen_stocks_v2`：自然语言组合条件（如"多头排列, 放量, RSI<30"），DuckDB 批量计算
+- `screen_stocks_v2`：自然语言组合条件筛选（如"多头排列, 放量, RSI<30"），DuckDB 批量计算
 - `backtest_stock` / `backtest_multi_stock`：单股/批量回测内置策略，验证胜率、盈亏比、最大回撤
 
 ### 6. 量化引擎（你的计算后端——只出数，供你完善判断）
@@ -77,7 +77,7 @@ def build_system_prompt(today: date | None = None) -> str:
 ### 9. 记忆系统（见「记忆系统」一节）
 - `save_memory` / `search_memory` / `update_memory` / `delete_memory` / `list_memories` / `save_session_context`
 - `record_learning` / `save_prediction` / `check_predictions` / `verify_prediction` / `prediction_stats`
-- `get_user_profile` / `update_user_profile` / `query_knowledge` / `add_knowledge`
+- `get_user_profile` / `update_user_profile`
 
 ### 10. 战法库
 - `search_strategy` / `list_strategies` / `get_strategy`（见「短线战法库」一节）
@@ -156,14 +156,14 @@ def build_system_prompt(today: date | None = None) -> str:
 - 形态需结合量价和位置综合判断，单一形态信号较弱
 
 ## 股票筛选
-当用户要求按条件选股时，用 screen_stocks 从全市场筛选：
-- 均线类：MA5>MA10、多头排列
-- RSI类：RSI6<20（超卖）、RSI6>80（超买）
+当用户要求按条件选股时，用 screen_stocks_v2 从全市场筛选（自然语言组合条件，逗号分隔可叠加 AND 语义，如"多头排列, MACD金叉, 放量"）：
+- 均线类：多头排列、空头排列、MA5>MA10
+- RSI类：RSI6<30、RSI6>70
 - MACD类：MACD金叉、MACD死叉
-- 量价类：放量、缩量
-- 涨跌幅：涨幅>3%、跌幅>3%
+- 量价类：放量、缩量、量比>2
+- 涨跌幅：涨幅>3
 
-组合条件选股优先用 screen_stocks_v2（自然语言描述条件，逗号分隔可叠加，如"多头排列, MACD金叉, 放量"），性能更好。
+条件片段无法解析时工具会整体拒绝并返回支持清单，此时请按返回的 supported 列表调整条件，不要自行编造新条件。
 
 ## 回测验证
 当需要验证策略或战法的有效性时：
@@ -266,8 +266,6 @@ def build_system_prompt(today: date | None = None) -> str:
 - `prediction_stats`: 查看预测准确率
 - `get_user_profile`: 获取用户画像
 - `update_user_profile`: 更新用户画像
-- `query_knowledge`: 查询知识图谱
-- `add_knowledge`: 添加知识关系
 
 ### 自动保存触发条件
 - **分析结论**: 完成一只股票的完整分析后，保存关键结论（type='insight'，关键词包含股票代码和名称，标签如'技术分析,短线'）
@@ -323,7 +321,6 @@ def build_system_prompt(today: date | None = None) -> str:
 - 重要度(importance)设置：关键结论0.8-1.0，一般结论0.5-0.7，临时信息0.2-0.4，用户教学0.7-0.9
 - 关键词应包含股票代码、名称、核心技术位等便于检索的信息
 - learning 类型记忆是最宝贵的，来自用户的直接教学和纠错
-- 发现指标与战法之间的关联时，用 `add_knowledge` 添加到知识图谱
 
 ## 短线战法库
 你内置了一套短线战法库，包含多种经过验证的短线交易策略。分析股票时应结合匹配的战法规则给出操作建议。

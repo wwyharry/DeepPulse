@@ -50,7 +50,7 @@ MARKET_STATE_STRATEGIES = {
     "启动期": {
         "risk_level": "中低",
         "focus": ["新题材识别", "首板打板", "低位布局"],
-        "priority_tools": ["market_hot_news", "market_sentiment", "screen_stocks"],
+        "priority_tools": ["market_hot_news", "market_sentiment", "screen_stocks_v2"],
         "analysis_weight": {
             "new_theme_detection": 0.35,
             "first_board_opportunity": 0.3,
@@ -70,7 +70,7 @@ MARKET_STATE_STRATEGIES = {
     "低迷期": {
         "risk_level": "中高",
         "focus": ["超跌反弹", "强势股筛选", "风险控制"],
-        "priority_tools": ["screen_stocks", "calc_technical", "stock_fund_flow"],
+        "priority_tools": ["screen_stocks_v2", "calc_technical", "stock_fund_flow"],
         "analysis_weight": {
             "oversold_bounce": 0.35,
             "strong_stock_filter": 0.3,

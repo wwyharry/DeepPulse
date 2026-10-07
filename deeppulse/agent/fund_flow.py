@@ -54,48 +54,7 @@ def get_stock_fund_flow(code: str) -> dict:
     except Exception:
         pass
 
-    # 数据源3: 基于成交量估算
-    try:
-        from deeppulse.src.query import StockQuery
-
-        query = StockQuery()
-        # 尝试获取最近数据（不限制日期，取最新可用）
-        df = query.get_daily_kline(code, limit=10)
-        if df is not None and not df.empty and len(df) >= 2:
-            latest = df.iloc[-1]
-            prev = df.iloc[-2]
-            vol_change = (latest["volume"] - prev["volume"]) / prev["volume"] if prev["volume"] > 0 else 0
-            price_change = (latest["close"] - prev["close"]) / prev["close"] if prev["close"] > 0 else 0
-
-            # 简单量价分析
-            if vol_change > 0.5 and price_change > 0:
-                trend = "放量上涨，资金流入"
-            elif vol_change > 0.5 and price_change < 0:
-                trend = "放量下跌，资金流出"
-            elif vol_change < -0.3 and price_change > 0:
-                trend = "缩量上涨，观望"
-            elif vol_change < -0.3 and price_change < 0:
-                trend = "缩量下跌，惜售"
-            else:
-                trend = "量价平稳"
-
-            return {
-                "code": code,
-                "source": "量价分析",
-                "note": "基于量价关系估算，非实时资金流",
-                "date": str(latest.get("trade_date", "")),
-                "volume_change": round(vol_change * 100, 2),
-                "price_change": round(price_change * 100, 2),
-                "volume": int(latest["volume"]) // 100,
-                "volume_unit": "手",
-                "amount": round(float(latest.get("amount", 0)), 2),
-                "amount_unit": "元",
-                "trend": trend,
-            }
-    except Exception:
-        pass
-
-    return {"error": f"获取 {code} 资金流向失败，所有数据源不可用"}
+    return {"error": f"获取 {code} 资金流向失败，真实数据源（东方财富/龙虎榜）均不可用"}
 
 
 def get_sector_fund_flow() -> dict:

@@ -156,23 +156,8 @@ def _handle_memory_command(agent, cmd: str):
                 conf = info.get("confidence", 0)
                 print(f"  {TOOL_COLOR}{key}: {info['value']} (置信度: {conf:.0%}){RESET}")
 
-    elif sub == "knowledge":
-        result = agent.memory.knowledge_graph.query_related()
-        data = json.loads(result)
-        results = data.get("results", [])
-        if not results:
-            print(f"{TOOL_COLOR}  知识图谱暂无数据{RESET}")
-        else:
-            print(f"{TOOL_COLOR}  知识图谱 ({data.get('total', 0)} 条关系):{RESET}")
-            for r in results[:10]:
-                src = r["source"]["name"]
-                tgt = r["target"]["name"]
-                rel = r["relation"]
-                w = r["weight"]
-                print(f"  {TOOL_COLOR}{src} --[{rel}]--> {tgt} (权重: {w:.1f}){RESET}")
-
     else:
-        print(f"{TOOL_COLOR}  可用子命令: list, search, save, clear, predictions, profile, knowledge{RESET}")
+        print(f"{TOOL_COLOR}  可用子命令: list, search, save, clear, predictions, profile{RESET}")
 
 
 def _handle_strategy_command(cmd: str):
@@ -331,7 +316,7 @@ def main():
     print("      /fetch=数据采集（/fetch 查看用法，无需预先下载数据）")
     print("      /memory=查看记忆 | /memory search <关键词>=搜索记忆")
     print("      /memory predictions=预测准确率 | /memory profile=用户画像")
-    print("      /memory knowledge=知识图谱 | /strategy=查看战法")
+    print("      /strategy=查看战法")
     print("      /watchlist=自选股 | /portfolio=持仓与交易")
     print("=" * 50)
 

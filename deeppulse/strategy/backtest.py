@@ -1,6 +1,5 @@
 """策略回测引擎 - 增强版回测，支持滑点、手续费、参数优化、动态退出策略"""
 
-from itertools import product
 
 import numpy as np
 import pandas as pd
@@ -867,80 +866,6 @@ def backtest_strategy_multi_stock(
         "positive_rate": round(sum(1 for r in all_returns if r > 0) / len(all_returns), 4),
         "positive_rate_all": round(sum(1 for r in all_returns if r > 0) / attempted, 4) if attempted else 0,
         "exit_statistics": total_exit_statistics,
-    }
-
-
-def optimize_strategy(
-    code: str,
-    strategy_name: str,
-    param_grid: dict,
-    days: int = 250,
-    use_dynamic_exit: bool = True,
-    exit_strategy_preset: str = "balanced",
-) -> dict:
-    """
-    网格搜索最优参数
-
-    Args:
-        code: 股票代码
-        strategy_name: 策略名称
-        param_grid: 参数网格 {"fast": [5, 10], "slow": [20, 30]}
-        days: 回测天数
-        use_dynamic_exit: 是否使用动态退出策略
-        exit_strategy_preset: 动态退出策略预设
-    """
-    # 生成参数组合
-    param_names = list(param_grid.keys())
-    param_values = list(param_grid.values())
-    combinations = list(product(*param_values))
-
-    results = []
-    for combo in combinations:
-        params = dict(zip(param_names, combo, strict=False))
-        try:
-            result = backtest_stock(
-                code,
-                strategy=strategy_name,
-                days=days,
-                use_dynamic_exit=use_dynamic_exit,
-                exit_strategy_preset=exit_strategy_preset,
-                **params,
-            )
-            results.append(
-                {
-                    "params": params,
-                    "total_return": round(result.total_return, 4),
-                    "annual_return": round(result.annual_return, 4),
-                    "max_drawdown": round(result.max_drawdown, 4),
-                    "win_rate": round(result.win_rate, 3),
-                    "sharpe_ratio": round(result.sharpe_ratio, 2),
-                    "total_trades": result.total_trades,
-                    "profit_factor": round(result.profit_factor, 2),
-                    "exit_strategy_type": result.exit_strategy_type,
-                }
-            )
-        except Exception:
-            continue
-
-    if not results:
-        return {"error": "所有参数组合都失败"}
-
-    # 按综合评分排序
-    for r in results:
-        r["score"] = (
-            r["total_return"] * 0.4 + r["sharpe_ratio"] * 0.03 + r["win_rate"] * 0.2 - abs(r["max_drawdown"]) * 0.1
-        )
-    results.sort(key=lambda x: x["score"], reverse=True)
-
-    return {
-        "code": code,
-        "strategy": strategy_name,
-        "exit_strategy": exit_strategy_preset if use_dynamic_exit else "static",
-        "total_combinations": len(combinations),
-        "valid_results": len(results),
-        "best_params": results[0]["params"],
-        "best_result": results[0],
-        "top_5": results[:5],
     }
 
 

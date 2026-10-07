@@ -357,28 +357,6 @@ class Trade:
 
 
 @dataclass
-class PerformanceMetrics:
-    """绩效指标"""
-
-    total_return: float = 0.0
-    annual_return: float = 0.0
-    max_drawdown: float = 0.0
-    sharpe_ratio: float = 0.0
-    win_rate: float = 0.0
-    profit_factor: float = 0.0
-    total_trades: int = 0
-    avg_hold_days: float = 0.0
-    expectancy: float = 0.0
-    calmar_ratio: float = 0.0
-    sortino_ratio: float = 0.0
-    max_consecutive_wins: int = 0
-    max_consecutive_losses: int = 0
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-@dataclass
 class StockStrategy:
     """个股AI策略 - AI为特定股票生成的多因子策略
 

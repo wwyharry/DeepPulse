@@ -100,23 +100,3 @@ def sample_kline_df():
     )
 
 
-@pytest.fixture
-def sample_kline_rows():
-    """Provide synthetic kline data as list-of-tuples (screener format).
-
-    Format: [(trade_date, open, high, low, close, volume, amount), ...]
-    """
-    np.random.seed(42)
-    n = 60
-    base = 10.0
-    rows = []
-    for i in range(n):
-        price = base * (1 + 0.001 * i + np.random.normal(0, 0.015))
-        o = price * (1 + np.random.uniform(-0.01, 0.01))
-        h = price * (1 + abs(np.random.normal(0, 0.015)))
-        lo = price * (1 - abs(np.random.normal(0, 0.015)))
-        c = price
-        v = float(np.random.randint(100000, 500000))
-        a = c * v
-        rows.append((f"2024-{(i // 30) + 1:02d}-{(i % 30) + 1:02d}", o, h, lo, c, v, a))
-    return rows

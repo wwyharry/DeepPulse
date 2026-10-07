@@ -27,7 +27,6 @@ class TestInitTables:
         table_names = {t[0] for t in tables}
         assert "long_term_memories" in table_names
         assert "predictions" in table_names
-        assert "knowledge_entities" in table_names
         assert "user_profile" in table_names
 
     def test_idempotent(self, in_memory_db):

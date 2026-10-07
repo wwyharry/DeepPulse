@@ -21,8 +21,6 @@ def test_database_migration():
         "session_memories",
         "memory_sessions",
         "predictions",
-        "knowledge_entities",
-        "knowledge_relations",
         "user_profile",
     ]:
         count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -157,33 +155,6 @@ def test_user_profile():
 
     conn = get_connection()
     conn.execute("DELETE FROM user_profile")
-    conn.close()
-
-
-@pytest.mark.integration
-def test_knowledge_graph():
-    from deeppulse.agent.memory import KnowledgeGraph
-    from deeppulse.src.database import get_connection
-
-    kg = KnowledgeGraph()
-
-    e1 = kg.add_entity("indicator", "RSI超卖")
-    e2 = kg.add_entity("strategy", "低吸战法")
-    e3 = kg.add_entity("indicator", "MACD金叉")
-    e4 = kg.add_entity("strategy", "放量突破战法")
-    kg.add_relation(e1, e2, "triggers", 0.8)
-    kg.add_relation(e3, e4, "triggers", 0.9)
-    kg.add_relation(e1, e3, "supports", 0.5)
-
-    result = json.loads(kg.query_related("RSI"))
-    assert result["total"] >= 1
-
-    entities, relations = kg.extract_from_memory("贵州茅台MACD金叉，RSI超卖反弹")
-    assert len(entities) >= 1
-
-    conn = get_connection()
-    conn.execute("DELETE FROM knowledge_entities")
-    conn.execute("DELETE FROM knowledge_relations")
     conn.close()
 
 

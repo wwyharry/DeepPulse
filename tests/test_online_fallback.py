@@ -6,7 +6,6 @@
 import json
 from datetime import date, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -287,17 +286,6 @@ class TestTimeframeFallback:
 
 
 class TestFixesAndInvariants:
-    def test_engine_latest_price_uses_fetch_quote(self, monkeypatch):
-        from deeppulse.strategy.engine import StrategyEngine
-
-        rm = MagicMock()
-        rm.fetch_quote.return_value = SimpleNamespace(current=10.5)
-        import deeppulse.agent.tools._shared as shared
-
-        monkeypatch.setattr(shared, "get_realtime_manager", lambda: rm)
-        engine = StrategyEngine.__new__(StrategyEngine)
-        assert engine._get_latest_price("600519") == 10.5
-
     def test_eastmoney_db_last_trade_date_empty_db(self, empty_db_path, monkeypatch):
         from deeppulse.src.realtime.eastmoney_source import EastMoneyRealtimeSource
 

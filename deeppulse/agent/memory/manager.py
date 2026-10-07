@@ -10,7 +10,6 @@ from deeppulse import config
 from deeppulse.agent.memory.bm25 import BM25Index
 from deeppulse.agent.memory.constants import DEFAULT_HALF_LIFE
 from deeppulse.agent.memory.embedding import EmbeddingIndex
-from deeppulse.agent.memory.knowledge import KnowledgeGraph
 from deeppulse.agent.memory.prediction import PredictionTracker
 from deeppulse.agent.memory.profile import UserProfile
 from deeppulse.src.database import get_connection, init_memory_tables
@@ -24,7 +23,6 @@ class MemoryManager:
     - 语义检索（embedding + BM25 回退）
     - 预测跟踪与结果反馈
     - 用户画像管理
-    - 知识图谱
     - LLM 驱动的记忆整合
     - 衰减遗忘与压缩
     - 会话生命周期管理
@@ -38,7 +36,6 @@ class MemoryManager:
         self._bm25_index = None
         self._prediction_tracker = None
         self._user_profile = None
-        self._knowledge_graph = None
         self._session_new_memory_ids = []  # 本轮会话新增的记忆ID
 
     def _conn(self):
@@ -61,12 +58,6 @@ class MemoryManager:
         if self._user_profile is None:
             self._user_profile = UserProfile(self.db_path)
         return self._user_profile
-
-    @property
-    def knowledge_graph(self) -> KnowledgeGraph:
-        if self._knowledge_graph is None:
-            self._knowledge_graph = KnowledgeGraph(self.db_path)
-        return self._knowledge_graph
 
     def init_tables(self):
         """创建记忆表（幂等操作）"""
@@ -163,14 +154,6 @@ class MemoryManager:
 
             # 记录会话新增
             self._session_new_memory_ids.append(memory_id)
-
-            # 自动提取知识图谱实体
-            try:
-                entities, relations = self.knowledge_graph.extract_from_memory(content, memory_type)
-                for ent in entities[:5]:  # 限制每条记忆最多提取5个实体
-                    self.knowledge_graph.add_entity(ent["type"], ent["name"])
-            except Exception:
-                pass
 
         finally:
             conn.close()

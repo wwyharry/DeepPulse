@@ -5,7 +5,6 @@ import re
 
 from deeppulse.agent.patterns import format_patterns as _format_patterns
 from deeppulse.agent.patterns import recognize_patterns as _recognize_patterns
-from deeppulse.agent.screener import screen_stocks as _screen_stocks
 from deeppulse.agent.tools._shared import convert_volume_in_records, get_query, parse_positive_int
 from deeppulse.src.query import result_source
 
@@ -31,28 +30,6 @@ def recognize_kline_patterns(code: str, days: int = 60) -> str:
         ensure_ascii=False,
         default=str,
     )
-
-
-def screen_stocks(conditions: str, limit: int = 20) -> str:
-    """根据技术条件筛选股票（支持MA、RSI、MACD、成交量、涨跌幅等条件）"""
-    from deeppulse import config as _config
-    from deeppulse.src.online import local_kline_available
-
-    if not local_kline_available() and _config.DATA_ONLINE_FALLBACK:
-        # 无本地数据：走在线路径（v1 自然语言条件先解析成 v2 同构字典）
-        cond_list, errors = _parse_conditions(conditions)
-        if errors or not cond_list:
-            detail = f"不支持的条件: {', '.join(errors)}" if errors else "条件为空或无法解析"
-            return json.dumps(
-                {"error": detail, "supported": _V2_SUPPORTED_CONDITIONS_DOC, "mode": "online"},
-                ensure_ascii=False,
-            )
-        from deeppulse.agent.screen_online import screen_online
-
-        return json.dumps(screen_online(cond_list, limit=int(limit)), ensure_ascii=False, default=str)
-
-    result = _screen_stocks(conditions, limit)
-    return result
 
 
 def update_timeframe_data(code: str, timeframe: str = "5m", days: int = 5) -> str:
@@ -343,24 +320,6 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "screen_stocks",
-            "description": "根据技术条件筛选股票（支持MA、RSI、MACD、成交量、涨跌幅等条件）",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "conditions": {
-                        "type": "string",
-                        "description": "筛选条件，如 'MA5>MA10', 'RSI6<20', 'MACD金叉', '放量', '涨幅>3%', '多头排列'",
-                    },
-                    "limit": {"type": "integer", "description": "最多返回数量，默认20", "default": 20, "minimum": 1},
-                },
-                "required": ["conditions"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "update_timeframe_data",
             "description": "更新股票的多周期K线数据（分钟级/周线）。",
             "parameters": {
@@ -551,7 +510,6 @@ TOOL_DEFINITIONS = [
 
 TOOL_DISPATCH = {
     "recognize_kline_patterns": recognize_kline_patterns,
-    "screen_stocks": screen_stocks,
     "update_timeframe_data": update_timeframe_data,
     "query_timeframe_kline": query_timeframe_kline,
     "multi_timeframe_analysis": multi_timeframe_analysis,

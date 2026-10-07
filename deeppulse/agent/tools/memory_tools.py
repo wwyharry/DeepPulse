@@ -1,4 +1,4 @@
-"""记忆系统工具 - 记忆CRUD、预测跟踪、用户画像、学习记录、知识图谱"""
+"""记忆系统工具 - 记忆CRUD、预测跟踪、用户画像、学习记录"""
 
 import json
 
@@ -160,36 +160,6 @@ def record_learning(
         learned_what=learned_what,
         learned_why=learned_why,
         apply_when=apply_when,
-    )
-
-
-def query_knowledge(entity_name: str = "", entity_type: str = "", relation_type: str = "") -> str:
-    """查询知识图谱中的实体和关系。用于查找技术指标、战法、股票之间的关联关系。"""
-    mem = get_memory()
-    return mem.knowledge_graph.query_related(
-        entity_name if entity_name else None,
-        entity_type if entity_type else None,
-        relation_type if relation_type else None,
-    )
-
-
-def add_knowledge(
-    source_name: str, source_type: str, target_name: str, target_type: str, relation_type: str, weight: float = 1.0
-) -> str:
-    """向知识图谱添加一条关系。当发现技术指标、战法、市场规律之间的关联时调用。"""
-    mem = get_memory()
-    source_id = mem.knowledge_graph.add_entity(source_type, source_name)
-    target_id = mem.knowledge_graph.add_entity(target_type, target_name)
-    rel_id = mem.knowledge_graph.add_relation(source_id, target_id, relation_type, float(weight))
-    return json.dumps(
-        {
-            "status": "added",
-            "source": f"{source_name}({source_type})",
-            "relation": relation_type,
-            "target": f"{target_name}({target_type})",
-            "relation_id": rel_id,
-        },
-        ensure_ascii=False,
     )
 
 
@@ -443,52 +413,6 @@ TOOL_DEFINITIONS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_knowledge",
-            "description": "查询知识图谱中的实体和关系。用于查找技术指标、战法、股票之间的关联关系。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "entity_name": {"type": "string", "description": "实体名称（模糊匹配，可选）", "default": ""},
-                    "entity_type": {
-                        "type": "string",
-                        "description": "实体类型 - 'stock'/'indicator'/'pattern'/'strategy'/'concept'/'rule'（可选）",
-                        "default": "",
-                    },
-                    "relation_type": {
-                        "type": "string",
-                        "description": "关系类型 - 'triggers'/'requires'/'contradicts'/'supports'/'applies_to'/'user_prefers'（可选）",
-                        "default": "",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_knowledge",
-            "description": "向知识图谱添加一条关系。当发现技术指标、战法、市场规律之间的关联时调用。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "source_name": {"type": "string", "description": "源实体名称（如 'RSI超卖'）"},
-                    "source_type": {"type": "string", "description": "源实体类型（如 'indicator'）"},
-                    "target_name": {"type": "string", "description": "目标实体名称（如 '低吸战法'）"},
-                    "target_type": {"type": "string", "description": "目标实体类型（如 'strategy'）"},
-                    "relation_type": {
-                        "type": "string",
-                        "description": "关系类型 - 'triggers'/'requires'/'contradicts'/'supports'/'applies_to'/'user_prefers'",
-                    },
-                    "weight": {"type": "number", "description": "权重 0.0-1.0，默认1.0", "default": 1.0},
-                },
-                "required": ["source_name", "source_type", "target_name", "target_type", "relation_type"],
-            },
-        },
-    },
 ]
 
 TOOL_DISPATCH = {
@@ -505,6 +429,4 @@ TOOL_DISPATCH = {
     "get_user_profile": get_user_profile,
     "update_user_profile": update_user_profile,
     "record_learning": record_learning,
-    "query_knowledge": query_knowledge,
-    "add_knowledge": add_knowledge,
 }

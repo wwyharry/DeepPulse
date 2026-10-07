@@ -1,8 +1,6 @@
 """自选股管理与盯盘告警系统 - 盘中监控、信号告警、桌面通知"""
 
 import json
-import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -237,10 +235,7 @@ class MarketMonitor:
 
     def __init__(self, watchlist_mgr: WatchlistManager = None):
         self.watchlist = watchlist_mgr or WatchlistManager()
-        self._running = False
-        self._thread = None
         self._callbacks = []
-        self._check_interval = 300  # 默认5分钟检查一次
 
     def on_alert(self, callback):
         """注册告警回调函数"""
@@ -373,39 +368,6 @@ class MarketMonitor:
             self._fire_alerts(alerts)
 
         return alerts
-
-    def start(self, interval: int = 300):
-        """启动后台监控（独立线程）"""
-        if self._running:
-            return
-
-        self._running = True
-        self._check_interval = interval
-
-        def _loop():
-            while self._running:
-                now = datetime.now()
-                # 只在交易时间检查 (9:15-15:05)
-                if now.weekday() < 5 and (
-                    (now.hour == 9 and now.minute >= 15)
-                    or (10 <= now.hour < 15)
-                    or (now.hour == 15 and now.minute <= 5)
-                ):
-                    try:
-                        self.check_now()
-                    except Exception:
-                        pass
-                time.sleep(self._check_interval)
-
-        self._thread = threading.Thread(target=_loop, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        """停止监控"""
-        self._running = False
-
-    def is_running(self) -> bool:
-        return self._running
 
 
 # ============ 桌面通知 ============

@@ -296,30 +296,6 @@ def init_memory_tables(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
-    # ── 知识图谱表 ──────────────────────────────────────────────
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS knowledge_entities (
-            id VARCHAR PRIMARY KEY,
-            entity_type VARCHAR NOT NULL,
-            name VARCHAR NOT NULL,
-            attributes_json TEXT,
-            created_at TIMESTAMP DEFAULT current_timestamp,
-            updated_at TIMESTAMP DEFAULT current_timestamp
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS knowledge_relations (
-            id VARCHAR PRIMARY KEY,
-            source_id VARCHAR NOT NULL,
-            target_id VARCHAR NOT NULL,
-            relation_type VARCHAR NOT NULL,
-            weight FLOAT DEFAULT 1.0,
-            evidence_memory_ids VARCHAR,
-            created_at TIMESTAMP DEFAULT current_timestamp
-        )
-    """)
-
     # ── 用户画像表 ──────────────────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_profile (

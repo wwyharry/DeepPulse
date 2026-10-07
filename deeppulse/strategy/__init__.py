@@ -1,6 +1,10 @@
-"""DeepPulse 策略平台 - 策略管理、回测、信号监控、绩效分析"""
+"""DeepPulse 策略层 - Agent 面向的计算引擎（只出数，不说话）
 
-from deeppulse.strategy.engine import StrategyEngine
+对外提供：策略规格/因子库（spec、factor_library）、回测与蒙特卡洛（backtest）、
+网格校准（optimizer）、退出策略（exit_strategies）、战法仓库（repository）
+与数据模型（models）。策略构思由 Agent 完成，本层只做计算。
+"""
+
 from deeppulse.strategy.exit_strategies import (
     PRESET_EXIT_STRATEGIES,
     DynamicExitEngine,
@@ -15,10 +19,7 @@ from deeppulse.strategy.models import (
     Strategy,
     StrategyVersion,
 )
-from deeppulse.strategy.monitor import SignalMonitor
-from deeppulse.strategy.performance import AIAnalyzer, get_ai_analyzer
 from deeppulse.strategy.repository import StrategyRepository
-from deeppulse.strategy.signals import SignalGenerator
 
 __all__ = [
     "Strategy",
@@ -26,12 +27,7 @@ __all__ = [
     "BacktestResult",
     "Signal",
     "Portfolio",
-    "StrategyEngine",
     "StrategyRepository",
-    "SignalGenerator",
-    "SignalMonitor",
-    "AIAnalyzer",
-    "get_ai_analyzer",
     "ExitStrategy",
     "DynamicExitEngine",
     "PRESET_EXIT_STRATEGIES",
