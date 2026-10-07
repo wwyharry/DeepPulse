@@ -8,13 +8,12 @@
 
 | 能力 | 说明 |
 |------|------|
-| **📊 策略平台** | **策略管理、回测、信号监控、绩效分析、组合管理** |
-| **✨ AI 策略生成** | **LLM 大模型 + 104 因子库：自动生成多因子策略 → 回测 → 网格搜索 → LLM 分析迭代调优，找出最优混合多因子策略** |
-| **📊 因子库** | **104 个量化因子，覆盖均线、动量、量能、形态等 13 个大类，可视化展示** |
+| **📊 量化引擎** | **Agent 面向的计算后端：操作逻辑历史验证、参数校准、市场状态、保守仓位计算（只出数，供 Agent 完善判断）** |
+| **📊 因子库** | **104 个量化因子，覆盖均线、动量、量能、形态等 13 个大类，供多因子逻辑组合** |
 | **🖥️ TUI 全屏界面** | **暗色金融主题，三栏布局，命令系统和快捷键** |
 | **⌨️ CLI 命令行** | **快速单次分析或交互式对话** |
-| 自然语言交互 | 中文提问，Agent 自动调度 64 个工具完成分析 |
-| **⚖️ 评判Agent** | **自适应评测：根据问题类型评分 1-10，快速给出改进建议** |
+| 自然语言交互 | 中文提问，Agent 自动调度 66 个工具完成分析 |
+| **⚖️ 评判Agent** | **自适应评测：根据问题类型评分 1-10，快速给出改进建议**（默认关闭，`--judge` 或 `/judge`/`Ctrl+J` 手动触发） |
 | 技术指标 | MA / MACD / RSI / KDJ / 布林带 / ATR / OBV / ADX / CCI / MFI / VWAP |
 | K 线形态 | 十字星、锤子线、吞没、早晨之星等经典形态自动识别 |
 | **深度分析** | **趋势强度评估、背离检测、支撑压力位、量价分析、多周期共振** |
@@ -43,7 +42,7 @@ graph TB
     subgraph Agent 核心
         REACT[ReAct 推理引擎]
         CLIENT[LLM 客户端<br/>OpenAI / Anthropic]
-        TOOLS[64 个工具]
+        TOOLS[66 个工具]
         MEMORY[长期记忆系统]
         JUDGE[评判 Agent]
     end
@@ -103,7 +102,7 @@ DeepPulse 基于 ReAct（Reasoning + Acting）范式构建。LLM 在每一轮对
 → 输出: 综合分析结论 + 操作建议
 ```
 
-内置 **64 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、回测验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
+内置 **66 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、量化验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
 
 ### 动态推理链
 
@@ -196,8 +195,6 @@ DeepPulse 拥有跨会话的长期记忆能力，包含 6 个子模块协同工�
 **预测跟踪** — Agent 给出分析结论时自动保存预测，下次分析同只股票时自动验证。正确的预测提升关联记忆权重，错误的预测生成教训记忆。
 
 **用户画像** — 从对话中自动提取交易风格（低吸/追高/打板）、风险偏好（稳健/激进）、止损习惯、关注板块，个性化调整分析建议。
-
-**知识图谱** — 结构化存储指标、策略、规则之间的关系（触发、支持、矛盾），分析时自动查询关联实体辅助推理。
 
 ### 数据源韧性保护
 
@@ -347,11 +344,11 @@ python -m cli
 python -m cli "分析一下贵州茅台的短线走势"
 ```
 
-> **为什么启动需要约 2 分钟？**
+> **启动速度**
 >
-> DeepPulse 启动时会加载 sentence-transformers 语义模型到内存（768 维向量模型，约 100MB），用于长期记忆的语义搜索。这是纯本地计算，不产生任何 API 费用。加载完成后，后续所有对话的响应速度都在秒级。
+> 默认配置下启动在 5 秒以内（语义搜索默认关闭，记忆检索走 BM25 关键词搜索）。
 >
-> 如果不需要语义搜索功能，可以在 `setting.json` 中将 embedding 设为 `"provider": "none"`，启动时间将缩短到 5 秒以内（退化为 BM25 关键词搜索）。
+> 如需更强的语义搜索，可在 `setting.json` 中将 embedding 设为 `"provider": "local"`：启动时会加载 sentence-transformers 语义模型到内存（768 维向量模型，约 100MB），首次启动约需 2 分钟。这是纯本地计算，不产生任何 API 费用。
 
 ## 日常使用
 
@@ -380,7 +377,6 @@ python scripts/update_data.py --max-days 10  # 回溯 10 天
 | `/memory search <关键词>` | 搜索记忆 |
 | `/memory predictions` | 预测准确率统计 |
 | `/memory profile` | 用户交易画像 |
-| `/memory knowledge` | 知识图谱 |
 | `/strategy` | 列出所有短线战法 |
 | `/strategy search <关键词>` | 搜索匹配战法 |
 | `/watchlist` | 查看自选股 |
@@ -413,7 +409,7 @@ DeepPulse: [自动调用 update_stock → realtime_price → calc_technical → 
 DeepPulse: [自动调用 market_hot_news → market_overview → market_sentiment → sector_ranking]
 
 你: 帮我找RSI超卖的股票
-DeepPulse: [自动调用 screen_stocks("RSI6<20")]
+DeepPulse: [自动调用 screen_stocks_v2("RSI6<30")]
 
 你: 你分析错了，RSI超卖要结合成交量看
 DeepPulse: [自动保存为 learning 记忆，后续分析中应用]
@@ -501,7 +497,7 @@ class TushareSource(DataSourceBase):
 ## 工具一览
 
 <details>
-<summary>点击展开全部 64 个工具</summary>
+<summary>点击展开全部 66 个工具</summary>
 
 ### 数据更新
 | 工具 | 说明 |
@@ -550,8 +546,7 @@ class TushareSource(DataSourceBase):
 | 工具 | 说明 |
 |------|------|
 | `recognize_kline_patterns` | K 线形态识别 |
-| `screen_stocks` | 技术条件选股 |
-| `screen_stocks_v2` | 高性能选股（DuckDB 批量） |
+| `screen_stocks_v2` | 自然语言组合条件选股（DuckDB 批量） |
 | `detect_divergence` | 背离检测（RSI/MACD/KDJ） |
 | `detect_support_resistance` | 支撑压力位检测 |
 | `assess_trend` | 趋势强度评估（0-100） |
@@ -563,6 +558,15 @@ class TushareSource(DataSourceBase):
 |------|------|
 | `backtest_stock` | 单只股票策略回测 |
 | `backtest_multi_stock` | 多只股票批量回测 |
+
+### 量化引擎（Agent 计算后端）
+| 工具 | 说明 |
+|------|------|
+| `list_factors` | 因子目录（13 类，含 id/参数范围） |
+| `evaluate_trade_logic` | 多因子操作逻辑历史验证（胜率/期望值/蒙特卡洛） |
+| `calibrate_params` | 因子参数网格校准 |
+| `market_regime` | 市场量价结构状态 |
+| `position_size` | 保守仓位计算（风险预算 + 半 Kelly） |
 
 ### 可视化
 | 工具 | 说明 |
@@ -605,8 +609,6 @@ class TushareSource(DataSourceBase):
 | `prediction_stats` | 预测准确率统计 |
 | `get_user_profile` | 获取用户画像 |
 | `update_user_profile` | 更新用户画像 |
-| `query_knowledge` | 查询知识图谱 |
-| `add_knowledge` | 添加知识关系 |
 
 ### 战法系统
 | 工具 | 说明 |
@@ -655,23 +657,22 @@ DeepPulse/
 │   ├── agent/                 # Agent 核心
 │   │   ├── agent.py           # ReAct 循环引擎
 │   │   ├── client.py          # LLM 客户端（OpenAI/Anthropic）
-│   │   ├── tools/             # 64 个工具定义
+│   │   ├── tools/             # 66 个工具定义
 │   │   ├── memory/            # 长期记忆系统
 │   │   ├── prompts.py         # System Prompt
 │   │   ├── history.py         # 消息历史上下文管理（工具组原子折叠 + 滑动窗口）
 │   │   ├── judge_agent.py     # 评判Agent（自适应评分）
 │   │   ├── indicators.py      # 统一技术指标引擎
 │   │   └── ...
-│   ├── strategy/              # 策略平台核心
+│   ├── strategy/              # 量化计算引擎（Agent 面向，只出数）
+│   │   ├── calc_engine.py     # 逻辑验证/参数校准/市场状态/仓位计算
 │   │   ├── models.py          # 数据模型
-│   │   ├── engine.py          # 策略引擎
 │   │   ├── backtest.py        # 回测引擎
 │   │   ├── factor_library.py  # 因子库（104 因子，13 大类）
 │   │   ├── spec.py            # 策略规格
-│   │   ├── llm_generator.py   # LLM 策略生成
-│   │   ├── optimizer.py       # 自动调优循环
-│   │   ├── repository.py      # 策略仓库
-│   │   └── strategies/        # 40 个短线战法（Markdown，Agent 与策略平台共享）
+│   │   ├── optimizer.py       # 网格搜索（纯计算）
+│   │   ├── repository.py      # 战法仓库
+│   │   └── strategies/        # 40 个短线战法（Markdown）
 │   └── src/                   # 数据层
 │       ├── database.py        # DuckDB 表操作
 │       ├── query.py           # 数据查询接口（本地缺数可在线兜底）
