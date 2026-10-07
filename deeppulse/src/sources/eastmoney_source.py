@@ -165,9 +165,44 @@ class EastMoneySource(DataSourceBase):
             },
         )
         klines = ((data.get("data") or {}).get("klines")) or []
-        if not klines:
-            return pd.DataFrame()
+        return self._parse_klines(klines, symbol)
 
+    @staticmethod
+    def _index_secid(code: str) -> str:
+        """指数全码 → 东财 secid（sh000001 → 1.000001，sz399001 → 0.399001，bj899050 → 0.899050）"""
+        c = str(code).strip()
+        if len(c) != 8 or c[:2] not in ("sh", "sz", "bj") or not c[2:].isdigit():
+            raise ValueError(f"指数代码须为带前缀全码（如 sh000001）: {code}")
+        market = "1" if c[:2] == "sh" else "0"
+        return f"{market}.{c[2:]}"
+
+    def fetch_index_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """通过东财 kline 接口获取指数日K线（fqt=0 指数不复权，带重试）
+
+        code 为带前缀全码（sh000001 等，见 config.INDEX_CODES）；volume 手 ×100 入库为股。
+        """
+        return self._retry_policy.execute(self._fetch_index_kline_impl, code, start_date, end_date)
+
+    def _fetch_index_kline_impl(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        data = self._get_json(
+            _KLINE_HOSTS,
+            "/api/qt/stock/kline/get",
+            {
+                "secid": self._index_secid(code),
+                "ut": _UT,
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                "klt": "101",  # 日线
+                "fqt": "0",  # 指数不复权
+                "beg": start_date.strftime("%Y%m%d"),
+                "end": end_date.strftime("%Y%m%d"),
+            },
+        )
+        klines = ((data.get("data") or {}).get("klines")) or []
+        return self._parse_klines(klines, code)
+
+    def _parse_klines(self, klines: list[str], code: str) -> pd.DataFrame:
+        """解析 kline 接口逗号行 → 标准列 DataFrame（volume 手 ×100 → 股；code 原样保留）"""
         rows = []
         for line in klines:
             parts = line.split(",")
@@ -182,7 +217,7 @@ class EastMoneySource(DataSourceBase):
                     "low": parts[4],
                     "volume": parts[5],  # 手
                     "amount": parts[6],  # 元
-                    "turnover": parts[10],  # 换手率（%）
+                    "turnover": parts[10],  # 换手率（%）；指数行恒为空
                 }
             )
         if not rows:
@@ -190,7 +225,7 @@ class EastMoneySource(DataSourceBase):
 
         df = pd.DataFrame(rows)
         df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
-        df["code"] = symbol
+        df["code"] = code
         df["data_source"] = self.name
 
         for col in ["open", "high", "low", "close", "amount", "turnover"]:

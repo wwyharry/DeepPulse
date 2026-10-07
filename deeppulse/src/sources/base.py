@@ -18,6 +18,7 @@ class DataSourceBase(ABC):
         - fetch_daily_kline()：获取日K线数据
 
     子类可覆盖：
+        - fetch_index_kline()：指数日K线（默认不支持，抛 NotImplementedError）
         - health_check()：连接健康检查
         - cleanup()：资源清理（如 BaoStock 的 logout）
     """
@@ -30,7 +31,7 @@ class DataSourceBase(ABC):
 
     @abstractmethod
     def fetch_stock_list(self) -> list[dict]:
-        """获取沪深主板股票列表
+        """获取沪深京A股列表（含创业板/科创板/北交所）
 
         Returns:
             list[dict]: 每个dict包含 code, name, market, board, list_date
@@ -50,6 +51,18 @@ class DataSourceBase(ABC):
             DataFrame，列: trade_date, open, high, low, close, volume, amount, turnover
         """
         ...
+
+    def fetch_index_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """获取指数日K线数据（可选能力，默认不支持）
+
+        Args:
+            code: 带前缀全码（如 sh000001 上证指数、bj899050 北证50）
+
+        Returns:
+            DataFrame，列: code, trade_date, open, high, low, close, volume, amount, turnover, data_source
+            不支持的源抛 NotImplementedError（故障切换视作跳过该源）
+        """
+        raise NotImplementedError(f"[{self.name}] 不支持指数日K线")
 
     def fetch_daily_kline_safe(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """带异常处理的日K获取，失败返回空DataFrame"""

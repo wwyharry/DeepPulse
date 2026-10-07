@@ -63,6 +63,23 @@ def init_tables(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
+    # 指数日K：列同 daily_kline，code 存带前缀全码（sh000001）避免与个股 000001 歧义
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS index_daily_kline (
+            code VARCHAR NOT NULL,
+            trade_date DATE NOT NULL,
+            open DOUBLE,
+            high DOUBLE,
+            low DOUBLE,
+            close DOUBLE,
+            volume BIGINT,
+            amount DOUBLE,
+            turnover DOUBLE,
+            data_source VARCHAR NOT NULL,
+            PRIMARY KEY (code, trade_date, data_source)
+        )
+    """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS fetch_log (
             id INTEGER PRIMARY KEY,
@@ -79,6 +96,7 @@ def init_tables(conn: duckdb.DuckDBPyConnection) -> None:
 
     # 索引优化：加速常见查询
     conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_trade_date ON daily_kline(trade_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_index_kline_trade_date ON index_daily_kline(trade_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_fetch_log_code_source ON fetch_log(code, data_source)")
 
 
@@ -111,8 +129,17 @@ def upsert_stock_info(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> i
     return len(df)
 
 
-def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> int:
-    """批量写入日K数据（忽略重复），返回真实新增行数"""
+# K线表白名单：insert/get_latest/get_earliest 的 table 参数只允许这两张
+_KLINE_TABLES = ("daily_kline", "index_daily_kline")
+
+
+def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict], table: str = "daily_kline") -> int:
+    """批量写入日K数据（忽略重复），返回真实新增行数
+
+    table: "daily_kline"（个股）或 "index_daily_kline"（指数，code 存带前缀全码）
+    """
+    if table not in _KLINE_TABLES:
+        raise ValueError(f"未知K线表: {table}（允许: {_KLINE_TABLES}）")
     if not records:
         return 0
     import pandas as pd
@@ -123,9 +150,9 @@ def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> 
     df = df[[c for c in cols if c in df.columns]]
     # 使用INSERT OR IGNORE (DuckDB支持此语法)
     try:
-        before = conn.execute("SELECT COUNT(*) FROM daily_kline").fetchone()[0]
-        conn.execute("INSERT OR IGNORE INTO daily_kline SELECT * FROM df")
-        after = conn.execute("SELECT COUNT(*) FROM daily_kline").fetchone()[0]
+        before = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        conn.execute(f"INSERT OR IGNORE INTO {table} SELECT * FROM df")
+        after = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         return after - before
     except Exception as e:
         logger.warning(f"批量插入失败，回退到逐行插入: {e}")
@@ -133,7 +160,7 @@ def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> 
         inserted = 0
         for _, row in df.iterrows():
             try:
-                conn.execute("INSERT INTO daily_kline VALUES (?,?,?,?,?,?,?,?,?,?)", list(row))
+                conn.execute(f"INSERT INTO {table} VALUES (?,?,?,?,?,?,?,?,?,?)", list(row))
                 inserted += 1
             except Exception:
                 pass
@@ -176,9 +203,13 @@ def get_last_fetch_date(conn: duckdb.DuckDBPyConnection, code: str, data_source:
     return str(result[0]) if result and result[0] else None
 
 
-def get_latest_kline_date(conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None) -> str | None:
-    """获取某股票已有K线的真实最新交易日，用于增量更新断点。"""
-    sql = "SELECT MAX(trade_date) FROM daily_kline WHERE code = ?"
+def get_latest_kline_date(
+    conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None, table: str = "daily_kline"
+) -> str | None:
+    """获取某股票/指数已有K线的真实最新交易日，用于增量更新断点。"""
+    if table not in _KLINE_TABLES:
+        raise ValueError(f"未知K线表: {table}（允许: {_KLINE_TABLES}）")
+    sql = f"SELECT MAX(trade_date) FROM {table} WHERE code = ?"
     params = [code]
     if data_source:
         sql += " AND data_source = ?"
@@ -188,9 +219,13 @@ def get_latest_kline_date(conn: duckdb.DuckDBPyConnection, code: str, data_sourc
     return str(result[0]) if result and result[0] else None
 
 
-def get_earliest_kline_date(conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None) -> str | None:
-    """获取某股票已有K线的真实最早交易日，用于向前补历史的分段续传。"""
-    sql = "SELECT MIN(trade_date) FROM daily_kline WHERE code = ?"
+def get_earliest_kline_date(
+    conn: duckdb.DuckDBPyConnection, code: str, data_source: str = None, table: str = "daily_kline"
+) -> str | None:
+    """获取某股票/指数已有K线的真实最早交易日，用于向前补历史的分段续传。"""
+    if table not in _KLINE_TABLES:
+        raise ValueError(f"未知K线表: {table}（允许: {_KLINE_TABLES}）")
+    sql = f"SELECT MIN(trade_date) FROM {table} WHERE code = ?"
     params = [code]
     if data_source:
         sql += " AND data_source = ?"

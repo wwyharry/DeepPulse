@@ -166,6 +166,65 @@ class StockQuery:
             df.attrs["data_source"] = SOURCE_LOCAL
         return df
 
+    def _fallback_index_kline(self, code: str, start_date: str = None, end_date: str = None, limit: int = None):
+        """在线拉指数日线 → (df, source_label)。limit 无日期时按 2 倍交易日窗口近似。"""
+        from deeppulse.src.online import fetch_index_kline_online, maybe_cache_index_kline
+
+        end = date.fromisoformat(end_date) if end_date else date.today()
+        if start_date:
+            start = date.fromisoformat(start_date)
+        elif limit:
+            start = end - timedelta(days=int(limit) * 2 + 30)
+        else:
+            start = end - timedelta(days=365)
+
+        df, source = fetch_index_kline_online(code, start, end)
+        if limit and len(df) > int(limit):
+            df = df.tail(int(limit)).reset_index(drop=True)
+        maybe_cache_index_kline(df, db_path=self.db_path)
+        return df, source
+
+    def get_index_kline(
+        self, code: str, start_date: str = None, end_date: str = None, source: str = None, limit: int = None
+    ) -> pd.DataFrame:
+        """获取指数日K线数据（code 带前缀全码，如 sh000001）。本地缺数时在线兜底。
+
+        指数无独立实时接口，语义与 get_daily_kline 一致：多源同日期按优先级
+        去重（指定 source 保留原始行），在线结果按 cache_to_db 决定是否写回。
+        """
+        sql = "SELECT * FROM index_daily_kline WHERE code = ?"
+        params = [code]
+
+        if start_date:
+            sql += " AND trade_date >= ?"
+            params.append(start_date)
+        if end_date:
+            sql += " AND trade_date <= ?"
+            params.append(end_date)
+        if source:
+            sql += " AND data_source = ?"
+            params.append(source)
+        else:
+            sql += " " + _dedup_by_trade_date_sql()
+
+        sql += " ORDER BY trade_date"
+        if limit:
+            sql = f"""
+                SELECT * FROM (
+                    {sql.replace("ORDER BY trade_date", "ORDER BY trade_date DESC")}
+                    LIMIT ?
+                ) ORDER BY trade_date
+            """
+            params.append(int(limit))
+
+        df = self._fetch_df(sql, params)
+        if df.empty and self._fallback_enabled():
+            df, label = self._fallback_index_kline(code, start_date, end_date, limit)
+            df.attrs["data_source"] = label
+        else:
+            df.attrs["data_source"] = SOURCE_LOCAL
+        return df
+
     def get_multi_stock_kline(self, codes: list[str], start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """获取多只股票日K数据，用于横向对比。本地缺数时逐只在线兜底（有代码数上限）。"""
         if not codes:

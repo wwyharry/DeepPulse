@@ -226,3 +226,54 @@ class BaoStockSource(DataSourceBase):
 
         cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
         return df[[c for c in cols if c in df.columns]]
+
+    def fetch_index_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """通过BaoStock获取指数日K线（带重试）
+
+        code 为带前缀全码（sh000001 等）。BaoStock 只支持 sh./sz. 指数，
+        北交所（bj 前缀）直接返回空 DataFrame（不发网络），故障切换落到 akshare/eastmoney。
+        """
+        c = str(code).strip()
+        if len(c) != 8 or c[:2] not in ("sh", "sz") or not c[2:].isdigit():
+            return pd.DataFrame()
+        if not self._io_lock.acquire(timeout=self.IO_LOCK_TIMEOUT):
+            raise ConnectionError(f"BaoStock 会话忙（残留线程占用），跳过 {code}")
+        try:
+            return self._retry_policy.execute(self._fetch_index_kline_impl, c, start_date, end_date)
+        finally:
+            self._io_lock.release()
+
+    def _fetch_index_kline_impl(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        self._ensure_login()
+        bs_code = f"{code[:2]}.{code[2:]}"
+        fields = "date,open,high,low,close,volume,amount"  # 指数无换手率字段
+
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            fields,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+            frequency="d",
+        )
+        if rs.error_code != "0":
+            raise RuntimeError(f"BaoStock指数查询失败 {bs_code}: {rs.error_code} {rs.error_msg}")
+
+        rows = []
+        while rs.error_code == "0" and rs.next():
+            rows.append(rs.get_row_data())
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows, columns=fields.split(","))
+        df = df.rename(columns={"date": "trade_date"})
+        df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+        df["code"] = code  # 带前缀全码入库
+        df["data_source"] = self.name
+        df["turnover"] = float("nan")
+
+        for col in ["open", "high", "low", "close", "amount"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").astype("Int64")
+
+        cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
+        return df[[c for c in cols if c in df.columns]]

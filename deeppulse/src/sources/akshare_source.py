@@ -95,3 +95,33 @@ class AkShareSource(DataSourceBase):
 
         cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
         return df[[c for c in cols if c in df.columns]]
+
+    def fetch_index_kline(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """通过AkShare获取指数日K线（stock_zh_index_daily_em，fqt=0 不复权，带重试）
+
+        code 为带前缀全码（sh000001 等）；volume 为手 ×100 入库为股；无换手率列（置 NaN）。
+        """
+        return self._retry_policy.execute(self._fetch_index_kline_impl, code, start_date, end_date)
+
+    def _fetch_index_kline_impl(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
+        df = ak.stock_zh_index_daily_em(
+            symbol=code,
+            start_date=start_date.strftime("%Y%m%d"),
+            end_date=end_date.strftime("%Y%m%d"),
+        )
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.rename(columns={"date": "trade_date"})
+        df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+        df["code"] = code
+        df["data_source"] = self.name
+        df["turnover"] = float("nan")  # 指数接口无换手率
+
+        for col in ["open", "high", "low", "close", "amount"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        # 成交量与东财 kline 同源字段（手），统一换算为股
+        df["volume"] = (pd.to_numeric(df["volume"], errors="coerce") * 100).astype("Int64")
+
+        cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
+        return df[cols]

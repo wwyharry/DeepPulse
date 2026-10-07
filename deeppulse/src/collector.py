@@ -125,6 +125,38 @@ class SourceFailover:
             return pd.DataFrame(), self.active.name
         raise RuntimeError("所有数据源均失败: " + "；".join(errors))
 
+    def fetch_index(self, code: str, start: date, end: date) -> tuple[pd.DataFrame, str]:
+        """取指数日K，自动故障切换。返回 (df, source_name)
+
+        与 fetch 的差别：NotImplementedError（源声明不支持指数）视作跳过而非失败；
+        全部源不支持/无数据返回空 DataFrame，全部异常才抛 RuntimeError。
+        """
+        errors = []
+        saw_empty = False
+        n = len(self._sources)
+        for step in range(n):
+            idx = (self.active_index + step) % n
+            source = self._sources[idx]
+            try:
+                df = source.fetch_index_kline(code, start, end)
+            except NotImplementedError as e:  # noqa: BLE001 — 不支持指数=跳过该源（视同无数据）
+                errors.append(f"[{source.name}] {e}")
+                saw_empty = True
+                continue
+            except Exception as e:  # noqa: BLE001 — 多源切换需要吞掉单源异常
+                errors.append(f"[{source.name}] {e}")
+                self._release(source)
+                continue
+            if df is not None and not df.empty:
+                self.active_index = idx
+                return df, source.name
+            saw_empty = True
+            errors.append(f"[{source.name}] 无数据")
+
+        if saw_empty:
+            return pd.DataFrame(), self.active.name
+        raise RuntimeError("所有数据源均失败: " + "；".join(errors))
+
     def cleanup_active(self):
         """清理活动数据源会话（批量任务的周期性重连用）"""
         self._release(self.active)
@@ -185,13 +217,28 @@ def fetch_and_store_stock_list() -> int:
         return count
 
 
-def fetch_kline_for_stock(code: str, failover: SourceFailover, start: date, end: date, conn, cover_all_sources: bool = True) -> int:
-    """为单只股票采集日K数据（带验证、按端点覆盖分段续传，经多源故障切换取数）
+def _split_resume_segments(first_date: str | None, last_date: str | None, start: date, end: date) -> list[tuple[date, date]]:
+    """按已有覆盖端点把 [start, end] 切成至多两段（前缀补历史 + 后缀增量）
 
     断点续传不只看 MAX(trade_date)：库中已有近期数据时，调用方请求更早
-    区间补历史不能被静默跳过。按已有数据的 [min, max] 端点把请求区间切成
-    至多两段——前缀补历史 (start, min-1) 与后缀增量 (max(start, last+1), end)。
+    区间补历史不能被静默跳过。按已有数据的 [min, max] 端点切段——前缀补
+    历史 (start, min-1) 与后缀增量 (max(start, last+1), end)。
     注意：MIN/MAX 分段不会填补 [min, max] 内部的空洞。
+    """
+    if not first_date or not last_date:
+        return [(start, end)]
+    first = date.fromisoformat(first_date)
+    last = date.fromisoformat(last_date)
+    segments: list[tuple[date, date]] = []
+    if start < first:
+        segments.append((start, first - timedelta(days=1)))
+    if last < end:
+        segments.append((max(start, last + timedelta(days=1)), end))
+    return segments
+
+
+def fetch_kline_for_stock(code: str, failover: SourceFailover, start: date, end: date, conn, cover_all_sources: bool = True) -> int:
+    """为单只股票采集日K数据（带验证、按端点覆盖分段续传，经多源故障切换取数）
 
     cover_all_sources=True（多源互备）：续传端点取全部源的合并覆盖——任一源
     有数即算已覆盖，只补本地真正缺失的日期（数据源可互换，不重复存副本）；
@@ -201,17 +248,7 @@ def fetch_kline_for_stock(code: str, failover: SourceFailover, start: date, end:
     first_date = get_earliest_kline_date(conn, code, scope)
     last_date = get_latest_kline_date(conn, code, scope)
 
-    segments: list[tuple[date, date]] = []
-    if not first_date or not last_date:
-        segments.append((start, end))
-    else:
-        first = date.fromisoformat(first_date)
-        last = date.fromisoformat(last_date)
-        if start < first:
-            segments.append((start, first - timedelta(days=1)))
-        if last < end:
-            segments.append((max(start, last + timedelta(days=1)), end))
-
+    segments = _split_resume_segments(first_date, last_date, start, end)
     if not segments:
         return 0  # 请求区间已被已有数据完整覆盖
 
@@ -232,6 +269,56 @@ def fetch_kline_for_stock(code: str, failover: SourceFailover, start: date, end:
         log_fetch(conn, code, src_name, seg_start, seg_end, count, "success")
         total += count
     return total
+
+
+def fetch_index_for_code(code: str, failover: SourceFailover, start: date, end: date, conn) -> int:
+    """为单只指数采集日K数据（断点分段续用、多源故障切换），返回新增行数
+
+    code 为带前缀全码（sh000001 等）；入库 index_daily_kline 表。
+    """
+    first_date = get_earliest_kline_date(conn, code, table="index_daily_kline")
+    last_date = get_latest_kline_date(conn, code, table="index_daily_kline")
+
+    segments = _split_resume_segments(first_date, last_date, start, end)
+    if not segments:
+        return 0  # 请求区间已被已有数据完整覆盖
+
+    total = 0
+    for seg_start, seg_end in segments:
+        df, src_name = failover.fetch_index(code, seg_start, seg_end)
+
+        if not df.empty and config.DATA_VALIDATION_ENABLED:
+            df = validate_kline_df(df, code)
+
+        if df.empty:
+            log_fetch(conn, code, failover.active.name, seg_start, seg_end, 0, "success")
+            continue
+
+        count = insert_daily_kline(conn, df.to_dict("records"), table="index_daily_kline")
+        log_fetch(conn, code, src_name, seg_start, seg_end, count, "success")
+        total += count
+    return total
+
+
+def fetch_all_index_kline(start_date: date = None, end_date: date = None) -> dict:
+    """批量采集指数日K（config.INDEX_CODES 全部，约6只、秒级）"""
+    start = start_date or config.START_DATE
+    end = end_date or config.END_DATE
+
+    with open_connection() as conn:
+        failover = SourceFailover()
+        logger.info(f"采集指数: {' / '.join(f'{c}({n})' for c, n in config.INDEX_CODES.items())}")
+        stats = {"total": len(config.INDEX_CODES), "success": 0, "failed": 0, "rows": 0}
+        for code in config.INDEX_CODES:
+            try:
+                count = fetch_index_for_code(code, failover, start, end, conn)
+                stats["rows"] += count
+                stats["success"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                log_fetch(conn, code, failover.active.name, start, end, 0, "failed", str(e))
+                logger.warning(f"  [{failover.active.name}] 指数 {code} 失败: {e}")
+        return stats
 
 
 def fetch_all_kline(

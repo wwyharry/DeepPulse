@@ -12,7 +12,7 @@
 | **📊 因子库** | **104 个量化因子，覆盖均线、动量、量能、形态等 13 个大类，供多因子逻辑组合** |
 | **🖥️ TUI 全屏界面** | **暗色金融主题，三栏布局，命令系统和快捷键** |
 | **⌨️ CLI 命令行** | **快速单次分析或交互式对话** |
-| 自然语言交互 | 中文提问，Agent 自动调度 66 个工具完成分析 |
+| 自然语言交互 | 中文提问，Agent 自动调度 67 个工具完成分析 |
 | **⚖️ 评判Agent** | **自适应评测：根据问题类型评分 1-10，快速给出改进建议**（默认关闭，`--judge` 或 `/judge`/`Ctrl+J` 手动触发） |
 | 技术指标 | MA / MACD / RSI / KDJ / 布林带 / ATR / OBV / ADX / CCI / MFI / VWAP |
 | K 线形态 | 十字星、锤子线、吞没、早晨之星等经典形态自动识别 |
@@ -42,7 +42,7 @@ graph TB
     subgraph Agent 核心
         REACT[ReAct 推理引擎]
         CLIENT[LLM 客户端<br/>OpenAI / Anthropic]
-        TOOLS[66 个工具]
+        TOOLS[67 个工具]
         MEMORY[长期记忆系统]
         JUDGE[评判 Agent]
     end
@@ -102,7 +102,7 @@ DeepPulse 基于 ReAct（Reasoning + Acting）范式构建。LLM 在每一轮对
 → 输出: 综合分析结论 + 操作建议
 ```
 
-内置 **66 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、量化验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
+内置 **67 个工具**，覆盖数据采集、技术分析、深度分析、市场情绪、新闻搜索、选股筛选、量化验证、记忆管理等全链路，Agent 根据问题自动编排调用顺序。
 
 ### 动态推理链
 
@@ -497,7 +497,7 @@ class TushareSource(DataSourceBase):
 ## 工具一览
 
 <details>
-<summary>点击展开全部 66 个工具</summary>
+<summary>点击展开全部 67 个工具</summary>
 
 ### 数据更新
 | 工具 | 说明 |
@@ -514,6 +514,7 @@ class TushareSource(DataSourceBase):
 | `search_stock` | 搜索股票 |
 | `query_stock_info` | 股票基本信息 |
 | `query_kline` | 日 K 线数据 |
+| `query_index` | 大盘指数日 K 线（上证/深成/创业板指/科创50/沪深300/北证50） |
 | `query_timeframe_kline` | 多周期 K 线 |
 | `multi_timeframe_analysis` | 多周期共振数据 |
 | `latest_price` | 最新价格 |
@@ -657,7 +658,7 @@ DeepPulse/
 │   ├── agent/                 # Agent 核心
 │   │   ├── agent.py           # ReAct 循环引擎
 │   │   ├── client.py          # LLM 客户端（OpenAI/Anthropic）
-│   │   ├── tools/             # 66 个工具定义
+│   │   ├── tools/             # 67 个工具定义
 │   │   ├── memory/            # 长期记忆系统
 │   │   ├── prompts.py         # System Prompt
 │   │   ├── history.py         # 消息历史上下文管理（工具组原子折叠 + 滑动窗口）

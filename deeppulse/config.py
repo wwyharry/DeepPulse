@@ -19,6 +19,16 @@ START_DATE = END_DATE - timedelta(days=5 * 365)  # 过去5年
 # baostock/akshare/eastmoney/tencent 为前复权口径；sina 为不复权，仅作最后兜底
 DATA_SOURCES = ["baostock", "akshare", "eastmoney", "tencent", "sina"]
 
+# 指数日K采集范围（code 一律带前缀全码，避免 000001 平安银行/上证指数歧义）
+INDEX_CODES = {
+    "sh000001": "上证指数",
+    "sz399001": "深证成指",
+    "sz399006": "创业板指",
+    "sh000688": "科创50",
+    "sh000300": "沪深300",
+    "bj899050": "北证50",
+}
+
 # 采集控制
 FETCH_DELAY_SECONDS = 0  # 每次API调用间隔（秒），BaoStock无限流可设0，AkShare建议0.3
 BATCH_SIZE = 50  # 批量写入数据库的行数

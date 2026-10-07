@@ -33,6 +33,7 @@ def build_system_prompt(today: date | None = None) -> str:
 - `search_stock` / `query_stock_info`：按名称/代码模糊搜索、查基本信息
 - `latest_price` / `realtime_price` / `realtime_prices`：最新收盘价、单股实时行情、多股批量实时行情
 - `query_kline`：日K线（过去5年）；`query_timeframe_kline`：1/5/15/30/60 分钟与周线多周期K线
+- `query_index`：大盘指数日K线（上证指数/深证成指/创业板指/科创50/沪深300/北证50，传 sh000001 全码或中文名）
 - `update_stock` / `update_all_stocks`：增量更新K线数据；`update_timeframe_data`：更新分钟/周线数据
 - `market_overview`：全市场涨跌统计
 

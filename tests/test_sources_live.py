@@ -207,3 +207,36 @@ class TestOnlineFallbackLive:
         assert label.startswith("online-")
         assert df.iloc[-1]["trade_date"] == _BASE_DATE
         assert df.iloc[-1]["close"] == pytest.approx(_BASE_CLOSE, abs=0.02)
+
+
+# ── 新板块/指数（全量数据补齐） ─────────────────────────────────────
+
+
+class TestIndexLive:
+    def test_index_kline_live(self):
+        """上证指数日K：东财直连 fqt=0 不复权，全码入库"""
+        from deeppulse.src.sources.eastmoney_source import EastMoneySource
+
+        df = EastMoneySource().fetch_index_kline("sh000001", _WIN_START, _WIN_END)
+        assert not df.empty, "上证指数日K无数据"
+        last = df.iloc[-1]
+        assert last["trade_date"] == _BASE_DATE
+        assert last["code"] == "sh000001"
+        assert 3000 < float(last["close"]) < 5000, f"上证指数点位异常: {last['close']}"
+        assert float(last["volume"]) > 0
+        assert df["trade_date"].is_monotonic_increasing
+
+
+class TestBseKlineLive:
+    def test_bse_kline_live(self):
+        """北交所个股（830799）经故障切换链可取到日K——BaoStock 不支持，应落到其余源"""
+        from deeppulse.src.collector import SourceFailover
+
+        failover = SourceFailover()
+        try:
+            df, src_name = failover.fetch("830799", _WIN_START, _WIN_END)
+        finally:
+            failover.cleanup()
+        assert not df.empty, "北交所 830799 无日K"
+        assert src_name != "baostock"
+        assert df.iloc[-1]["trade_date"] <= _BASE_DATE

@@ -140,6 +140,40 @@ class TestEastMoneySource:
         src._fetch_stock_list_impl()
         assert "m:0+t:81" in seen["fs"]
 
+    def test_index_secid_mapping(self):
+        assert EastMoneySource._index_secid("sh000001") == "1.000001"
+        assert EastMoneySource._index_secid("sz399001") == "0.399001"
+        assert EastMoneySource._index_secid("bj899050") == "0.899050"
+        with pytest.raises(ValueError):
+            EastMoneySource._index_secid("000001")  # 裸码拒绝（个股歧义）
+
+    def test_index_kline_parse_fqt0_and_units(self, monkeypatch):
+        src = EastMoneySource()
+        seen = {}
+
+        def fake_get_json(hosts, path, params):
+            seen.update(params)
+            return {
+                "data": {
+                    "klines": [
+                        # 日期,开,收,高,低,成交量(手),成交额(元),振幅,涨跌幅,涨跌额,换手率(指数为空)
+                        "2026-09-30,3800.00,3820.50,3830.10,3790.20,400000000,500000000000.00,1.05,0.54,20.50,-",
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(src, "_get_json", fake_get_json)
+        df = src._fetch_index_kline_impl("sh000001", date(2026, 9, 1), date(2026, 9, 30))
+
+        assert seen["secid"] == "1.000001"
+        assert seen["fqt"] == "0", "指数必须不复权（fqt=0）"
+        assert seen["klt"] == "101"
+        row = df.iloc[0]
+        assert row["code"] == "sh000001"  # 全码入库
+        assert row["volume"] == 400000000 * 100  # 手 ×100 → 股
+        assert row["data_source"] == "eastmoney"
+        assert pd.isna(row["turnover"])  # 指数无换手率
+
     def test_unknown_source_raises(self):
         with pytest.raises(KeyError, match="未知历史数据源"):
             make_source("not-a-source")
@@ -323,6 +357,20 @@ class TestBaoStockSource:
         assert by_code["300750"]["board"] == "chinext"
         assert by_code["600000"]["list_date"] == "1999-11-10"
 
+    def test_index_kline_bj_and_bare_code_short_circuit(self, monkeypatch):
+        """北交所指数/裸码：直接返回空 DataFrame，不触发会话/网络"""
+        from deeppulse.src.sources.baostock_source import BaoStockSource
+
+        src = BaoStockSource()
+
+        def boom():
+            raise AssertionError("短路不应触发 BaoStock 登录/网络")
+
+        monkeypatch.setattr(src, "_ensure_login", boom)
+        win = (date(2026, 9, 1), date(2026, 9, 30))
+        assert src.fetch_index_kline("bj899050", *win).empty
+        assert src.fetch_index_kline("000001", *win).empty  # 裸码拒绝
+
 
 # ── SourceFailover ──────────────────────────────────────────────────
 
@@ -403,6 +451,71 @@ class TestSourceFailover:
     def test_requires_sources(self):
         with pytest.raises(ValueError, match="无可用数据源"):
             SourceFailover([])
+
+    def test_fetch_index_skips_unsupported_then_succeeds(self):
+        class _NoIdx:
+            name = "no-idx"
+
+            def fetch_index_kline(self, code, start, end):
+                raise NotImplementedError("不支持指数")
+
+            def cleanup(self):
+                pass
+
+            try_cleanup = cleanup
+
+        class _Idx:
+            name = "idx"
+
+            def __init__(self):
+                self.calls = 0
+
+            def fetch_index_kline(self, code, start, end):
+                self.calls += 1
+                return pd.DataFrame({"trade_date": [date(2026, 9, 30)], "close": [3820.5]})
+
+            def cleanup(self):
+                pass
+
+            try_cleanup = cleanup
+
+        b = _Idx()
+        f = SourceFailover([_NoIdx(), b])
+        df, name = f.fetch_index("sh000001", date(2026, 9, 1), date(2026, 9, 30))
+        assert name == "idx" and not df.empty
+        assert b.calls == 1
+
+    def test_fetch_index_all_unsupported_returns_empty(self):
+        class _NoIdx:
+            name = "no-idx"
+
+            def fetch_index_kline(self, code, start, end):
+                raise NotImplementedError("不支持指数")
+
+            def cleanup(self):
+                pass
+
+            try_cleanup = cleanup
+
+        f = SourceFailover([_NoIdx(), _NoIdx()])
+        df, _ = f.fetch_index("sh000001", date(2026, 9, 1), date(2026, 9, 30))
+        assert df.empty  # 全源不支持=无数据，不抛
+
+    def test_fetch_index_failover_on_exception(self):
+        a, b = _FakeSource("a", behavior="fail"), _FakeSource("b")
+
+        def ok_index(code, start, end):
+            return pd.DataFrame({"trade_date": [date(2026, 9, 30)], "close": [1.0]})
+
+        def fail_index(code, start, end):
+            raise RuntimeError("boom")
+
+        a.fetch_index_kline = fail_index
+        b.fetch_index_kline = ok_index
+        f = SourceFailover([a, b])
+        df, name = f.fetch_index("sh000001", date(2026, 9, 1), date(2026, 9, 30))
+        assert name == "b" and not df.empty
+        assert a.cleanup_count == 1  # 失败源会话被清理
 
 
 # ── RetryPolicy 连接错误重试 ───────────────────────────────────────

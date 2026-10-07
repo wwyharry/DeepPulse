@@ -257,6 +257,138 @@ class TestToolLayer:
         assert "最多" in out2["error"]
 
 
+class TestIndexFallback:
+    def _index_df(self, code="sh000001", n=30):
+        end = date.today()
+        dates = [end - timedelta(days=n - 1 - i) for i in range(n)]
+        return pd.DataFrame(
+            {
+                "code": code,
+                "trade_date": dates,
+                "open": [3800.0 + i for i in range(n)],
+                "high": [3810.0 + i for i in range(n)],
+                "low": [3790.0 + i for i in range(n)],
+                "close": [3805.0 + i for i in range(n)],
+                "volume": [100000 + i * 100 for i in range(n)],
+                "amount": [1e9 + i * 1000 for i in range(n)],
+                "turnover": [None] * n,
+                "data_source": ["eastmoney"] * n,
+            }
+        )
+
+    def _mock_index_online(self, monkeypatch, calls=None, df=None):
+        def fake(code, start, end, source_name=None):
+            if calls is not None:
+                calls.append((code, start, end))
+            return (df if df is not None else self._index_df(code)), "online-eastmoney"
+
+        monkeypatch.setattr(online, "fetch_index_kline_online", fake)
+
+    def test_empty_db_index_falls_back_online(self, empty_db_path, monkeypatch):
+        self._mock_index_online(monkeypatch)
+        q = StockQuery(empty_db_path, online_fallback=True)
+        df = q.get_index_kline("sh000001", limit=10)
+        assert not df.empty
+        assert result_source(df) == "online-eastmoney"
+        assert len(df) == 10
+        assert df.iloc[0]["code"] == "sh000001"
+
+    def test_index_cache_to_db_and_dedup(self, empty_db_path, monkeypatch):
+        monkeypatch.setattr(config, "DATA_CACHE_TO_DB", True)
+        self._mock_index_online(monkeypatch)
+        q = StockQuery(empty_db_path, online_fallback=True)
+        q.get_index_kline("sh000001", limit=10)
+
+        # 写库后本地命中；再造一行低优先级副本，验证 QUALIFY 去重
+        from deeppulse.src.database import get_connection
+
+        conn = get_connection(empty_db_path)
+        conn.execute(
+            "INSERT INTO index_daily_kline VALUES ('sh000001', ?, 1, 1, 1, 999, 1, 1, NULL, 'sina')",
+            [str(date.today())],
+        )
+        conn.close()
+
+        q2 = StockQuery(empty_db_path, online_fallback=False)
+        df = q2.get_index_kline("sh000001")
+        assert result_source(df) == "local"
+        assert df["trade_date"].duplicated().sum() == 0
+        # 同一天 sina 低优先级副本被丢弃，保留在线缓存写回的 eastmoney 行
+        today_rows = df[df["trade_date"].astype(str) == str(date.today())]
+        assert list(today_rows["data_source"]) == ["eastmoney"]
+
+    def test_index_offline_no_fallback(self, empty_db_path):
+        q = StockQuery(empty_db_path, online_fallback=False)
+        df = q.get_index_kline("sh000001")
+        assert df.empty
+        assert result_source(df) == "local"
+
+    def test_init_tables_creates_index_table(self, empty_db_path):
+        from deeppulse.src.database import get_connection, init_tables
+
+        conn = get_connection(empty_db_path)
+        init_tables(conn)
+        tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        conn.close()
+        assert "index_daily_kline" in tables
+        assert "daily_kline" in tables
+
+    def test_query_index_tool_resolves_name_and_rejects_bare_code(self, empty_db_path, monkeypatch):
+        from deeppulse.agent.tools import market as market_tools
+
+        self._mock_index_online(monkeypatch)
+        monkeypatch.setattr(market_tools, "get_query", lambda: StockQuery(empty_db_path, online_fallback=True))
+
+        out = json.loads(market_tools.query_index("上证指数", days=5))
+        assert out["code"] == "sh000001"
+        assert out["name"] == "上证指数"
+        assert out["count"] == 5
+
+        bad = json.loads(market_tools.query_index("000001"))
+        assert "error" in bad and "歧义" in bad["hint"]
+
+    def test_fetch_index_dispatch(self, monkeypatch):
+        from deeppulse.src import collector
+
+        monkeypatch.setattr(
+            collector, "fetch_all_index_kline", lambda **k: {"total": 6, "success": 6, "failed": 0, "rows": 300}
+        )
+        from deeppulse.agent.fetch_commands import run_fetch_command
+
+        out = run_fetch_command("index", log=lambda m: None)
+        assert "采集完成" in out and "300" in out
+
+    def test_fetch_all_also_collects_index(self, monkeypatch):
+        from deeppulse.src import collector
+
+        calls = []
+        monkeypatch.setattr(
+            collector, "fetch_all_kline", lambda **k: {"total": 1, "success": 1, "failed": 0, "rows": 10}
+        )
+        monkeypatch.setattr(
+            collector, "fetch_all_index_kline", lambda **k: calls.append(1) or {"total": 6, "success": 6, "failed": 0, "rows": 20}
+        )
+        monkeypatch.setattr(collector, "fetch_and_store_stock_list", lambda: 1)
+        from deeppulse.agent.fetch_commands import run_fetch_command
+
+        out = run_fetch_command("all", log=lambda m: None)
+        assert "采集完成" in out
+        assert calls == [1]  # /fetch all 顺带采指数
+
+    def test_fetch_status_shows_row_count(self, empty_db_path, monkeypatch):
+        """回归：/fetch status 此前误用 rows_inserted 列名恒显示 0"""
+        from deeppulse.agent.fetch_commands import run_fetch_command
+        from deeppulse.src.database import get_connection, init_tables, log_fetch
+
+        conn = get_connection(empty_db_path)
+        init_tables(conn)
+        log_fetch(conn, "600519", "baostock", "2026-09-01", "2026-09-30", 42, "success")
+        conn.close()
+        monkeypatch.setattr(config, "DB_PATH", empty_db_path)
+        out = run_fetch_command("status")
+        assert "+42行" in out
+
+
 class TestTimeframeFallback:
     def test_query_timeframe_online(self, empty_db_path, monkeypatch):
         from deeppulse.agent import timeframes

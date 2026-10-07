@@ -14,7 +14,8 @@ from datetime import date, timedelta
 FETCH_HELP = """用法:
   /fetch stocks            采集股票列表（约1分钟）
   /fetch kline <code>      采集单只股票全部历史日K
-  /fetch all               全量采集（列表+全部日K，约30-60分钟，可中断续传）
+  /fetch index             采集大盘指数日K（6大指数，秒级）
+  /fetch all               全量采集（列表+全部日K+指数，约50-100分钟，可中断续传）
   /fetch update [days]     增量更新（默认回溯5天）
   /fetch status            查看本地数据统计与最近采集日志"""
 
@@ -61,7 +62,7 @@ def _fetch_status() -> str:
             for _, row in log_df.iterrows():
                 lines.append(
                     f"    {row.get('fetched_at', '')} {row.get('code', '')} "
-                    f"{row.get('status', '')} +{row.get('rows_inserted', 0)}行"
+                    f"{row.get('status', '')} +{row.get('row_count', 0)}行"
                 )
     except Exception:  # noqa: BLE001 — 日志表缺不阻塞统计
         pass
@@ -99,11 +100,18 @@ def run_fetch_command(arg: str, log=print) -> str:
             stats = collector.fetch_all_kline(codes=[code])
             return _fmt_stats(stats, time.time() - t0)
 
+        if sub == "index":
+            log("开始采集大盘指数日K...")
+            stats = collector.fetch_all_index_kline()
+            return _fmt_stats(stats, time.time() - t0)
+
         if sub == "all":
-            log("开始全量采集（先股票列表，后全部日K，可中断续传）...")
+            log("开始全量采集（先股票列表，后全部日K+指数，可中断续传）...")
             n = collector.fetch_and_store_stock_list()
             log(f"股票列表完成：{n} 只，开始采集日K...")
             stats = collector.fetch_all_kline()
+            idx_stats = collector.fetch_all_index_kline()
+            log(f"指数采集完成：{idx_stats.get('rows', 0)} 行")
             return _fmt_stats(stats, time.time() - t0)
 
         if sub == "update":

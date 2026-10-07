@@ -102,6 +102,35 @@ def fetch_daily_kline_online(code: str, start: date, end: date, source_name: str
     raise OnlineFetchError(f"{_HINT}（{'；'.join(errors)}）")
 
 
+def fetch_index_kline_online(code: str, start: date, end: date, source_name: str = None) -> tuple[pd.DataFrame, str]:
+    """在线拉指数日线。返回 (df, source_name)；df 列与库表 index_daily_kline 一致。
+
+    code 为带前缀全码（sh000001 等，见 config.INDEX_CODES）。按降级链取数，
+    NotImplementedError（源不支持指数）视作跳过；全部失败抛 OnlineFetchError。
+    """
+    names = [source_name] if source_name else _source_names()
+    key = ("index_daily", code, start.isoformat(), end.isoformat(), tuple(names))
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    errors = []
+    for name in names:
+        try:
+            source = _make_source(name)
+            df = source.fetch_index_kline(code, start, end)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                result = (df.reset_index(drop=True), f"online-{name}")
+                _cache_put(key, result)
+                return result
+            errors.append(f"{name}: 无数据")
+        except NotImplementedError:
+            errors.append(f"{name}: 不支持指数")
+        except Exception as e:  # noqa: BLE001 — 多源降级需要吞掉单源异常
+            errors.append(f"{name}: {e}")
+    raise OnlineFetchError(f"{_HINT}（{'；'.join(errors)}）")
+
+
 def fetch_stock_list_online() -> list[dict]:
     """在线拉股票列表（字段同 upsert_stock_info 输入）。失败抛 OnlineFetchError。"""
     cached = _cache_get(("stock_list",))
@@ -206,6 +235,20 @@ def maybe_cache_stock_list(records: list[dict], db_path=None) -> int:
     try:
         init_tables(conn)
         return upsert_stock_info(conn, records)
+    finally:
+        conn.close()
+
+
+def maybe_cache_index_kline(df: pd.DataFrame, db_path=None) -> int:
+    """cache_to_db 开启时写回 index_daily_kline（db_path 显式传入）。返回写入行数。"""
+    if not config.DATA_CACHE_TO_DB or df is None or df.empty:
+        return 0
+    from deeppulse.src.database import get_connection, init_tables, insert_daily_kline
+
+    conn = get_connection(db_path)
+    try:
+        init_tables(conn)
+        return insert_daily_kline(conn, df.to_dict("records"), table="index_daily_kline")
     finally:
         conn.close()
 

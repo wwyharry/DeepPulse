@@ -74,6 +74,63 @@ def query_kline(code: str, days: int = 60, source: str = "") -> str:
     )
 
 
+def _resolve_index_code(code: str) -> str | None:
+    """解析指数代码：支持带前缀全码（sh000001）或中文名（上证指数）；其他返回 None
+
+    裸 6 位数字会被拒绝——000001 既是上证指数又是平安银行，必须带前缀消歧。
+    """
+    c = str(code or "").strip()
+    if c in config.INDEX_CODES:
+        return c
+    for full, name in config.INDEX_CODES.items():
+        if name == c:
+            return full
+    return None
+
+
+def query_index(code: str, days: int = 60) -> str:
+    """查询指数（上证指数/深证成指/创业板指/科创50/沪深300/北证50）最近N个交易日的日K线"""
+    resolved = _resolve_index_code(code)
+    if resolved is None:
+        return json.dumps(
+            {
+                "error": f"无法识别的指数代码: {code}",
+                "supported": {k: v for k, v in config.INDEX_CODES.items()},
+                "hint": "请传带前缀全码（如 sh000001）或中文名（如 上证指数）；裸 6 位数字会被拒绝（与个股代码歧义）",
+            },
+            ensure_ascii=False,
+        )
+    days = parse_positive_int(days, "days")
+    query = get_query()
+    end = date.today()
+    start = end - timedelta(days=days * 3)
+    df = query.get_index_kline(resolved, start_date=str(start), end_date=str(end))
+    if df.empty:
+        return json.dumps({"error": f"指数 {resolved}（{config.INDEX_CODES[resolved]}）无数据"}, ensure_ascii=False)
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
+    df = df.sort_values("trade_date").tail(days)
+    records = df.to_dict("records")
+    for r in records:
+        r["trade_date"] = str(r["trade_date"])
+        for k in ["open", "high", "low", "close", "amount", "turnover"]:
+            if r.get(k) is not None:
+                r[k] = round(float(r[k]), 4)
+        # 成交量：数据库存储为股，转为手（1手=100股）
+        if r.get("volume") is not None:
+            r["volume"] = shares_to_lots(r["volume"])
+    return json.dumps(
+        {
+            "code": resolved,
+            "name": config.INDEX_CODES[resolved],
+            "count": len(records),
+            "volume_unit": "手",
+            "data_source": data_source,
+            "kline": records,
+        },
+        ensure_ascii=False,
+    )
+
+
 def latest_price(codes: str) -> str:
     """获取股票最新价格"""
     query = get_query()
@@ -675,6 +732,29 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "query_index",
+            "description": "查询大盘指数（上证指数/深证成指/创业板指/科创50/沪深300/北证50）最近N个交易日的日K线数据。判断大盘环境、用指数走势校准个股分析时使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "指数代码：带前缀全码（sh000001/sz399001/sz399006/sh000688/sh000300/bj899050）或中文名（上证指数/深证成指/创业板指/科创50/沪深300/北证50）。禁止裸6位数字（000001 与平安银行歧义）",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "获取最近N个交易日的数据（非自然日），默认60",
+                        "default": 60,
+                        "minimum": 1,
+                    },
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "latest_price",
             "description": "获取股票最新交易日的价格数据。支持批量查询多只股票。",
             "parameters": {
@@ -729,6 +809,7 @@ TOOL_DISPATCH = {
     "search_stock": search_stock,
     "query_stock_info": query_stock_info,
     "query_kline": query_kline,
+    "query_index": query_index,
     "latest_price": latest_price,
     "calc_technical": calc_technical,
     "market_overview": market_overview,

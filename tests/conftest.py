@@ -9,6 +9,7 @@ from deeppulse.src import online as _online_mod
 # 在线取数的真实实现快照（禁网护栏覆盖后，测试可经 real_online fixture 取回自用）
 _REAL_ONLINE_IMPLS = {
     "fetch_daily_kline_online": _online_mod.fetch_daily_kline_online,
+    "fetch_index_kline_online": _online_mod.fetch_index_kline_online,
     "fetch_stock_list_online": _online_mod.fetch_stock_list_online,
     "fetch_minute_kline_online": _online_mod.fetch_minute_kline_online,
     "fetch_weekly_kline_online": _online_mod.fetch_weekly_kline_online,
