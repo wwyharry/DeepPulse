@@ -9,6 +9,17 @@ import json
 from deeppulse.agent.tools._shared import parse_positive_int
 
 
+def list_factors() -> str:
+    """列出量化引擎全部因子目录（按分类分组）：id/名称/描述/参数搜索范围。
+
+    写 logic_json 之前必须先调用本工具确认 factor_id 与参数取值范围，
+    禁止凭记忆猜测 factor_id（猜错会浪费评测次数）。
+    """
+    from deeppulse.strategy.factor_library import list_factors_catalog
+
+    return json.dumps({"categories": list_factors_catalog()}, ensure_ascii=False, default=str)
+
+
 def evaluate_trade_logic(
     code: str,
     logic_json: str,
@@ -118,6 +129,14 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "list_factors",
+            "description": "列出量化引擎全部因子目录（按 13 类分组，含 id/名称/描述/参数搜索范围）。写 logic_json 之前必须先调用确认 factor_id 与参数取值范围。",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "evaluate_trade_logic",
             "description": "把操作逻辑（多因子规则）放到历史数据上验证，返回胜率/期望值/盈亏比/最大回撤/蒙特卡洛分位。给出操作建议前必须先用它验证，禁止只凭指标目测给买点。数据不足时返回 status=degraded，请降级为定性分析。",
             "parameters": {
@@ -203,6 +222,7 @@ TOOL_DEFINITIONS = [
 ]
 
 TOOL_DISPATCH = {
+    "list_factors": list_factors,
     "evaluate_trade_logic": evaluate_trade_logic,
     "calibrate_params": calibrate_params,
     "market_regime": market_regime,

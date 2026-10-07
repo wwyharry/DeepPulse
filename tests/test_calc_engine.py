@@ -320,8 +320,34 @@ class TestEngineTools:
     def test_dispatch_registered(self):
         from deeppulse.agent.tools import TOOL_DISPATCH
 
-        for name in ("evaluate_trade_logic", "calibrate_params", "market_regime", "position_size"):
+        for name in ("list_factors", "evaluate_trade_logic", "calibrate_params", "market_regime", "position_size"):
             assert name in TOOL_DISPATCH
+
+    def test_list_factors_catalog(self):
+        from deeppulse.agent.tools.engine import list_factors
+
+        out = json.loads(list_factors())
+        cats = out["categories"]
+        assert len(cats) == 13  # 13 个因子分类
+        total = sum(len(c["factors"]) for c in cats)
+        assert total >= 100  # 全量因子
+        ids = {f["id"] for c in cats for f in c["factors"]}
+        assert "ma_trend" in ids
+        for c in cats:
+            assert c["category"]
+            for f in c["factors"]:
+                assert f["id"] and f["name"]
+                for p in f["params"].values():
+                    assert set(p) == {"default", "min", "max", "step"}
+
+    def test_get_factor_error_slim(self):
+        from deeppulse.strategy.factor_library import get_factor
+
+        with pytest.raises(KeyError) as ei:
+            get_factor("不存在的因子")
+        msg = str(ei.value)
+        assert len(msg) < 200  # 不再罗列 100+ 全部 id
+        assert "list_factors" in msg
 
     def test_tools_mentioned_in_prompt(self):
         from deeppulse.agent.prompts import build_system_prompt

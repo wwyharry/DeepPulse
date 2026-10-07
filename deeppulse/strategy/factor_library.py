@@ -58,6 +58,7 @@ class Factor:
     description: str
     params: dict[str, FactorParam] = field(default_factory=dict)
     compute: Callable[[pd.DataFrame, dict], pd.Series] | None = None
+    category: str = ""  # 所属分类（注册时由 _set_category 打标）
 
     def score(self, df: pd.DataFrame, params: dict | None = None) -> pd.Series:
         """计算因子得分（0~1），对缺列/NaN 安全容错"""
@@ -1237,13 +1238,22 @@ def _breakout_strength(df: pd.DataFrame, p: dict) -> pd.Series:
 # ============ 因子注册表 ============
 
 _FACTORS: dict[str, Factor] = {}
+_CURRENT_CATEGORY = ""
+
+
+def _set_category(name: str) -> None:
+    """标记后续 _register 的因子所属分类（按注册节顺序）"""
+    global _CURRENT_CATEGORY
+    _CURRENT_CATEGORY = name
 
 
 def _register(factor: Factor) -> None:
+    factor.category = _CURRENT_CATEGORY
     _FACTORS[factor.id] = factor
 
 
 # ── 1. 均线类 ─────────────────────────────────
+_set_category("均线类 (MA)")
 
 _register(
     Factor(
@@ -1332,6 +1342,7 @@ _register(
 _register(Factor(id="triple_ma", name="三均线确认", description="短>中>长且全部上升", params={}, compute=_triple_ma))
 
 # ── 2. MACD 类 ────────────────────────────────
+_set_category("MACD 类")
 
 _register(
     Factor(
@@ -1371,6 +1382,7 @@ _register(
 )
 
 # ── 3. RSI 类 ─────────────────────────────────
+_set_category("RSI 类")
 
 _register(
     Factor(
@@ -1431,6 +1443,7 @@ _register(
 )
 
 # ── 4. KDJ 类 ─────────────────────────────────
+_set_category("KDJ 类")
 
 _register(
     Factor(
@@ -1463,6 +1476,7 @@ _register(Factor(id="kdj_mom", name="KDJ动量", description="J值持续上升",
 _register(Factor(id="kdj_bullish", name="KDJ看涨", description="K>D且J>D且全部上升", params={}, compute=_kdj_bullish))
 
 # ── 5. 布林带类 ───────────────────────────────
+_set_category("布林带类 (BOLL)")
 
 _register(
     Factor(
@@ -1511,6 +1525,7 @@ _register(
 )
 
 # ── 6. 量能类 ─────────────────────────────────
+_set_category("量能类 (VOL)")
 
 _register(
     Factor(
@@ -1605,6 +1620,7 @@ _register(
 )
 
 # ── 7. 动量类 ─────────────────────────────────
+_set_category("动量类 (MOM)")
 
 _register(
     Factor(
@@ -1689,6 +1705,7 @@ _register(
 )
 
 # ── 8. 波动类 ─────────────────────────────────
+_set_category("波动类 (VOLAT)")
 
 _register(
     Factor(
@@ -1759,6 +1776,7 @@ _register(
 )
 
 # ── 9. 趋势强度类 ─────────────────────────────
+_set_category("趋势强度类 (TREND)")
 
 _register(
     Factor(
@@ -1816,6 +1834,7 @@ _register(
 )
 
 # ── 10. 价格位置类 ────────────────────────────
+_set_category("价格位置类 (POS)")
 
 _register(
     Factor(
@@ -1876,6 +1895,7 @@ _register(
 )
 
 # ── 11. 形态类 ────────────────────────────────
+_set_category("形态类 (PATTERN)")
 
 _register(
     Factor(
@@ -1913,6 +1933,7 @@ _register(
 )
 
 # ── 12. 统计类 ────────────────────────────────
+_set_category("统计类 (STAT)")
 
 _register(
     Factor(
@@ -1979,6 +2000,7 @@ _register(
 )
 
 # ── 13. 复合类 ────────────────────────────────
+_set_category("复合类 (COMP)")
 
 _register(
     Factor(id="trend_follow", name="趋势跟随", description="均线+MACD+ADX综合确认", params={}, compute=_trend_follow)
@@ -2111,8 +2133,35 @@ def list_factors() -> list[Factor]:
     return list(_FACTORS.values())
 
 
+def list_factors_catalog() -> list[dict]:
+    """按分类分组返回因子目录（id/名称/描述/参数搜索范围），供 Agent 写 logic_json 前查阅"""
+    catalog: list[dict] = []
+    seen: list[str] = []
+    for f in _FACTORS.values():
+        if f.category not in seen:
+            seen.append(f.category)
+    for cat in seen:
+        items = []
+        for f in _FACTORS.values():
+            if f.category != cat:
+                continue
+            items.append(
+                {
+                    "id": f.id,
+                    "name": f.name,
+                    "description": f.description,
+                    "params": {
+                        k: {"default": p.default, "min": p.min, "max": p.max, "step": p.step}
+                        for k, p in f.params.items()
+                    },
+                }
+            )
+        catalog.append({"category": cat, "factors": items})
+    return catalog
+
+
 def get_factor(factor_id: str) -> Factor:
-    """按 id 获取因子，未知 id 抛 KeyError"""
+    """按 id 获取因子，未知 id 抛 KeyError（错误信息不罗列全部 id，请用 list_factors 工具查阅）"""
     if factor_id not in _FACTORS:
-        raise KeyError(f"未知因子: {factor_id}，可用因子: {sorted(_FACTORS)}")
+        raise KeyError(f"未知因子: {factor_id}（用 list_factors 工具查看全部可用因子 id）")
     return _FACTORS[factor_id]

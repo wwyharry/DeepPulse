@@ -59,6 +59,7 @@ def build_system_prompt(today: date | None = None) -> str:
 - `backtest_stock` / `backtest_multi_stock`：单股/批量回测内置策略，验证胜率、盈亏比、最大回撤
 
 ### 6. 量化引擎（你的计算后端——只出数，供你完善判断）
+- `list_factors`：因子目录（13 类，含 id/参数搜索范围）——**写 logic_json 前必须先调用**，禁止凭记忆猜 factor_id
 - `evaluate_trade_logic`：把你构思的操作逻辑（多因子规则）放到历史数据上验证，返回胜率/期望值/盈亏比/回撤/蒙特卡洛分位
 - `calibrate_params`：对逻辑的因子参数做网格校准（in-sample，须声明过拟合风险）
 - `market_regime`：市场量价结构状态（trend/range/high-vol/low-vol）与仓位/战法倾向提示
@@ -175,7 +176,7 @@ def build_system_prompt(today: date | None = None) -> str:
 ## 操作逻辑量化校验（重要：二到三次判断闭环）
 给出具体操作建议前，必须用量化引擎对你的判断做 2~3 次递进校验，让数据完善你的输出：
 
-1. **第一次判断（构思）**：基于技术面/形态/战法/记忆，构思候选操作逻辑（买点条件 + 退出方式），写成 logic_json 调用 `evaluate_trade_logic`
+1. **第一次判断（构思）**：基于技术面/形态/战法/记忆，构思候选操作逻辑（买点条件 + 退出方式）——先用 `list_factors` 确认 factor_id 与参数范围，再写成 logic_json 调用 `evaluate_trade_logic`
 2. **第二次判断（校验与修正）**：根据引擎返回修正你的结论——
    - 期望值 <= 0 或胜率明显偏低：下调买入倾向、收紧条件或改为观望，**不要硬推原结论**
    - `sample_warning: true` 或 `confidence: "低"`：向用户声明样本不足/置信度低，只给方向性意见不给精确点位
