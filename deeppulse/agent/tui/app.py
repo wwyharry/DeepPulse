@@ -2,12 +2,14 @@
 
 import asyncio
 import json
+import re
 import time
+from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
-from textual.widgets import Footer, Input
+from textual.widgets import Button, Footer, Input
 
 from deeppulse.agent.agent import StockAgent
 from deeppulse.agent.judge_agent import JudgeAgent
@@ -27,12 +29,14 @@ COMMAND_HELP = """
 
   /help              显示此帮助
   /fetch [子命令]     数据采集 (stocks/kline/all/update/status，无需预先下载数据)
+  /chart <代码> [天数] 生成K线图并打开（缺省代码取会话最近讨论的股票）
   /memory [子命令]    记忆管理 (list/search/predictions/profile/knowledge)
   /strategy [关键词]  战法库搜索
   /watchlist          查看自选股
   /portfolio          查看持仓
   /judge              手动触发评判Agent
   /stats              显示会话统计
+  /stop               停止当前分析
   /clear              清屏
   reset               重置对话
   quit / exit / q     退出
@@ -41,8 +45,87 @@ COMMAND_HELP = """
 
   Ctrl+Q  退出        Ctrl+R  重置对话
   Ctrl+L  清屏        Ctrl+H  帮助
-  Ctrl+J  手动评判    Ctrl+↑/↓ 历史命令
+  Ctrl+J  手动评判    Ctrl+S  停止分析
+  Ctrl+↑/↓ 历史命令   Tab  命令补全
 """
+
+# Tab 补全候选（与 handle_command 分发保持一致）
+COMMANDS = [
+    "/help",
+    "/fetch",
+    "/chart",
+    "/memory",
+    "/strategy",
+    "/watchlist",
+    "/portfolio",
+    "/judge",
+    "/stats",
+    "/stop",
+    "/clear",
+]
+
+# 输入历史持久化文件（~/.deeppulse/tui_history.json）
+HISTORY_FILE = Path.home() / ".deeppulse" / "tui_history.json"
+HISTORY_MAX = 200
+
+
+def load_history_file(path: Path) -> list[str]:
+    """读取输入历史（文件缺失/损坏返回空）"""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [str(x) for x in data][-HISTORY_MAX:]
+    except Exception:
+        pass
+    return []
+
+
+def save_history_file(path: Path, items: list[str]) -> None:
+    """写入输入历史（尽力而为，失败不影响主流程）"""
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(items[-HISTORY_MAX:], ensure_ascii=False, indent=0), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def extract_data_fields(text: str) -> dict:
+    """从工具结果提取关键字段（容忍截断 JSON：解析失败时退化为正则抽取）"""
+    try:
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
+    except Exception:
+        pass
+    out = {}
+    for key in ("price", "change_pct", "rsi"):
+        m = re.search(rf'"{key}"\s*:\s*"?(-?\d+(?:\.\d+)?)', text or "")
+        if m:
+            out[key] = m.group(1)
+    return out
+
+
+def fetch_needs_worker(sub: str) -> bool:
+    """/fetch 子命令是否应放后台 worker（help/status 为秒回读操作）"""
+    return sub not in ("", "help", "帮助", "status")
+
+
+def parse_chart_args(arg: str, session_stocks: list[str] | None = None) -> tuple[str, int] | None:
+    """解析 /chart 参数 → (代码, 天数)；无法确定代码时返回 None"""
+    parts = (arg or "").split()
+    code = parts[0] if parts else ""
+    if not code:
+        for s in session_stocks or []:
+            if s.isdigit() and len(s) == 6:
+                code = s
+                break
+    if not code:
+        return None
+    days = 120
+    if len(parts) > 1 and parts[1].isdigit() and int(parts[1]) > 0:
+        days = int(parts[1])
+    return code, days
 
 # 响应式断点（列）：窗口过窄时自动收起侧栏/收紧留白
 # 对应 styles.tcss 中 Screen.hide-left / hide-right / compact
@@ -63,8 +146,10 @@ class DeepPulseTUI(App):
         Binding("ctrl+l", "clear_screen", "清屏", key_display="^L"),
         Binding("ctrl+h", "help", "帮助", key_display="^H"),
         Binding("ctrl+j", "judge", "评判", key_display="^J"),
+        Binding("ctrl+s", "stop", "停止", key_display="^S"),
         Binding("ctrl+up", "history_prev", "上一条", show=False),
         Binding("ctrl+down", "history_next", "下一条", show=False),
+        Binding("tab", "complete_input", show=False),
     ]
 
     def __init__(self, setting: dict = None, verbose: bool = False):
@@ -79,6 +164,15 @@ class DeepPulseTUI(App):
         self._command_history: list[str] = []
         self._history_index = -1
         self._init_done = False
+
+        # 运行态：busy-guard + 可取消的当前分析任务
+        self._busy = False
+        self._active_task: asyncio.Task | None = None
+        self._session_saved = False
+        self._history_file = HISTORY_FILE
+        self._judge_history_dir = None  # 测试可注入；None=默认目录
+        agent_cfg = (setting or {}).get("agent", {}) if isinstance(setting, dict) else {}
+        self._judge_enabled = bool(agent_cfg.get("enable_judge", True))
 
         # 后台任务管理（防止 GC 回收 + 异常捕获）
         self._background_tasks: set[asyncio.Task] = set()
@@ -148,7 +242,9 @@ class DeepPulseTUI(App):
             # 中栏：对话流
             with Vertical(id="chat-panel"):
                 yield ChatLog(id="chat-log")
-                yield Input(id="chat-input", placeholder="输入问题或 /help 查看命令... (Ctrl+Q 退出)")
+                with Horizontal(id="input-row"):
+                    yield Input(id="chat-input", placeholder="输入问题或 /help 查看命令... (Ctrl+Q 退出)")
+                    yield Button("停止", id="stop-btn", variant="error")
 
             # 右栏：工具 + 数据
             with ScrollableContainer(id="right-panel"):
@@ -170,6 +266,11 @@ class DeepPulseTUI(App):
 
         # 按初始窗口宽度设置响应式布局
         self._apply_responsive(self.size.width)
+
+        # 恢复输入历史 + 初始运行态
+        self._command_history = load_history_file(self._history_file)
+        self._history_index = len(self._command_history)
+        self._set_busy(False)
 
         # 显示欢迎消息
         self.chat_log.add_system_message(
@@ -195,7 +296,8 @@ class DeepPulseTUI(App):
                     None, lambda: StockAgent(setting=self.setting, verbose=self.verbose)
                 )
 
-                self.judge_agent = await loop.run_in_executor(None, lambda: JudgeAgent(setting=self.setting))
+                if self._judge_enabled:
+                    self.judge_agent = await loop.run_in_executor(None, lambda: JudgeAgent(setting=self.setting))
 
                 # 更新状态栏
                 model = (self.setting or {}).get("llm", {}).get("model", "unknown")
@@ -421,12 +523,14 @@ class DeepPulseTUI(App):
             return
 
         event.input.value = ""
-        self._command_history.append(query)
+        if not self._command_history or self._command_history[-1] != query:
+            self._command_history.append(query)
         self._history_index = len(self._command_history)
+        save_history_file(self._history_file, self._command_history)
 
         # 特殊命令
         if query in ("quit", "exit", "q"):
-            self.exit()
+            await self.action_quit()
             return
         if query == "reset":
             await self.action_reset()
@@ -438,6 +542,11 @@ class DeepPulseTUI(App):
         # 检查Agent
         if not self._init_done:
             self.chat_log.add_system_message("⏳ Agent 正在初始化中，请稍候...")
+            return
+
+        if self._busy:
+            self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")
+            self.chat_input.focus()
             return
 
         self.current_query = query
@@ -452,14 +561,18 @@ class DeepPulseTUI(App):
             is_judge_request = query_norm in {"对吗", "对不对", "有问题吗", "检查一下", "帮我看看", "评判", "评判一下"}
 
         if is_judge_request and self.agent and len(self.agent.messages) > 2:
+            if not self._judge_enabled:
+                self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（--no-judge）")
+                self.chat_input.focus()
+                return
             last_msg = self.agent.messages[-1]
             if last_msg.get("role") == "assistant" and last_msg.get("content"):
-                await self.run_judge_agent()
+                self._spawn_agent(self.run_judge_agent(), "judge_agent")
             else:
                 self.chat_log.add_system_message("⚠️ 没有可以评判的内容，请先进行分析")
                 self.chat_input.focus()
         else:
-            await self.run_main_agent(query)
+            self._spawn_agent(self.run_main_agent(query), "main_agent")
 
     async def action_history_prev(self):
         """上一条历史命令"""
@@ -480,6 +593,80 @@ class DeepPulseTUI(App):
             self._history_index = len(self._command_history)
             self.chat_input.value = ""
 
+    # ═══════════════════ 运行态（busy-guard + 停止） ═══════════════════
+
+    def _set_busy(self, busy: bool) -> None:
+        """切换运行态：停止按钮显隐 + 输入框占位提示"""
+        self._busy = busy
+        try:
+            btn = self.query_one("#stop-btn", Button)
+            btn.set_class(busy, "-visible")
+            btn.disabled = not busy
+            self.chat_input.placeholder = (
+                "分析中…（Ctrl+S 或 /stop 停止）" if busy else "输入问题或 /help 查看命令... (Ctrl+Q 退出)"
+            )
+        except Exception:
+            pass
+
+    def _spawn_agent(self, coro, name: str) -> asyncio.Task:
+        """把 Agent 运行放到独立任务里，便于 /stop 取消"""
+        self._set_busy(True)
+        task = self._create_task(coro, name)
+        self._active_task = task
+        task.add_done_callback(self._on_agent_done)
+        return task
+
+    def _on_agent_done(self, task: asyncio.Task) -> None:
+        if self._active_task is task:
+            self._active_task = None
+        self._set_busy(False)
+
+    async def action_stop(self) -> None:
+        """停止当前分析（取消后台任务）"""
+        task = self._active_task
+        if task is None or task.done():
+            self.chat_log.add_system_message("⚠️ 当前没有正在进行的分析")
+            self.chat_input.focus()
+            return
+        task.cancel()
+
+    async def action_complete_input(self) -> None:
+        """Tab：斜杠命令补全；否则照常切换焦点"""
+        value = self.chat_input.value
+        if self.chat_input.has_focus and value.startswith("/") and " " not in value:
+            matches = [c for c in COMMANDS if c.startswith(value)]
+            if len(matches) == 1:
+                self.chat_input.value = matches[0] + " "
+                self.chat_input.cursor_position = len(self.chat_input.value)
+                return
+            if len(matches) > 1:
+                self.chat_log.add_system_message("可选命令: " + "  ".join(matches))
+                return
+        self.action_focus_next()
+
+    # ═══════════════════ 会话保存 / 退出 ═══════════════════
+
+    def _save_session(self) -> None:
+        """尽力保存会话摘要与输入历史（幂等）"""
+        if self._session_saved:
+            return
+        self._session_saved = True
+        save_history_file(self._history_file, self._command_history)
+        if self.agent:
+            try:
+                self.agent.on_session_end()
+            except Exception:
+                pass
+
+    async def action_quit(self) -> None:
+        """退出前保存会话摘要"""
+        self._save_session()
+        self.exit()
+
+    async def on_unmount(self) -> None:
+        """兜底：非 Ctrl+Q 路径退出（如终端关闭信号）也保存"""
+        self._save_session()
+
     # ═══════════════════ 命令系统 ═══════════════════
 
     async def handle_command(self, cmd: str):
@@ -495,8 +682,12 @@ class DeepPulseTUI(App):
             await self.action_clear_screen()
 
         elif command == "/judge":
-            if self.agent and len(self.agent.messages) > 2:
-                await self.run_judge_agent()
+            if not self._judge_enabled:
+                self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（--no-judge）")
+            elif self._busy:
+                self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")
+            elif self.agent and len(self.agent.messages) > 2:
+                self._spawn_agent(self.run_judge_agent(), "judge_agent")
             else:
                 self.chat_log.add_system_message("⚠️ 没有可以评判的内容，请先进行分析")
 
@@ -518,20 +709,25 @@ class DeepPulseTUI(App):
         elif command == "/fetch":
             self._handle_fetch_command(arg)
 
+        elif command == "/chart":
+            self._handle_chart_command(arg)
+
+        elif command == "/stop":
+            await self.action_stop()
+
         else:
             self.chat_log.add_system_message(f"❓ 未知命令: {command}\n输入 /help 查看可用命令")
 
         self.chat_input.focus()
 
     def _handle_fetch_command(self, arg: str):
-        """处理 /fetch：短命令同步执行，all/update 后台 worker（不卡 UI）"""
+        """处理 /fetch：help/status 秒回同步执行，其余全部后台 worker（不卡 UI）"""
         from deeppulse.agent.fetch_commands import run_fetch_command
 
         sub = (arg or "").split()[:1]
         sub = sub[0].lower() if sub else ""
-        long_haul = sub in ("all", "update")
 
-        if not long_haul:
+        if not fetch_needs_worker(sub):
             self.chat_log.add_system_message(f"▶️ /fetch {arg or 'help'}")
             result = run_fetch_command(arg, log=lambda m: self.chat_log.add_system_message(f"  {m}"))
             self.chat_log.add_system_message(result)
@@ -546,6 +742,24 @@ class DeepPulseTUI(App):
             self.call_from_thread(self.chat_log.add_system_message, result)
 
         self.run_worker(work, thread=True, name="fetch", group="fetch")
+
+    def _handle_chart_command(self, arg: str):
+        """处理 /chart：后台生成K线图并自动打开"""
+        session_stocks = list(self.agent._session_stocks) if self.agent else []
+        parsed = parse_chart_args(arg, session_stocks)
+        if not parsed:
+            self.chat_log.add_system_message("用法: /chart <代码> [天数]，如 /chart 600519 120")
+            return
+        code, days = parsed
+        self.chat_log.add_system_message(f"▶️ 生成 {code} K线图（{days} 个交易日）…")
+
+        def work():
+            from deeppulse.agent.charts import generate_kline_chart
+
+            path = generate_kline_chart(code, days=days, auto_open=True)
+            self.call_from_thread(self.chat_log.add_system_message, f"📈 K线图已生成: {path}")
+
+        self.run_worker(work, thread=True, name="chart", group="chart")
 
     async def _show_stats(self):
         """显示会话统计"""
@@ -778,16 +992,13 @@ class DeepPulseTUI(App):
 
                 elif event_type == "tool_result":
                     self.tool_panel.complete_tool_execution(text)
-                    try:
-                        result = json.loads(text)
-                        if "price" in result:
-                            self.data_panel.update_data("当前价", str(result["price"]))
-                        if "change_pct" in result:
-                            self.data_panel.update_data("涨跌幅", str(result["change_pct"]))
-                        if "rsi" in result:
-                            self.data_panel.update_data("RSI", str(result["rsi"]))
-                    except Exception:
-                        pass
+                    result = extract_data_fields(text)
+                    if "price" in result:
+                        self.data_panel.update_data("当前价", str(result["price"]))
+                    if "change_pct" in result:
+                        self.data_panel.update_data("涨跌幅", str(result["change_pct"]))
+                    if "rsi" in result:
+                        self.data_panel.update_data("RSI", str(result["rsi"]))
 
                 elif event_type == "done":
                     main_container.mark_complete()
@@ -808,6 +1019,11 @@ class DeepPulseTUI(App):
                 }
             )
 
+        except asyncio.CancelledError:
+            main_container.update_content("\n\n⏹ 已停止")
+            main_container.mark_complete()
+            self.status_bar.set_status("就绪")
+            raise
         except Exception as e:
             main_container.update_content(f"❌ 错误: {str(e)}")
             main_container.mark_complete()
@@ -826,6 +1042,7 @@ class DeepPulseTUI(App):
         content_buffer = ""
         issues = []
         score = None
+        summary = None
 
         try:
             async for event_type, text in self.judge_agent.judge_stream_async(self.agent.messages):
@@ -842,28 +1059,49 @@ class DeepPulseTUI(App):
                     score = text
                     judge_container.update_status(f"评分: {score}/10")
 
+                elif event_type == "summary":
+                    # 消费结构化摘要（评分/类型/时间戳），供认可后落盘报告
+                    try:
+                        summary = json.loads(text)
+                    except Exception:
+                        summary = None
+
                 elif event_type == "done":
                     judge_container.mark_complete()
                     break
 
+        except asyncio.CancelledError:
+            judge_container.update_content("\n\n⏹ 已停止")
+            judge_container.mark_complete()
+            self.status_bar.set_status("就绪")
+            raise
         except Exception as e:
             judge_container.update_content(f"❌ 评判出错: {str(e)}")
             judge_container.mark_complete()
 
-        self.judge_result = {"content": content_buffer, "issues": issues, "score": score}
+        self.judge_result = {"content": content_buffer, "issues": issues, "score": score, "summary": summary}
         self.status_bar.set_status("就绪")
         self.show_confirmation_dialog()
 
     def show_confirmation_dialog(self):
-        self.chat_log.add_confirmation_buttons([("✅ 认可", "accept"), ("❌ 不认可", "reject")])
+        self._confirm_buttons = self.chat_log.add_confirmation_buttons([("认可", "accept"), ("不认可", "reject")])
 
     async def on_button_pressed(self, event) -> None:
         button_id = event.button.id
+        if button_id == "stop-btn":
+            await self.action_stop()
+            return
         if button_id == "confirm-accept":
             await self.handle_accept()
         elif button_id == "confirm-reject":
             self.chat_log.add_system_message("✅ 已忽略此次评判")
-            self.chat_input.focus()
+        else:
+            return
+        # 选择后禁用按钮，防止重复提交
+        confirm = getattr(self, "_confirm_buttons", None)
+        if confirm is not None:
+            confirm.disable_buttons()
+        self.chat_input.focus()
 
     async def handle_accept(self):
         if not self.judge_result or not self.judge_result.get("content"):
@@ -871,11 +1109,27 @@ class DeepPulseTUI(App):
             self.chat_input.focus()
             return
 
+        # 落盘评测报告（正文 + 结构化摘要），供 /portfolio review 等复盘引用
+        try:
+            from deeppulse.agent.judge_agent import JudgeHistory
+
+            summary = self.judge_result.get("summary") or {"score": self.judge_result.get("score")}
+            filepath = JudgeHistory(store_dir=self._judge_history_dir).save_evaluation(
+                session_id=(self.agent.session_id if self.agent else "unknown"),
+                summary=summary,
+                report=self.judge_result.get("content", ""),
+            )
+            self.chat_log.add_system_message(f"✅ 评测报告已保存: {filepath}")
+        except Exception as e:
+            self.chat_log.add_system_message(f"⚠️ 评测报告保存失败: {str(e)}")
+
         try:
             from deeppulse.agent.tools import TOOL_DISPATCH
 
+            score = self.judge_result.get("score")
+            score_note = f"评分 {score}/10" if score is not None else "未给出评分"
             TOOL_DISPATCH["record_learning"](
-                learned_what=f"用户认可评判Agent对「{self.current_query[:50]}...」的检查意见",
+                learned_what=f"用户认可评判Agent对「{self.current_query[:50]}...」的检查意见（{score_note}）",
                 learned_why="评判Agent发现了主分析中的潜在问题或改进点",
                 apply_when="在进行类似分析时参考这些检查点",
                 category="user_correction",
@@ -901,6 +1155,9 @@ class DeepPulseTUI(App):
 
     async def action_reset(self) -> None:
         if self.agent:
+            # 重置前保存上一轮会话摘要（历史不丢失）
+            self._save_session()
+            self._session_saved = False  # 新会话可再保存
             self.agent.reset()
         self.chat_log.clear()
         self.data_panel.clear_data()
@@ -918,8 +1175,14 @@ class DeepPulseTUI(App):
         self.chat_input.focus()
 
     async def action_judge(self) -> None:
-        if self.agent and len(self.agent.messages) > 2:
-            await self.run_judge_agent()
+        if not self._judge_enabled:
+            self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（--no-judge）")
+            self.chat_input.focus()
+        elif self._busy:
+            self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")
+            self.chat_input.focus()
+        elif self.agent and len(self.agent.messages) > 2:
+            self._spawn_agent(self.run_judge_agent(), "judge_agent")
         else:
             self.chat_log.add_system_message("⚠️ 没有可以评判的内容，请先进行分析")
             self.chat_input.focus()

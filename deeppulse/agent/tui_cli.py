@@ -63,7 +63,7 @@ def main():
     if args.model:
         setting["llm"]["model"] = args.model
 
-    # 禁用评判Agent（通过环境标记）
+    # 禁用评判Agent（TUI 读取 setting.agent.enable_judge）
     if args.no_judge:
         setting["agent"]["enable_judge"] = False
     else:

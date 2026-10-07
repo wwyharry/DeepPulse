@@ -229,10 +229,12 @@ class ChatLog(ScrollableContainer):
         self.mount(Static(_content(body), classes="msg msg-system"))
         self.scroll_end(animate=False)
 
-    def add_confirmation_buttons(self, buttons: list):
-        """添加确认按钮组"""
-        self.mount(ConfirmationButtons(buttons))
+    def add_confirmation_buttons(self, buttons: list) -> "ConfirmationButtons":
+        """添加确认按钮组（返回容器，供调用方在选择后禁用）"""
+        container = ConfirmationButtons(buttons)
+        self.mount(container)
         self.scroll_end(animate=False)
+        return container
 
     def add_session_stats(self, stats: dict):
         """添加会话统计摘要"""
@@ -369,24 +371,79 @@ class AgentMessageContainer(Static):
 # ═══════════════════ 工具面板 ═══════════════════
 
 
-class ToolPanel(Static):
-    """工具执行面板"""
+class ToolEntry(Static):
+    """工具执行条目：点击展开/收起完整结果"""
+
+    def __init__(self, entry: dict):
+        super().__init__()
+        self.entry = entry
+        self.expanded = bool(entry.get("_expanded"))
+        self.refresh_display()
+
+    def refresh_display(self):
+        e = self.entry
+        body = Text()
+        if e.get("running"):
+            body.append("⚙ ", style=P.WARN)
+            body.append(e["name"], style=P.WARN)
+            hint = e.get("args_hint") or ""
+            if hint:
+                body.append(f"\n    {hint}", style=f"dim {P.TEXT_FAINT}")
+        else:
+            arrow = "▾" if self.expanded else "▸"
+            body.append(f"{arrow} ", style=P.ACCENT)
+            body.append(e["name"], style=P.TEXT)
+            body.append(f"  {e.get('duration', 0):.1f}s", style=f"dim {P.TEXT_FAINT}")
+            if self.expanded:
+                for line in (e.get("result") or "（无结果）").splitlines():
+                    body.append(f"\n    {line}", style=f"dim {P.TEXT_DIM}")
+                body.append("\n    [点击收起]", style=f"dim {P.TEXT_FAINT}")
+            else:
+                hint = e.get("result_hint") or ""
+                if hint:
+                    body.append(f"\n    {hint}", style=f"dim {P.TEXT_FAINT}")
+                body.append("  [展开]", style=f"dim {P.ACCENT}")
+        self.update(_content(body))
+
+    def on_click(self):
+        if self.entry.get("running"):
+            return
+        self.expanded = not self.expanded
+        self.entry["_expanded"] = self.expanded
+        self.refresh_display()
+
+
+class ToolPanel(Container):
+    """工具执行面板（条目点击可展开完整结果）"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.executing = []
-        self.completed = []
+        self.executing: list[dict] = []
+        self.completed: list[dict] = []
+        self.border_title = "工具"
+
+    def on_mount(self):
         self.refresh_display()
 
     def add_tool_execution(self, tool_name: str, args: dict):
-        self.executing.append({"name": tool_name, "args": args, "start": time.time()})
+        self.executing.append(
+            {
+                "name": tool_name,
+                "args": args,
+                "args_hint": self._args_hint(args or {}),
+                "start": time.time(),
+                "running": True,
+            }
+        )
         self.refresh_display()
 
     def complete_tool_execution(self, result: str):
         if self.executing:
             tool = self.executing.pop(0)
             tool["duration"] = time.time() - tool["start"]
-            tool["result"] = result[:80]
+            tool["result"] = (result or "")[:2000]
+            tool["result_hint"] = self._result_hint(result or "")
+            tool["running"] = False
             self.completed.append(tool)
             if len(self.completed) > 20:
                 self.completed = self.completed[-20:]
@@ -415,30 +472,22 @@ class ToolPanel(Static):
         return s[:44]
 
     def refresh_display(self):
-        body = Text()
-
+        if not self.is_mounted:
+            return
+        self.remove_children()
+        if not self.executing and not self.completed:
+            self.mount(Static(_content(Text("  空闲", style=f"dim {P.TEXT_FAINT}"))))
+            return
         if self.executing:
-            body.append("执行中", style=f"bold {P.WARN}")
-            for tool in self.executing:
-                body.append(f"\n  {tool['name']}", style=P.WARN)
-                hint = self._args_hint(tool.get("args") or {})
-                if hint:
-                    body.append(f"\n     {hint}", style=f"dim {P.TEXT_FAINT}")
-        else:
-            body.append("空闲", style=f"dim {P.TEXT_FAINT}")
-
+            self.mount(Static(_content(Text("执行中", style=f"bold {P.WARN}"))))
+            for entry in self.executing[-3:]:
+                self.mount(ToolEntry(entry))
         if self.completed:
-            body.append("\n\n", style="")
-            body.append("已完成", style=f"bold {P.DOWN}")
-            for tool in self.completed[-6:]:
-                duration = tool.get("duration", 0)
-                body.append(f"\n  {tool['name']}  {duration:.1f}s", style=P.TEXT_DIM)
-                hint = self._result_hint(tool.get("result") or "")
-                if hint:
-                    body.append(f"\n     {hint}", style=f"dim {P.TEXT_FAINT}")
-
-        self.update(_content(body))
-        self.border_title = "工具"
+            if self.executing:
+                self.mount(Static(_content(Text(""))))
+            self.mount(Static(_content(Text("已完成", style=f"bold {P.DOWN}"))))
+            for entry in self.completed[-6:]:
+                self.mount(ToolEntry(entry))
 
 
 # ═══════════════════ 数据面板 ═══════════════════
@@ -632,3 +681,8 @@ class ConfirmationButtons(Container):
         for label, action in self.button_configs:
             btn = Button(label, id=f"confirm-{action}", variant="primary" if action == "accept" else "default")
             yield btn
+
+    def disable_buttons(self):
+        """选择后禁用全部按钮，防止重复提交"""
+        for btn in self.query(Button):
+            btn.disabled = True

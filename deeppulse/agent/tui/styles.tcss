@@ -82,6 +82,16 @@ DataPanel {
     min-height: 5;
 }
 
+/* 工具条目：可点击展开完整结果 */
+ToolEntry {
+    height: auto;
+    color: #c6ced9;
+}
+
+ToolEntry:hover {
+    background: #151a24;
+}
+
 /* ═══════════════════ 对话区域 ═══════════════════ */
 
 #chat-log {
@@ -94,10 +104,15 @@ DataPanel {
     scrollbar-gutter: stable;
 }
 
-#chat-input {
+#input-row {
     dock: bottom;
     height: 3;
     margin: 0 2 1 2;
+}
+
+#chat-input {
+    width: 1fr;
+    height: 3;
     border: solid #2c3545;
     background: #10141c;
     color: #c6ced9;
@@ -112,11 +127,31 @@ DataPanel {
     color: #555e6e;
 }
 
+/* 停止按钮：仅分析中显示 */
+#stop-btn {
+    width: 9;
+    height: 3;
+    margin: 0 0 0 1;
+    display: none;
+    background: #2a1520;
+    border: solid #e85a6a;
+    color: #e85a6a;
+}
+
+#stop-btn.-visible {
+    display: block;
+}
+
+#stop-btn:hover {
+    background: #3d1f2c;
+    color: #ff8a96;
+}
+
 Screen.compact #chat-log {
     padding: 0 1 1 1;
 }
 
-Screen.compact #chat-input {
+Screen.compact #input-row {
     margin: 0 1 1 1;
 }
 
