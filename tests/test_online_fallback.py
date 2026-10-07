@@ -332,6 +332,9 @@ class TestIndexFallback:
         conn.close()
         assert "index_daily_kline" in tables
         assert "daily_kline" in tables
+        # 多周期六表随 init_tables 一并下沉创建
+        for t in ("kline_1m", "kline_5m", "kline_15m", "kline_30m", "kline_60m", "kline_weekly"):
+            assert t in tables
 
     def test_query_index_tool_resolves_name_and_rejects_bare_code(self, empty_db_path, monkeypatch):
         from deeppulse.agent.tools import market as market_tools

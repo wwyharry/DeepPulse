@@ -240,3 +240,18 @@ class TestBseKlineLive:
         assert not df.empty, "北交所 830799 无日K"
         assert src_name != "baostock"
         assert df.iloc[-1]["trade_date"] <= _BASE_DATE
+
+
+class TestMinuteKlineLive:
+    def test_minute_kline_window_live(self):
+        """东财 5 分钟线窗口采集（服务端裁剪 + volume 手 ×100 → 股）"""
+        from deeppulse.src.sources.eastmoney_source import EastMoneySource
+
+        end = date.today()
+        start = end - timedelta(days=7)
+        df = EastMoneySource().fetch_minute_kline("600000", "5", start, end)
+        assert not df.empty, "东财 5 分钟线无数据"
+        assert df.iloc[0]["trade_datetime"] >= start
+        assert (df["volume"] > 0).all()
+        # 5m 一日约 48 根：窗口 7 天自然日应远超 3 根
+        assert len(df) > 10

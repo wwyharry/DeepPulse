@@ -99,6 +99,9 @@ def init_tables(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_index_kline_trade_date ON index_daily_kline(trade_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_fetch_log_code_source ON fetch_log(code, data_source)")
 
+    # 多周期K线六表（纯 DDL 定义在本层，agent 层委托）
+    init_timeframe_tables(conn)
+
 
 def upsert_stock_info(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> int:
     """批量写入/更新股票基本信息（事务保护），返回写入行数"""
@@ -131,6 +134,35 @@ def upsert_stock_info(conn: duckdb.DuckDBPyConnection, records: list[dict]) -> i
 
 # K线表白名单：insert/get_latest/get_earliest 的 table 参数只允许这两张
 _KLINE_TABLES = ("daily_kline", "index_daily_kline")
+
+# 多周期K线表名（纯 DDL 居此层，agent/timeframes 委托——分层不反向 import）
+TIMEFRAME_TABLES = {
+    "1m": "kline_1m",
+    "5m": "kline_5m",
+    "15m": "kline_15m",
+    "30m": "kline_30m",
+    "60m": "kline_60m",
+    "weekly": "kline_weekly",
+}
+
+
+def init_timeframe_tables(conn: duckdb.DuckDBPyConnection) -> None:
+    """初始化多周期K线表（1m/5m/15m/30m/60m/weekly，volume 统一为股）"""
+    for table in TIMEFRAME_TABLES.values():
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                code VARCHAR NOT NULL,
+                trade_datetime TIMESTAMP NOT NULL,
+                open DOUBLE,
+                high DOUBLE,
+                low DOUBLE,
+                close DOUBLE,
+                volume BIGINT,
+                amount DOUBLE,
+                data_source VARCHAR DEFAULT 'akshare',
+                PRIMARY KEY (code, trade_datetime)
+            )
+        """)
 
 
 def insert_daily_kline(conn: duckdb.DuckDBPyConnection, records: list[dict], table: str = "daily_kline") -> int:

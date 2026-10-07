@@ -35,16 +35,18 @@ def recognize_kline_patterns(code: str, days: int = 60) -> str:
 def update_timeframe_data(code: str, timeframe: str = "5m", days: int = 5) -> str:
     """更新股票的多周期K线数据（分钟级/周线）。"""
     from deeppulse.agent.timeframes import update_timeframe
+    from deeppulse.agent.tools._shared import get_query
 
-    result = update_timeframe(code, timeframe, parse_positive_int(days, "days"))
+    result = update_timeframe(code, timeframe, parse_positive_int(days, "days"), db_path=get_query().db_path)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
 def query_timeframe_kline(code: str, timeframe: str = "5m", limit: int = 100) -> str:
     """查询股票多周期K线数据。"""
     from deeppulse.agent.timeframes import query_timeframe
+    from deeppulse.agent.tools._shared import get_query
 
-    result = query_timeframe(code, timeframe, parse_positive_int(limit, "limit"))
+    result = query_timeframe(code, timeframe, parse_positive_int(limit, "limit"), db_path=get_query().db_path)
     # 成交量：股→手
     if isinstance(result.get("kline"), list):
         convert_volume_in_records(result["kline"])
@@ -55,8 +57,11 @@ def query_timeframe_kline(code: str, timeframe: str = "5m", limit: int = 100) ->
 def multi_timeframe_analysis(code: str, limit: int = 50) -> str:
     """获取多周期K线数据（日线+60分钟+15分钟），用于多周期共振分析。"""
     from deeppulse.agent.timeframes import get_multi_timeframe_data
+    from deeppulse.agent.tools._shared import get_query
 
-    result = get_multi_timeframe_data(code, ["daily", "60m", "15m"], parse_positive_int(limit, "limit"))
+    result = get_multi_timeframe_data(
+        code, ["daily", "60m", "15m"], parse_positive_int(limit, "limit"), db_path=get_query().db_path
+    )
     # 成交量：股→手（遍历每个周期的数据）
     if isinstance(result.get("timeframes"), dict):
         for tf_data in result["timeframes"].values():

@@ -15,6 +15,8 @@ FETCH_HELP = """用法:
   /fetch stocks            采集股票列表（约1分钟）
   /fetch kline <code>      采集单只股票全部历史日K
   /fetch index             采集大盘指数日K（6大指数，秒级）
+  /fetch timeframe [days=5] [tf=all|5m|15m|30m|60m|weekly]
+                           批量采集分钟/周线（东财直连，断点续传；每周期约 1-2 小时）
   /fetch all               全量采集（列表+全部日K+指数，约50-100分钟，可中断续传）
   /fetch update [days]     增量更新（默认回溯5天）
   /fetch status            查看本地数据统计与最近采集日志"""
@@ -104,6 +106,35 @@ def run_fetch_command(arg: str, log=print) -> str:
             log("开始采集大盘指数日K...")
             stats = collector.fetch_all_index_kline()
             return _fmt_stats(stats, time.time() - t0)
+
+        if sub == "timeframe":
+            days = 5
+            tf = "all"
+            rest = parts[1:]
+            for token in rest:
+                if token.isdigit():
+                    days = max(1, int(token))
+                else:
+                    tf = token.lower()
+            valid = ("all", "5m", "15m", "30m", "60m", "weekly")
+            if tf not in valid:
+                return f"用法: /fetch timeframe [days=5] [tf={'|'.join(valid)}]"
+            from deeppulse.agent import timeframes as tf_mod
+
+            targets = tf_mod.BATCH_TIMEFRAMES if tf == "all" else [tf]
+            lines = []
+            for one in targets:
+                log(f"开始批量采集 {one}（窗口 {days} 天，断点续传）...")
+                stats = tf_mod.fetch_all_timeframe(one, days=days)
+                if "error" in stats:
+                    lines.append(f"{one}: {stats['error']}")
+                    continue
+                lines.append(
+                    f"{one}: 成功 {stats.get('success', 0)}/跳过 {stats.get('skipped', 0)}/"
+                    f"失败 {stats.get('failed', 0)}，新增 {stats.get('rows', 0)} 行"
+                )
+                log(lines[-1])
+            return f"✅ 分钟/周线批量采集完成（总耗时 {time.time() - t0:.1f}s）\n" + "\n".join(lines)
 
         if sub == "all":
             log("开始全量采集（先股票列表，后全部日K+指数，可中断续传）...")

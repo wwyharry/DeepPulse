@@ -38,6 +38,9 @@ _HEADERS = {
 # 东财开放接口通用 ut 令牌（前端公开值，非私有凭据）
 _UT = "fa5fd1943c7b386f172d6893dbfba10b"
 
+# 分钟/周线周期 → klt；1m 不走 kline 通道（trends2 仅 5 日）显式不支持
+_MINUTE_KLT = {"5": "5", "15": "15", "30": "30", "60": "60", "weekly": "102"}
+
 
 class EastMoneySource(DataSourceBase):
     def __init__(self):
@@ -234,4 +237,69 @@ class EastMoneySource(DataSourceBase):
         df["volume"] = (pd.to_numeric(df["volume"], errors="coerce") * 100).astype("Int64")
 
         cols = ["code", "trade_date", "open", "high", "low", "close", "volume", "amount", "turnover", "data_source"]
+        return df[cols]
+
+    # ── 分钟/周线（批量采集唯一路径） ────────────────────────────────
+
+    def fetch_minute_kline(self, code: str, period: str, start: date, end: date) -> pd.DataFrame:
+        """分钟/周线K线（kline 接口服务端按窗口裁剪，fqt=1 前复权，volume 手 ×100 → 股）
+
+        period: "5" / "15" / "30" / "60" / "weekly"；1m 显式不支持（trends2 仅 5 日
+        且非 kline 通道，批量采集不含 1m）。返回列同多周期表：
+        code, trade_datetime, open, high, low, close, volume, amount, data_source
+        """
+        return self._retry_policy.execute(self._fetch_minute_kline_impl, code, period, start, end)
+
+    def _fetch_minute_kline_impl(self, code: str, period: str, start: date, end: date) -> pd.DataFrame:
+        klt = _MINUTE_KLT.get(str(period))
+        if klt is None:
+            raise NotImplementedError(f"东财 kline 通道不支持周期 {period}（1m 请用 update_timeframe 单只更新）")
+        data = self._get_json(
+            _KLINE_HOSTS,
+            "/api/qt/stock/kline/get",
+            {
+                "secid": self._secid(code),
+                "ut": _UT,
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                "klt": klt,
+                "fqt": "1",  # 前复权（与日线/akshare qfq 同口径）
+                "beg": start.strftime("%Y%m%d"),
+                "end": end.strftime("%Y%m%d"),
+            },
+        )
+        klines = ((data.get("data") or {}).get("klines")) or []
+        if not klines:
+            return pd.DataFrame()
+
+        rows = []
+        for line in klines:
+            parts = line.split(",")
+            if len(parts) < 7:
+                continue
+            rows.append(
+                {
+                    "trade_datetime": parts[0],  # YYYY-MM-DD HH:MM:SS
+                    "open": parts[1],
+                    "close": parts[2],
+                    "high": parts[3],
+                    "low": parts[4],
+                    "volume": parts[5],  # 手
+                    "amount": parts[6],  # 元
+                }
+            )
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        df["trade_datetime"] = pd.to_datetime(df["trade_datetime"])
+        df["code"] = code
+        df["data_source"] = self.name
+
+        for col in ["open", "high", "low", "close", "amount"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        # 东财成交量单位为手，统一换算为股（与日线口径一致）
+        df["volume"] = (pd.to_numeric(df["volume"], errors="coerce") * 100).astype("Int64")
+
+        cols = ["code", "trade_datetime", "open", "high", "low", "close", "volume", "amount", "data_source"]
         return df[cols]

@@ -32,6 +32,7 @@ INDEX_CODES = {
 # 采集控制
 FETCH_DELAY_SECONDS = 0  # 每次API调用间隔（秒），BaoStock无限流可设0，AkShare建议0.3
 BATCH_SIZE = 50  # 批量写入数据库的行数
+MINUTE_FETCH_DELAY_SECONDS = 0.5  # 分钟线批量采集每只间隔（秒）；东财掐线可调 1.0
 
 # 记忆系统配置
 MEMORY_DECAY_THRESHOLD = 0.1  # 有效权重低于此值的记忆将被遗忘

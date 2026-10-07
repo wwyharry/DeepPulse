@@ -271,7 +271,9 @@ API Key 支持环境变量：`"${ENV_VAR_NAME}"`
 # 方式一：CLI/TUI 交互命令（推荐，对非技术用户友好）
 /fetch stocks          # 采集股票列表（约1分钟）
 /fetch update          # 增量更新（默认回溯5天）
-/fetch all             # 全量采集（约30-60分钟，可中断续传）
+/fetch all             # 全量采集（约50-100分钟，可中断续传）
+/fetch index           # 采集大盘指数日K（6大指数，秒级）
+/fetch timeframe       # 批量采集分钟/周线（可选 days 与周期，断点续传）
 /fetch status          # 查看本地数据统计
 
 # 方式二：脚本一键全量采集（约 5700 只股票 x 5 年日K，按优先级取数、单源故障自动切换）
