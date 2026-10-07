@@ -7,7 +7,7 @@ import time
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
-from textual.widgets import Footer, Header, Input
+from textual.widgets import Footer, Input
 
 from deeppulse.agent.agent import StockAgent
 from deeppulse.agent.judge_agent import JudgeAgent
@@ -23,7 +23,7 @@ from deeppulse.agent.tui.widgets import (
 
 # 命令帮助文本
 COMMAND_HELP = """
-📋 可用命令：
+可用命令
 
   /help              显示此帮助
   /fetch [子命令]     数据采集 (stocks/kline/all/update/status，无需预先下载数据)
@@ -37,12 +37,18 @@ COMMAND_HELP = """
   reset               重置对话
   quit / exit / q     退出
 
-⌨️ 快捷键：
+快捷键
 
   Ctrl+Q  退出        Ctrl+R  重置对话
   Ctrl+L  清屏        Ctrl+H  帮助
   Ctrl+J  手动评判    Ctrl+↑/↓ 历史命令
 """
+
+# 响应式断点（列）：窗口过窄时自动收起侧栏/收紧留白
+# 对应 styles.tcss 中 Screen.hide-left / hide-right / compact
+BP_HIDE_LEFT = 100
+BP_HIDE_RIGHT = 78
+BP_COMPACT = 58
 
 
 class DeepPulseTUI(App):
@@ -97,9 +103,39 @@ class DeepPulseTUI(App):
             task_name = task.get_name() or "unknown"
             self.chat_log.add_system_message(f"⚠️ 后台任务 [{task_name}] 异常: {exc}")
 
+    @staticmethod
+    def _version() -> str:
+        """包版本（找不到发行元数据时退回占位符）"""
+        try:
+            from importlib.metadata import version
+
+            return "v" + version("deeppulse")
+        except Exception:
+            return ""
+
+    def _apply_responsive(self, width: int) -> None:
+        """按窗口宽度切换 Screen 类（TCSS 依类显隐侧栏/收紧留白）"""
+        wanted = {
+            "hide-left": width < BP_HIDE_LEFT,
+            "hide-right": width < BP_HIDE_RIGHT,
+            "compact": width < BP_COMPACT,
+        }
+        if getattr(self, "_resp_classes", None) == wanted:
+            return  # 断点未跨越：不触发 CSS 重算
+        self._resp_classes = wanted
+        try:
+            screen = self.screen
+        except Exception:
+            return
+        for name, on in wanted.items():
+            screen.set_class(on, name)
+
+    async def on_resize(self, event) -> None:
+        """窗口尺寸变化：重设响应式断点（布局重排由 Textual 核心处理）"""
+        self._apply_responsive(event.size.width)
+
     def compose(self) -> ComposeResult:
         """构建三栏布局"""
-        yield Header()
         yield StatusBar(id="status-bar")
 
         with Horizontal(id="main-container"):
@@ -132,9 +168,14 @@ class DeepPulseTUI(App):
         self.portfolio_panel = self.query_one("#portfolio-panel", PortfolioPanel)
         self.market_panel = self.query_one("#market-panel", MarketPanel)
 
+        # 按初始窗口宽度设置响应式布局
+        self._apply_responsive(self.size.width)
+
         # 显示欢迎消息
         self.chat_log.add_system_message(
-            "✨ 欢迎使用 DeepPulse v0.2.0！\n⏳ 正在后台初始化 Agent，请稍候...\n💡 输入 /help 查看所有命令和快捷键"
+            f"欢迎使用 DeepPulse {self._version()}！\n"
+            "正在后台初始化 Agent，请稍候…\n"
+            "输入 /help 查看所有命令和快捷键"
         )
 
         self.chat_input.focus()
@@ -702,7 +743,7 @@ class DeepPulseTUI(App):
 
     async def run_main_agent(self, query: str):
         """运行主分析Agent"""
-        main_container = self.chat_log.add_agent_container("🤔 主分析")
+        main_container = self.chat_log.add_agent_container("主分析")
         self._start_time = time.time()
 
         thinking_buffer = ""
@@ -778,7 +819,7 @@ class DeepPulseTUI(App):
             self.chat_log.add_system_message("⚠️ 对话内容不足，无法进行评测")
             return
 
-        judge_container = self.chat_log.add_agent_container("⚖️ 评判Agent")
+        judge_container = self.chat_log.add_agent_container("评判")
         judge_container.update_status("全流程评测中...")
         self.status_bar.set_status("评判中...")
 

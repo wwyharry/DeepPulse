@@ -1,34 +1,110 @@
-"""TUI界面核心组件 - 暗色金融主题"""
+"""TUI界面核心组件 - 暗色金融主题
+
+渲染约定：
+- 面板/消息的边框、留白全部由 styles.tcss 控制（Python 侧不再写 DEFAULT_CSS）；
+- 正文一律构建为 rich.text.Text，布局期只做换行（Markdown 在写入时经
+  markdown_text.markdown_to_text 一次性转换），避免 resize 时反复重渲染；
+- 涨红跌绿（A股习惯），色值见 palette.py。
+"""
 
 import time
 from datetime import datetime
 
-from rich.console import Group
-from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.text import Text
 from textual.containers import Container, ScrollableContainer
+from textual.content import Content
 from textual.widgets import Button, Static
+
+from deeppulse.agent.tui import palette as P
+from deeppulse.agent.tui.markdown_text import markdown_to_text
 
 # Markdown 渲染节流间隔（秒），防止流式输出时 O(n²) 重渲染
 _RENDER_THROTTLE = 0.2
+
+
+def _label(text: str, style: str = "") -> Text:
+    """快捷构造带样式的 Text 片段"""
+    return Text(text, style=style)
+
+
+def _pad_label(label: str, width: int = 8) -> str:
+    """按显示宽度补齐标签（CJK 双宽），让右侧数值对齐"""
+    import unicodedata
+
+    w = sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in label)
+    return label + " " * max(0, width - w)
+
+
+class CachedContent(Content):
+    """带「宽度 → 排版行」缓存的 Content。
+
+    Textual 的 Content 每次 paint 都重新排版（_wrap_and_format），且 resize
+    连发时窗口每变一次就全量重排一次——这是拖动窗口卡死的直接原因。
+    这里缓存同一内容在各宽度下的排版结果（无选区时），测量与绘制共享。
+    """
+
+    _MAX_CACHE = 4
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._wrap_cache: dict[tuple, list] = {}
+
+    def _wrap_and_format(self, width, align="left", overflow="fold", no_wrap=False, line_pad=0, tab_size=8, selection=None, selection_style=None, post_style=None, get_style=None):
+        if selection is not None:
+            return super()._wrap_and_format(
+                width,
+                align=align,
+                overflow=overflow,
+                no_wrap=no_wrap,
+                line_pad=line_pad,
+                tab_size=tab_size,
+                selection=selection,
+                selection_style=selection_style,
+                post_style=post_style,
+                get_style=get_style,
+            )
+        key = (width, align, overflow, no_wrap, line_pad, tab_size)
+        lines = self._wrap_cache.get(key)
+        if lines is None:
+            kwargs = dict(
+                align=align,
+                overflow=overflow,
+                no_wrap=no_wrap,
+                line_pad=line_pad,
+                tab_size=tab_size,
+            )
+            if get_style is not None:
+                kwargs["get_style"] = get_style
+            if post_style is not None:
+                kwargs["post_style"] = post_style
+            lines = super()._wrap_and_format(width, **kwargs)
+            if len(self._wrap_cache) >= self._MAX_CACHE:
+                self._wrap_cache.pop(next(iter(self._wrap_cache)))
+            self._wrap_cache[key] = lines
+        return lines
+
+    def get_height(self, rules, width: int) -> int:
+        line_pad = rules.get("line_pad", 0) * 2
+        overflow = rules.get("text_overflow", "fold")
+        no_wrap = rules.get("text_wrap", "wrap") == "nowrap"
+        return len(self._wrap_and_format(width - line_pad, overflow=overflow, no_wrap=no_wrap))
+
+
+def _content(body: Text) -> Content:
+    """Text → CachedContent（一次转换，之后按宽度缓存排版结果）"""
+    plain = body.plain
+    trailing = len(plain) - len(plain.rstrip("\n"))
+    if trailing:
+        body = body[: len(plain) - trailing]
+    base = Content.from_rich_text(body)
+    return CachedContent(base.plain, list(base.spans))
+
 
 # ═══════════════════ 状态栏 ═══════════════════
 
 
 class StatusBar(Static):
-    """顶部状态栏：模型 | 会话 | 轮次 | 耗时 | 工具数"""
-
-    DEFAULT_CSS = """
-    StatusBar {
-        height: 1;
-        dock: top;
-        width: 100%;
-        background: #161b22;
-        color: #8b949e;
-        padding: 0 1;
-    }
-    """
+    """顶部状态栏：品牌 | 模型 | 会话 | 轮次 | 耗时 | 工具数 | 状态"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -70,72 +146,73 @@ class StatusBar(Static):
         self.tool_count = 0
         self.refresh_display()
 
-    def refresh_display(self):
-        parts = []
-        parts.append(Text("⚡ DeepPulse", style="bold #58a6ff"))
-        parts.append(Text(" │ ", style="#30363d"))
+    def on_resize(self, event) -> None:
+        # 尺寸变化后按新宽度重排中段（窄窗口丢弃次要信息）
+        self.refresh_display()
 
+    def refresh_display(self):
+        sep = _label("  ·  ", f"dim {P.TEXT_FAINT}")
+        brand = _label(" DeepPulse", f"bold {P.ACCENT}")
+        ready = self.status_text == "就绪"
+        status = _label(self.status_text, P.TEXT if ready else f"bold {P.WARN}")
+
+        # 中段：[模型, 会话, 轮次, 耗时, 工具数]；窄窗口按 4→3→1→0 丢弃，轮次保留
+        mids: list = [None, None, None, None, None]
         if self.model_name:
             short_model = self.model_name.split("/")[-1] if "/" in self.model_name else self.model_name
-            parts.append(Text(f"模型: {short_model}", style="#8b949e"))
-            parts.append(Text(" │ ", style="#30363d"))
-
+            mids[0] = _label(short_model, f"dim {P.TEXT_DIM}")
         if self.session_id:
-            parts.append(Text(f"会话: {self.session_id}", style="#8b949e"))
-            parts.append(Text(" │ ", style="#30363d"))
-
+            mids[1] = _label(self.session_id, f"dim {P.TEXT_DIM}")
         if self.round_num > 0:
-            parts.append(Text(f"R{self.round_num}", style="#d29922"))
-            parts.append(Text(" │ ", style="#30363d"))
-
+            mids[2] = _label(f"R{self.round_num}", f"bold {P.WARN}")
         if self.elapsed > 0:
-            if self.elapsed >= 60:
-                time_str = f"{self.elapsed / 60:.1f}m"
-            else:
-                time_str = f"{self.elapsed:.1f}s"
-            parts.append(Text(f"⏱ {time_str}", style="#8b949e"))
-            parts.append(Text(" │ ", style="#30363d"))
-
+            time_str = f"{self.elapsed / 60:.1f}m" if self.elapsed >= 60 else f"{self.elapsed:.1f}s"
+            mids[3] = _label(time_str, P.TEXT_DIM)
         if self.tool_count > 0:
-            parts.append(Text(f"🔧 {self.tool_count}", style="#8b949e"))
-            parts.append(Text(" │ ", style="#30363d"))
+            mids[4] = _label(f"{self.tool_count} 次工具", P.TEXT_DIM)
 
-        parts.append(Text(self.status_text, style="#3fb950" if self.status_text == "就绪" else "#d29922"))
+        avail = max(self.size.width - 2, 10)  # padding 0 1
 
-        self.update(Group(*parts))
+        def assemble(keep: list) -> Text:
+            parts = [brand]
+            for item in keep:
+                if item is not None:
+                    parts += [sep, item]
+            parts += [sep, status]
+            return Text.assemble(*parts)
+
+        keep = list(mids)
+        full = assemble(keep)
+        for idx in (4, 3, 1, 0):
+            if full.cell_len <= avail:
+                break
+            keep[idx] = None
+            full = assemble(keep)
+        self.update(_content(full))
 
 
 # ═══════════════════ 对话流 ═══════════════════
 
 
 class ChatLog(ScrollableContainer):
-    """对话流容器（自动滚动）"""
+    """对话流容器（贴底自动滚动）"""
 
-    DEFAULT_CSS = """
-    ChatLog {
-        height: 1fr;
-        border: solid #30363d;
-        background: #0d1117;
-        padding: 1;
-        scrollbar-color: #30363d;
-        scrollbar-color-hover: #484f58;
-        scrollbar-color-active: #6e7681;
-        scrollbar-gutter: stable;
-    }
-    """
+    def _follow_tail(self):
+        """贴底才自动跟随滚动（不打扰正在回看历史的用户）"""
+        try:
+            if self.max_scroll_y - self.scroll_y <= 3:
+                self.scroll_end(animate=False)
+        except Exception:
+            pass
 
     def add_user_message(self, text: str):
         """添加用户消息"""
         timestamp = datetime.now().strftime("%H:%M")
-        widget = Static()
-        widget.update(
-            Panel(
-                Markdown(text),
-                title=f"👤 你  {timestamp}",
-                border_style="#58a6ff",
-                padding=(0, 1),
-            )
-        )
+        body = Text()
+        body.append("你", style=f"bold {P.ACCENT_BRIGHT}")
+        body.append(f"  {timestamp}\n", style=f"dim {P.TEXT_FAINT}")
+        body.append(text, style=f"bold {P.TEXT}")
+        widget = Static(_content(body), classes="msg msg-user")
         self.mount(widget)
         self.scroll_end(animate=False)
 
@@ -148,36 +225,29 @@ class ChatLog(ScrollableContainer):
 
     def add_system_message(self, text: str):
         """添加系统消息"""
-        widget = Static()
-        widget.update(Panel(Text(text, style="#8b949e"), border_style="#30363d", padding=(0, 1)))
-        self.mount(widget)
+        body = Text(text, style=f"dim {P.TEXT_DIM}")
+        self.mount(Static(_content(body), classes="msg msg-system"))
         self.scroll_end(animate=False)
 
     def add_confirmation_buttons(self, buttons: list):
         """添加确认按钮组"""
-        button_group = ConfirmationButtons(buttons)
-        self.mount(button_group)
+        self.mount(ConfirmationButtons(buttons))
         self.scroll_end(animate=False)
 
     def add_session_stats(self, stats: dict):
         """添加会话统计摘要"""
-        widget = Static()
-        lines = []
-        lines.append(Text("📊 本次分析统计", style="bold #58a6ff"))
-        lines.append(Text(""))
+        body = Text()
+        body.append("本轮分析", style=f"bold {P.ACCENT}")
+        body.append("\n")
         if stats.get("rounds"):
-            lines.append(Text(f"  推理轮次: {stats['rounds']}", style="#c9d1d9"))
+            body.append(f"  推理轮次   {stats['rounds']}\n", style=P.TEXT_DIM)
         if stats.get("tool_count"):
-            lines.append(Text(f"  工具调用: {stats['tool_count']} 次", style="#c9d1d9"))
+            body.append(f"  累计工具   {stats['tool_count']} 次\n", style=P.TEXT_DIM)
         if stats.get("elapsed"):
-            lines.append(Text(f"  总耗时: {stats['elapsed']:.1f}s", style="#c9d1d9"))
+            body.append(f"  总耗时     {stats['elapsed']:.1f}s\n", style=P.TEXT_DIM)
         if stats.get("tools_used"):
-            tools_str = ", ".join(stats["tools_used"])
-            lines.append(Text(f"  使用工具: {tools_str}", style="#8b949e"))
-
-        content = Group(*lines)
-        widget.update(Panel(content, border_style="#30363d", padding=(0, 1)))
-        self.mount(widget)
+            body.append(f"  使用工具   {', '.join(stats['tools_used'])}\n", style=f"dim {P.TEXT_FAINT}")
+        self.mount(Static(_content(body), classes="msg msg-stats"))
         self.scroll_end(animate=False)
 
     def clear(self):
@@ -191,14 +261,8 @@ class ChatLog(ScrollableContainer):
 class AgentMessageContainer(Static):
     """Agent消息容器（支持流式更新、thinking折叠）"""
 
-    DEFAULT_CSS = """
-    AgentMessageContainer {
-        margin: 0 0 1 0;
-    }
-    """
-
     def __init__(self, agent_name: str):
-        super().__init__()
+        super().__init__(classes="msg msg-agent")
         self.agent_name = agent_name
         self.thinking_text = ""
         self.content_text = ""
@@ -209,6 +273,7 @@ class AgentMessageContainer(Static):
         self.thinking_collapsed = True
         self._last_render_time: float = 0.0
         self._pending_render: bool = False
+        self.refresh_display()
 
     def update_thinking(self, text: str):
         self.thinking_text = text
@@ -243,58 +308,56 @@ class AgentMessageContainer(Static):
         self._last_render_time = now
         self._pending_render = False
 
-        parts = []
+        body = Text()
         elapsed = now - self.start_time
 
-        # 思考过程（折叠/展开）
+        # 标题行：Agent 名 + 状态 + 轮次工具等元信息
+        body.append(self.agent_name, style=f"bold {P.ACCENT}")
+        meta = []
+        if self.status:
+            meta.append(self.status)
+        if elapsed > 1:
+            meta.append(f"{elapsed:.1f}s")
+        if meta:
+            body.append("  " + " · ".join(meta), style=f"dim {P.TEXT_FAINT}")
+        body.append("\n")
+
+        # 思考过程（折叠/展开，点击切换）
         if self.thinking_text and len(self.thinking_text) > 20:
             if self.thinking_collapsed:
-                preview = self.thinking_text[:100].replace("\n", " ")
-                parts.append(Text(f"💭 {preview}...  [展开 ▼]", style="dim #6e7681"))
+                preview = self.thinking_text[:40].replace("\n", " ")
+                body.append(f"▸ 思考过程 {preview}…  [点击展开]", style=f"dim {P.TEXT_FAINT}")
             else:
-                # 截取显示
                 display_thinking = self.thinking_text
                 if len(display_thinking) > 2000:
-                    display_thinking = display_thinking[:1200] + "\n...(省略)...\n" + display_thinking[-600:]
-                parts.append(Text("💭 思考过程 [收起 ▲]", style="dim #6e7681"))
-                parts.append(Text(display_thinking, style="dim #484f58"))
+                    display_thinking = display_thinking[:1200] + "\n…（省略）…\n" + display_thinking[-600:]
+                body.append("▾ 思考过程  [点击收起]", style=f"dim {P.TEXT_FAINT}")
+                body.append("\n")
+                body.append(display_thinking, style=f"dim {P.TEXT_FAINT}")
+            body.append("\n")
 
         # 工具调用徽章
         if self.tools:
-            tool_badges = " ".join([f"[{t}]" for t in self.tools[-6:]])
-            parts.append(Text(f"🔧 {tool_badges}", style="#d29922"))
+            chips = "  ".join(self.tools[-6:])
+            body.append(f"⚙ {chips}", style=f"dim {P.WARN}")
+            body.append("\n")
 
-        # 输出内容（Markdown渲染，带异常保护）
+        # 输出内容（Markdown 已在写入时转为 Text，渲染期只换行）
         if self.content_text:
-            try:
-                parts.append(Markdown(self.content_text))
-            except Exception:
-                # Markdown 解析失败（不完整语法等），fallback 到纯文本
-                parts.append(Text(self.content_text, style="#c9d1d9"))
+            body.append(markdown_to_text(self.content_text))
 
         # 状态指示
         if not self.complete:
             if self.content_text:
-                parts.append(Text("▊", style="blink #58a6ff"))
+                body.append("▍", style=f"bold {P.ACCENT}")
             else:
-                parts.append(Text("⏳ 思考中...", style="dim #6e7681"))
+                body.append("思考中…", style=f"dim {P.TEXT_FAINT}")
 
-        content = Group(*parts) if parts else Text("⏳ 等待响应...", style="dim #6e7681")
+        self.update(_content(body))
 
-        # 标题：Agent名 + 状态 + 耗时
-        title_parts = [self.agent_name]
-        if self.status:
-            title_parts.append(self.status)
-        if elapsed > 1:
-            title_parts.append(f"{elapsed:.1f}s")
-        title = " │ ".join(title_parts)
-
-        border_color = "#3fb950" if self.complete else "#d29922"
-        self.update(Panel(content, title=title, border_style=border_color, padding=(0, 1)))
-
-        # 触发父容器滚动
-        if hasattr(self.parent, "scroll_end"):
-            self.parent.scroll_end(animate=False)
+        # 流式期间仅贴底跟随
+        if not self.complete and isinstance(self.parent, ChatLog):
+            self.parent._follow_tail()
 
     def on_click(self):
         """点击切换 thinking 折叠/展开"""
@@ -308,15 +371,6 @@ class AgentMessageContainer(Static):
 
 class ToolPanel(Static):
     """工具执行面板"""
-
-    DEFAULT_CSS = """
-    ToolPanel {
-        height: auto;
-        border: solid #30363d;
-        background: #0d1117;
-        padding: 1;
-    }
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -343,28 +397,48 @@ class ToolPanel(Static):
         self.completed.clear()
         self.refresh_display()
 
+    @staticmethod
+    def _args_hint(args: dict) -> str:
+        if not args:
+            return ""
+        items = list(args.items())[:3]
+        return ", ".join(f"{k}={v}" for k, v in items)
+
+    @staticmethod
+    def _result_hint(result: str) -> str:
+        """结果摘要：JSON 退化为 key=value 串，去掉括号引号，便于扫读"""
+        s = " ".join((result or "").split())
+        if s[:1] in ("{", "["):
+            s = s.strip("{}[] ")
+            s = s.replace('": "', "=").replace('":', "=").replace('"', "")
+            s = s.replace(": ", "=").replace(":", "=").replace("= ", "=")
+        return s[:44]
+
     def refresh_display(self):
-        lines = []
+        body = Text()
 
-        # 正在执行
         if self.executing:
-            lines.append(Text("🔄 执行中", style="bold #d29922"))
+            body.append("执行中", style=f"bold {P.WARN}")
             for tool in self.executing:
-                lines.append(Text(f"  ⏳ {tool['name']}", style="#d29922"))
+                body.append(f"\n  {tool['name']}", style=P.WARN)
+                hint = self._args_hint(tool.get("args") or {})
+                if hint:
+                    body.append(f"\n     {hint}", style=f"dim {P.TEXT_FAINT}")
         else:
-            lines.append(Text("⏸ 空闲", style="dim #6e7681"))
+            body.append("空闲", style=f"dim {P.TEXT_FAINT}")
 
-        lines.append(Text(""))
-
-        # 已完成（最近 6 个）
         if self.completed:
-            lines.append(Text("✅ 已完成", style="bold #3fb950"))
+            body.append("\n\n", style="")
+            body.append("已完成", style=f"bold {P.DOWN}")
             for tool in self.completed[-6:]:
                 duration = tool.get("duration", 0)
-                lines.append(Text(f"  ✓ {tool['name']}  {duration:.1f}s", style="#3fb950"))
+                body.append(f"\n  {tool['name']}  {duration:.1f}s", style=P.TEXT_DIM)
+                hint = self._result_hint(tool.get("result") or "")
+                if hint:
+                    body.append(f"\n     {hint}", style=f"dim {P.TEXT_FAINT}")
 
-        content = Group(*lines)
-        self.update(Panel(content, title="🔧 工具面板", border_style="#30363d", padding=(0, 1)))
+        self.update(_content(body))
+        self.border_title = "工具"
 
 
 # ═══════════════════ 数据面板 ═══════════════════
@@ -372,15 +446,6 @@ class ToolPanel(Static):
 
 class DataPanel(Static):
     """数据摘要面板"""
-
-    DEFAULT_CSS = """
-    DataPanel {
-        height: auto;
-        border: solid #30363d;
-        background: #0d1117;
-        padding: 1;
-    }
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -396,39 +461,46 @@ class DataPanel(Static):
         self.refresh_display()
 
     def refresh_display(self):
-        lines = []
+        body = Text()
         if self.data:
+            first = True
             for key, value in self.data.items():
-                # 涨跌颜色
-                style = "#c9d1d9"
+                if not first:
+                    body.append("\n")
+                first = False
+                style = P.TEXT
                 if any(k in key for k in ("涨", "涨幅", "涨跌")):
                     try:
                         v = float(str(value).strip("%"))
-                        style = "#f85149" if v > 0 else "#3fb950" if v < 0 else "#c9d1d9"
+                        style = P.UP if v > 0 else P.DOWN if v < 0 else P.TEXT
                     except (ValueError, TypeError):
                         pass
-                lines.append(Text(f"  {key}: {value}", style=style))
+                body.append(f"  {_pad_label(key)}", style=f"dim {P.TEXT_DIM}")
+                body.append(str(value), style=f"bold {style}")
         else:
-            lines.append(Text("  暂无数据", style="dim #6e7681"))
-
-        content = Group(*lines)
-        self.update(Panel(content, title="📊 数据摘要", border_style="#30363d", padding=(0, 1)))
+            body.append("  暂无数据", style=f"dim {P.TEXT_FAINT}")
+        self.update(_content(body))
+        self.border_title = "数据"
 
 
 # ═══════════════════ 自选股面板 ═══════════════════
 
 
+def _change_style(change: str) -> tuple[str, str]:
+    """涨跌 → (样式颜色, 箭头)"""
+    try:
+        v = float(str(change).strip("%"))
+        if v > 0:
+            return P.UP, "▲"
+        if v < 0:
+            return P.DOWN, "▼"
+    except (ValueError, TypeError):
+        pass
+    return P.TEXT_DIM, "●"
+
+
 class WatchlistPanel(Static):
     """自选股面板"""
-
-    DEFAULT_CSS = """
-    WatchlistPanel {
-        height: auto;
-        border: solid #30363d;
-        background: #0d1117;
-        padding: 1;
-    }
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -440,38 +512,28 @@ class WatchlistPanel(Static):
         self.refresh_display()
 
     def refresh_display(self):
-        lines = []
+        body = Text()
         if self.stocks:
-            for stock in self.stocks[:6]:
+            shown = self.stocks[:6]
+            for i, stock in enumerate(shown):
                 code = stock.get("code", "")
                 name = stock.get("name", "")
                 price = stock.get("price", "")
-                change = stock.get("change", "0")
+                change = stock.get("change", "--")
+                style, symbol = _change_style(change)
 
-                try:
-                    change_val = float(str(change).strip("%"))
-                    if change_val > 0:
-                        style = "#f85149"
-                        symbol = "▲"
-                    elif change_val < 0:
-                        style = "#3fb950"
-                        symbol = "▼"
-                    else:
-                        style = "#8b949e"
-                        symbol = "●"
-                except (ValueError, TypeError):
-                    style = "#8b949e"
-                    symbol = "●"
-
-                label = f"{name}({code})" if name and name != code else code
-                lines.append(Text(f" {symbol} {label}", style=style))
-                lines.append(Text(f"   {price}  {change}", style=style))
+                if i:
+                    body.append("\n")
+                label = f"{name} · {code}" if name and name != code else code
+                body.append(f"  {label}\n", style=P.TEXT)
+                body.append(f"  {price}  {symbol} {change}", style=f"bold {style}")
+            if len(self.stocks) > 6:
+                body.append(f"\n  … 还有 {len(self.stocks) - 6} 只", style=f"dim {P.TEXT_FAINT}")
         else:
-            lines.append(Text(" 暂无自选股", style="dim #6e7681"))
-            lines.append(Text(" 输入股票代码开始分析", style="dim #484f58"))
-
-        content = Group(*lines)
-        self.update(Panel(content, title="📊 自选股", border_style="#30363d", padding=(0, 1)))
+            body.append("  暂无自选股\n", style=f"dim {P.TEXT_FAINT}")
+            body.append("  /watchlist add 600519", style=f"dim {P.TEXT_FAINT}")
+        self.update(_content(body))
+        self.border_title = "自选股"
 
 
 # ═══════════════════ 持仓面板 ═══════════════════
@@ -479,15 +541,6 @@ class WatchlistPanel(Static):
 
 class PortfolioPanel(Static):
     """持仓面板"""
-
-    DEFAULT_CSS = """
-    PortfolioPanel {
-        height: auto;
-        border: solid #30363d;
-        background: #0d1117;
-        padding: 1;
-    }
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -499,26 +552,30 @@ class PortfolioPanel(Static):
         self.refresh_display()
 
     def refresh_display(self):
-        lines = []
+        body = Text()
         if self.positions:
-            for pos in self.positions[:4]:
+            shown = self.positions[:4]
+            for i, pos in enumerate(shown):
                 code = pos.get("code", "")
                 name = pos.get("name", "")
                 shares = pos.get("shares", 0)
                 profit = pos.get("profit", 0)
                 profit_pct = pos.get("profit_pct", 0)
 
-                style = "#f85149" if profit > 0 else "#3fb950" if profit < 0 else "#8b949e"
+                style = P.UP if profit > 0 else P.DOWN if profit < 0 else P.TEXT_DIM
                 symbol = "▲" if profit > 0 else "▼" if profit < 0 else "●"
 
-                label = f"{name}({code})" if name and name != code else code
-                lines.append(Text(f" {symbol} {label}  {shares}股", style="#c9d1d9"))
-                lines.append(Text(f"   {profit:+.0f}元 ({profit_pct:+.1f}%)", style=style))
+                if i:
+                    body.append("\n")
+                label = f"{name} · {code}" if name and name != code else code
+                body.append(f"  {label}  {shares}股\n", style=P.TEXT)
+                body.append(f"  {profit:+,.0f}元  {symbol} {profit_pct:+.1f}%", style=f"bold {style}")
+            if len(self.positions) > 4:
+                body.append(f"\n  … 还有 {len(self.positions) - 4} 只", style=f"dim {P.TEXT_FAINT}")
         else:
-            lines.append(Text(" 暂无持仓", style="dim #6e7681"))
-
-        content = Group(*lines)
-        self.update(Panel(content, title="💼 持仓", border_style="#30363d", padding=(0, 1)))
+            body.append("  暂无持仓", style=f"dim {P.TEXT_FAINT}")
+        self.update(_content(body))
+        self.border_title = "持仓"
 
 
 # ═══════════════════ 市场面板 ═══════════════════
@@ -526,15 +583,6 @@ class PortfolioPanel(Static):
 
 class MarketPanel(Static):
     """市场概况面板"""
-
-    DEFAULT_CSS = """
-    MarketPanel {
-        height: auto;
-        border: solid #30363d;
-        background: #0d1117;
-        padding: 1;
-    }
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -546,9 +594,10 @@ class MarketPanel(Static):
         self.refresh_display()
 
     def refresh_display(self):
-        lines = []
+        body = Text()
         if self.market_data:
             order = ["sh000001", "sz399001", "sz399006"]
+            first = True
             for key in order:
                 idx = self.market_data.get(key)
                 if not idx:
@@ -556,25 +605,17 @@ class MarketPanel(Static):
                 name = idx.get("name", "")
                 price = idx.get("price", 0)
                 pct = idx.get("change_pct", 0)
-                amt = idx.get("change_amt", 0)
 
-                if pct > 0:
-                    style = "#f85149"
-                    arrow = "▲"
-                elif pct < 0:
-                    style = "#3fb950"
-                    arrow = "▼"
-                else:
-                    style = "#8b949e"
-                    arrow = "●"
-
-                lines.append(Text(f" {name}", style="bold #c9d1d9"))
-                lines.append(Text(f"  {price:.2f}  {arrow}{pct:+.2f}%  ({amt:+.2f})", style=style))
+                style, arrow = _change_style(f"{pct:+.2f}")
+                if not first:
+                    body.append("\n\n")
+                first = False
+                body.append(f"  {name}\n", style=P.TEXT)
+                body.append(f"  {price:.2f}  {arrow} {pct:+.2f}%", style=f"bold {style}")
         else:
-            lines.append(Text(" 加载中...", style="dim #6e7681"))
-
-        content = Group(*lines)
-        self.update(Panel(content, title="📈 市场概况", border_style="#30363d", padding=(0, 1)))
+            body.append("  加载中…", style=f"dim {P.TEXT_FAINT}")
+        self.update(_content(body))
+        self.border_title = "市场"
 
 
 # ═══════════════════ 确认按钮 ═══════════════════
@@ -582,22 +623,6 @@ class MarketPanel(Static):
 
 class ConfirmationButtons(Container):
     """确认按钮组"""
-
-    DEFAULT_CSS = """
-    ConfirmationButtons {
-        height: auto;
-        layout: horizontal;
-        align: center middle;
-        padding: 0 0 1 0;
-        background: #0d1117;
-    }
-
-    ConfirmationButtons Button {
-        margin: 0 1;
-        min-width: 14;
-        height: 3;
-    }
-    """
 
     def __init__(self, buttons: list):
         super().__init__()
