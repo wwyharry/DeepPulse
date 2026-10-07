@@ -5,6 +5,8 @@
 
 from deeppulse.agent.tools.analysis import TOOL_DEFINITIONS as _analysis_defs
 from deeppulse.agent.tools.analysis import TOOL_DISPATCH as _analysis_dispatch
+from deeppulse.agent.tools.engine import TOOL_DEFINITIONS as _engine_defs
+from deeppulse.agent.tools.engine import TOOL_DISPATCH as _engine_dispatch
 from deeppulse.agent.tools.market import TOOL_DEFINITIONS as _market_defs
 from deeppulse.agent.tools.market import TOOL_DISPATCH as _market_dispatch
 from deeppulse.agent.tools.memory_tools import TOOL_DEFINITIONS as _memory_defs
@@ -20,7 +22,14 @@ from deeppulse.agent.tools.strategy import TOOL_DISPATCH as _strategy_dispatch
 
 # 聚合所有工具定义和分派
 TOOL_DEFINITIONS = (
-    _market_defs + _sentiment_defs + _news_defs + _memory_defs + _strategy_defs + _analysis_defs + _portfolio_defs
+    _market_defs
+    + _sentiment_defs
+    + _news_defs
+    + _memory_defs
+    + _strategy_defs
+    + _engine_defs
+    + _analysis_defs
+    + _portfolio_defs
 )
 
 TOOL_DISPATCH = {
@@ -29,6 +38,7 @@ TOOL_DISPATCH = {
     **_news_dispatch,
     **_memory_dispatch,
     **_strategy_dispatch,
+    **_engine_dispatch,
     **_analysis_dispatch,
     **_portfolio_dispatch,
 }
