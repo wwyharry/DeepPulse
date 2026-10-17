@@ -1,18 +1,22 @@
 """Agent 核心 - ReAct 循环、工具调度、流式输出、记忆系统、战法库"""
 
 import asyncio
+import concurrent.futures
 import json
 import re
 import uuid
 
 from deeppulse import config as _config
 from deeppulse.agent.client import LLMClient
-from deeppulse.agent.history import compact_history, count_tool_calls
+from deeppulse.agent.history import compact_history, count_tool_calls, repair_pairing
 from deeppulse.agent.memory import MemoryManager
 from deeppulse.agent.prompts import build_system_prompt
 from deeppulse.agent.reasoning import build_dynamic_system_prompt, detect_market_state
 from deeppulse.agent.strategy_loader import get_strategy_loader
-from deeppulse.agent.tools import TOOL_DEFINITIONS, TOOL_DISPATCH
+from deeppulse.agent.tools import STATE_CHANGING_TOOLS, TOOL_DEFINITIONS, TOOL_DISPATCH
+
+# 工具执行线程池：为每次调用包一层 future.result(timeout)，防单个工具卡死整个 ReAct 循环
+_TOOL_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="deeppulse-tool")
 
 
 class StockAgent:
@@ -46,7 +50,7 @@ class StockAgent:
         self._user_messages = []
 
         # 工具调用追踪（防重复、防编造）
-        self._tool_call_history: list[tuple[str, str]] = []  # (tool_name, args_signature)
+        self._tool_call_history: list[tuple[str, str, bool]] = []  # (tool_name, args_signature, 成功与否)
         self._consecutive_tool_errors: int = 0  # 连续工具异常计数
         self._truncated_tools: set[str] = set()  # 本轮被截断过的工具名
 
@@ -121,10 +125,40 @@ class StockAgent:
             stats["folded_messages"] += folded_msgs
         if folded_calls > 0:
             stats["folded_tool_calls"] += folded_calls
+        # 配对修复：任何中断/异常留下的悬空 tool_call 在此补齐合成 tool 结果，
+        # 保证 LLM 请求不再收到「assistant(tool_calls) 缺 tool 消息」的非法历史
+        # （在折叠统计之后执行，避免合成占位消息污染折叠计数）
+        self.messages = repair_pairing(self.messages, protocol=protocol)
+
+    def _finalize_partial_turn(self, turn_gen: int) -> None:
+        """半轮收尾（幂等；异常/取消/生成器关闭/正常结束皆调用）。
+
+        1) 先补齐悬空 tool_call 的合成 tool 结果（用户停止、异常中断在工具阶段时）；
+        2) 历史不以 assistant 结尾时补一条「[分析中断]」assistant 占位收束本轮。
+
+        仅当 turn_gen 仍是当前 turn 才动历史：过期生成器的延迟收尾（GC/loop
+        shutdown 触发的 GeneratorExit）不得干扰后续 turn——后续 turn 的
+        tool_calls 可能正在执行，误补合成结果会把真实结果挤成孤儿。
+        必须幂等且绝不抛出——它运行在 finally / GeneratorExit 收尾路径上。
+        """
+        try:
+            if turn_gen != getattr(self, "_turn_gen", 0):
+                return
+            protocol = getattr(self.client, "protocol", "openai")
+            self.messages = repair_pairing(self.messages, protocol=protocol)
+            if self.messages and self.messages[-1].get("role") != "assistant":
+                self.messages.append(
+                    self.client.format_assistant_message(
+                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
+                    )
+                )
+        except Exception:
+            pass
 
     def chat(self, user_input: str) -> str:
         """处理用户输入，返回 Agent 回复（非流式）"""
         self._prepare_user_input(user_input)
+        turn_gen = getattr(self, "_turn_gen", 0)
 
         try:
             for round_num in range(self.max_rounds):
@@ -148,15 +182,10 @@ class StockAgent:
             )
             self._pending_system_notes.clear()
             return msg
-        except Exception:
-            # 流中断占位：保证历史中用户消息后必有 assistant 消息，再抛出原异常
-            if self.messages and self.messages[-1]["role"] != "assistant":
-                self.messages.append(
-                    self.client.format_assistant_message(
-                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
-                    )
-                )
-            raise
+        finally:
+            # 中断（含取消/生成器关闭）/异常/正常结束皆收尾（幂等）：
+            # 修复悬空 tool_call 配对，避免下一轮 LLM 调用 400
+            self._finalize_partial_turn(turn_gen)
 
     def _prepare_user_input(self, user_input: str):
         """公共预处理：追踪会话信息、追加用户消息、重置轮内状态"""
@@ -164,6 +193,8 @@ class StockAgent:
         self._pending_system_notes.clear()
         self._track_session_info(user_input)
         self.messages.append({"role": "user", "content": user_input})
+        # turn 代际：区分本 turn 收尾与过期生成器的延迟收尾
+        self._turn_gen = getattr(self, "_turn_gen", 0) + 1
         # 学习信号等轮首提示立即下发，本轮是否调用工具都能生效
         self._append_pending_system_notes()
         # 每轮用户输入重置工具追踪状态（跨 ReAct 轮次保持）
@@ -193,6 +224,7 @@ class StockAgent:
         type: "thinking" / "content" / "tool_start" / "tool_result" / "round" / "done"
         """
         self._prepare_user_input(user_input)
+        turn_gen = getattr(self, "_turn_gen", 0)
 
         try:
             for round_num in range(self.max_rounds):
@@ -232,14 +264,10 @@ class StockAgent:
             self._pending_system_notes.clear()
             yield ("content", msg)
             yield ("done", "")
-        except Exception:
-            if self.messages and self.messages[-1]["role"] != "assistant":
-                self.messages.append(
-                    self.client.format_assistant_message(
-                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
-                    )
-                )
-            raise
+        finally:
+            # 中断（含取消/生成器关闭）/异常/正常结束皆收尾（幂等）：
+            # 修复悬空 tool_call 配对，避免下一轮 LLM 调用 400
+            self._finalize_partial_turn(turn_gen)
 
     async def chat_stream_async(self, user_input: str):
         """异步流式处理用户输入，yield (type, text) 元组。
@@ -247,6 +275,7 @@ class StockAgent:
         type: "thinking" / "content" / "tool_start" / "tool_result" / "round" / "done"
         """
         self._prepare_user_input(user_input)
+        turn_gen = getattr(self, "_turn_gen", 0)
 
         try:
             for round_num in range(self.max_rounds):
@@ -286,14 +315,10 @@ class StockAgent:
             self._pending_system_notes.clear()
             yield ("content", msg)
             yield ("done", "")
-        except Exception:
-            if self.messages and self.messages[-1]["role"] != "assistant":
-                self.messages.append(
-                    self.client.format_assistant_message(
-                        {"content": "[分析中断]", "tool_calls": None, "stop_reason": "stop"}
-                    )
-                )
-            raise
+        finally:
+            # 中断（含取消/生成器关闭）/异常/正常结束皆收尾（幂等）：
+            # 修复悬空 tool_call 配对，避免下一轮 LLM 调用 400
+            self._finalize_partial_turn(turn_gen)
 
     def _run_tool(self, tool_name: str, tool_args: dict) -> str:
         """执行单个工具，结果超长时智能截断以防上下文溢出"""
@@ -310,8 +335,24 @@ class StockAgent:
                 ensure_ascii=False,
             )
         if tool_name in TOOL_DISPATCH:
+            timeout = getattr(_config, "TOOL_EXEC_TIMEOUT", 0)
             try:
-                result = TOOL_DISPATCH[tool_name](**tool_args)
+                if timeout and timeout > 0:
+                    future = _TOOL_EXECUTOR.submit(TOOL_DISPATCH[tool_name], **tool_args)
+                    try:
+                        result = future.result(timeout=timeout)
+                    except concurrent.futures.TimeoutError:
+                        future.cancel()
+                        return json.dumps(
+                            {
+                                "error": f"工具执行超时（>{timeout}秒）",
+                                "tool": tool_name,
+                                "hint": "该调用已被放弃（后台仍可能在跑）。请换用更小的查询范围或其他工具，不要原样重试。",
+                            },
+                            ensure_ascii=False,
+                        )
+                else:
+                    result = TOOL_DISPATCH[tool_name](**tool_args)
                 max_chars = getattr(_config, "MAX_TOOL_RESULT_CHARS", 8000)
                 if len(result) > max_chars:
                     result = self._smart_truncate(result, max_chars, tool_name)
@@ -504,20 +545,24 @@ class StockAgent:
     def _track_tool_result(self, tool_name: str, tool_args: dict, result: str):
         """追踪工具调用结果：去重检测、错误/截断注入 system note"""
         args_sig = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
-        call_sig = (tool_name, args_sig)
+        is_error = self._is_error_result(result)
+        is_truncated = self._is_truncated_result(result)
 
-        # 去重检测
-        recent_calls = self._tool_call_history[-getattr(_config, "TOOL_REPEAT_DETECTION_WINDOW", 5) :]
-        if call_sig in recent_calls:
+        # 去重检测只拦「读」工具的成功重复：
+        # - 写类工具（增删自选/记交易等）重试是合法恢复手段，用户也可能主动再次执行；
+        # - 上次调用失败时重试必须放行，否则一次失败/空操作会把操作永久堵死（"无法生效"）
+        window = getattr(_config, "TOOL_REPEAT_DETECTION_WINDOW", 5)
+        recent_calls = self._tool_call_history[-window:]
+        if tool_name not in STATE_CHANGING_TOOLS and any(
+            t == tool_name and sig == args_sig and ok for t, sig, ok in recent_calls
+        ):
             self._pending_system_notes.append(
                 f"[系统提示] 工具 `{tool_name}` 使用相同参数刚刚调用过，结果相同。"
                 f"请勿重复调用，直接使用已有结果。如果数据被截断，请缩小查询范围（如减少 days 参数）而非重试。"
             )
-        self._tool_call_history.append(call_sig)
+        self._tool_call_history.append((tool_name, args_sig, not is_error))
 
         # 错误/截断检测
-        is_error = self._is_error_result(result)
-        is_truncated = self._is_truncated_result(result)
 
         if is_error:
             self._consecutive_tool_errors += 1

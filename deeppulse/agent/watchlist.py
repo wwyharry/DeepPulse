@@ -94,11 +94,17 @@ class WatchlistManager:
         stop_loss: float = None,
         notes: str = "",
     ) -> dict:
-        """添加自选股"""
+        """添加自选股（code 可传6位代码或股票名称，自动归一）"""
+        info, candidates = StockQuery(db_path=self.db_path).resolve_stock(code)
+        if info is None:
+            return {
+                "status": "error",
+                "message": f"无法识别股票 {code!r}：请使用6位股票代码或准确名称",
+                "candidates": candidates,
+            }
+        code = info["code"]
         if not name:
-            info = StockQuery().get_stock_info(code)
-            if not info.empty:
-                name = info.iloc[0].get("name", "")
+            name = info.get("name") or ""
 
         conn = get_connection(self.db_path)
         try:
@@ -115,11 +121,46 @@ class WatchlistManager:
             conn.close()
 
     def remove(self, code: str, group: str = "默认") -> dict:
-        """移除自选股"""
+        """移除自选股。如实返回结果：删了什么、还是根本没删（绝不静默空操作）。
+
+        - 未找到该股票 → error（含"本就不在自选股"的明确说明）
+        - 股票在别的分组 → error 并列出实际分组，提示带正确 group 重试
+        """
+        info, candidates = StockQuery(db_path=self.db_path).resolve_stock(code)
+        if info is None:
+            return {
+                "status": "error",
+                "message": f"无法识别股票 {code!r}：请使用6位股票代码或准确名称",
+                "candidates": candidates,
+            }
+        code = info["code"]
+        name = info.get("name") or ""
+
         conn = get_connection(self.db_path)
-        conn.execute("DELETE FROM watchlist WHERE code = ? AND group_name = ?", [code, group])
-        conn.close()
-        return {"status": "ok", "code": code}
+        try:
+            existing = conn.execute("SELECT group_name FROM watchlist WHERE code = ?", [code]).fetchdf()
+            if existing.empty:
+                return {
+                    "status": "error",
+                    "message": f"{name or code}({code}) 不在自选股中，无需删除",
+                    "code": code,
+                }
+            groups = [str(g) for g in existing["group_name"].tolist()]
+            if group not in groups:
+                return {
+                    "status": "error",
+                    "message": f"{name or code}({code}) 不在分组「{group}」，它在分组: {'、'.join(groups)}。请带正确的 group 参数重试。",
+                    "code": code,
+                    "groups": groups,
+                }
+            conn.execute("DELETE FROM watchlist WHERE code = ? AND group_name = ?", [code, group])
+            # 已不在任何分组时级联清理告警规则（死规则永不触发，徒留噪声）
+            still = conn.execute("SELECT COUNT(*) AS n FROM watchlist WHERE code = ?", [code]).fetchdf()
+            if int(still.iloc[0]["n"]) == 0:
+                conn.execute("DELETE FROM alert_rules WHERE code = ?", [code])
+            return {"status": "ok", "code": code, "name": name, "group": group, "removed": 1}
+        finally:
+            conn.close()
 
     def list(self, group: str = None) -> list:
         """列出自选股"""

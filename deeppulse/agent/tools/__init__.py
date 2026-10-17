@@ -43,4 +43,24 @@ TOOL_DISPATCH = {
     **_portfolio_dispatch,
 }
 
-__all__ = ["TOOL_DEFINITIONS", "TOOL_DISPATCH"]
+# 状态变更（写）类工具：重复检测对它们不发"勿重复调用"提示——
+# 用户可能主动要求再次执行（如反复加删自选），且写操作重试是合法的恢复手段
+STATE_CHANGING_TOOLS = frozenset(
+    {
+        "add_to_watchlist",
+        "remove_from_watchlist",
+        "set_alert_rule",
+        "record_trade",
+        "save_review",
+        "save_memory",
+        "record_learning",
+        "update_memory",
+        "delete_memory",
+        "save_session_context",
+        "update_user_profile",
+        "save_prediction",
+        "verify_prediction",
+    }
+)
+
+__all__ = ["TOOL_DEFINITIONS", "TOOL_DISPATCH", "STATE_CHANGING_TOOLS"]

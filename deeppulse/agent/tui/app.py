@@ -887,11 +887,17 @@ class DeepPulseTUI(App):
             elif arg.startswith("add "):
                 code = arg[4:].strip().split()[0]
                 result = wl.add(code)
-                self.chat_log.add_system_message(f"✅ 已添加 {result.get('name', code)}({code})")
+                if result.get("status") == "ok":
+                    self.chat_log.add_system_message(f"✅ 已添加 {result.get('name', code)}({result.get('code', code)})")
+                else:
+                    self.chat_log.add_system_message(f"❌ 添加失败: {result.get('message', result)}")
             elif arg.startswith("remove "):
                 code = arg[7:].strip()
-                wl.remove(code)
-                self.chat_log.add_system_message(f"✅ 已移除 {code}")
+                result = wl.remove(code)
+                if result.get("status") == "ok":
+                    self.chat_log.add_system_message(f"✅ 已移除 {result.get('name', code)}({result.get('code', code)})")
+                else:
+                    self.chat_log.add_system_message(f"❌ 移除失败: {result.get('message', result)}")
             else:
                 self.chat_log.add_system_message("用法: /watchlist [list|add <代码>|remove <代码>]")
         except Exception as e:
@@ -959,6 +965,12 @@ class DeepPulseTUI(App):
 
                     if tool_name == "realtime_price":
                         self.data_panel.update_data("查询", tool_args.get("code", ""))
+                    # 写操作落地后立即刷新面板（tool_start 在工具执行完毕后才下发），
+                    # 不等 60s 定时器——否则用户看不到增删自选/持仓生效
+                    if tool_name in ("add_to_watchlist", "remove_from_watchlist", "set_alert_rule"):
+                        self._create_task(self._load_watchlist(), "refresh_watchlist")
+                    elif tool_name in ("record_trade", "save_review"):
+                        self._create_task(self._load_portfolio(), "refresh_portfolio")
 
                 elif event_type == "tool_result":
                     self.tool_panel.complete_tool_execution(text)

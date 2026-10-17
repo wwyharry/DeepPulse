@@ -62,7 +62,7 @@ def stock_dragon_tiger(code: str, days: int = 30) -> str:
 def add_to_watchlist(
     code: str, group: str = "默认", target_price: float = 0, stop_loss: float = 0, notes: str = ""
 ) -> str:
-    """将股票添加到自选股列表。"""
+    """将股票添加到自选股列表（code 可传6位代码或股票名称）。"""
     wl = _get_watchlist()
     result = wl.add(
         code,
@@ -75,7 +75,7 @@ def add_to_watchlist(
 
 
 def remove_from_watchlist(code: str, group: str = "默认") -> str:
-    """从自选股列表移除。"""
+    """从自选股列表移除（code 可传6位代码或股票名称；返回如实反映是否真的删掉了）。"""
     wl = _get_watchlist()
     result = wl.remove(code, group)
     return json.dumps(result, ensure_ascii=False)
@@ -146,6 +146,15 @@ def set_alert_rule(code: str, rule_type: str, threshold: float = 0, zone: str = 
         params["ratio"] = r
 
     # 监控引擎只遍历自选股，非自选股上的规则永不触发（死规则），先拒绝
+    from deeppulse.src.query import StockQuery
+
+    info, candidates = StockQuery().resolve_stock(code)
+    if info is None:
+        return json.dumps(
+            {"error": f"无法识别股票 {code!r}：请使用6位股票代码或准确名称", "candidates": candidates},
+            ensure_ascii=False,
+        )
+    code = info["code"]
     wl = _get_watchlist()
     if code not in wl.get_codes():
         return json.dumps({"error": f"{code} 不在自选股中，请先 add_to_watchlist 再设置告警"}, ensure_ascii=False)
@@ -186,7 +195,7 @@ def record_trade(
     strategy: str = "",
     emotion: str = "",
 ) -> str:
-    """记录一笔交易操作。"""
+    """记录一笔交易操作（code 可传6位代码或股票名称；action 支持 买入/卖出/加仓/减仓/清仓）。"""
     # 入口校验必须在写库之前，避免无效交易留下 journal 流水
     if isinstance(price, bool):
         return json.dumps({"error": f"price 必须为正数，收到 {price!r}"}, ensure_ascii=False)
@@ -196,27 +205,24 @@ def record_trade(
         return json.dumps({"error": f"price 必须是数字，收到 {price!r}"}, ensure_ascii=False)
     if not math.isfinite(price_v) or price_v <= 0:
         return json.dumps({"error": f"price 必须为正数，收到 {price!r}"}, ensure_ascii=False)
-    if isinstance(shares, bool):
-        return json.dumps({"error": f"shares 必须为正整数，收到 {shares!r}"}, ensure_ascii=False)
-    if isinstance(shares, float) and not shares.is_integer():
-        return json.dumps({"error": f"shares 必须为正整数，收到 {shares!r}"}, ensure_ascii=False)
-    try:
-        shares_v = parse_positive_int(shares, "shares")
-    except ValueError as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
+    # 清仓按实际持仓全量卖出，shares 随意（journal 端覆盖）；其余 action 必须为正整数
+    is_liquidate = str(action).strip().casefold() in ("清仓", "平仓", "止损", "止盈", "liquidate", "clear", "close")
+    if is_liquidate:
+        shares_v = 1  # 占位；journal 以实际持仓覆盖
+    else:
+        if isinstance(shares, bool):
+            return json.dumps({"error": f"shares 必须为正整数，收到 {shares!r}"}, ensure_ascii=False)
+        if isinstance(shares, float) and not shares.is_integer():
+            return json.dumps({"error": f"shares 必须为正整数，收到 {shares!r}"}, ensure_ascii=False)
+        try:
+            shares_v = parse_positive_int(shares, "shares")
+        except ValueError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    # 持仓校验、股票归一（名称→代码）、流水写入统一在 journal 端完成：
+    # 卖出超持仓/无持仓等拒绝发生在任何写表之前，不会留下脏流水
     j = _get_journal()
-
-    # 卖出/减仓不得超持仓（否则 journal 端 max 截断，流水与持仓不一致）
-    if str(action).strip().casefold() in ("卖出", "减仓", "sell", "reduce"):
-        held = 0
-        for p in j.get_portfolio():
-            if p.get("code") == code:
-                held = int(p.get("shares") or 0)
-                break
-        if shares_v > held:
-            return json.dumps({"error": f"卖出数量{shares_v}超过持仓{held}股，未记录"}, ensure_ascii=False)
-
     result = j.record_trade(
         code, action, price_v, shares_v, name=name, reason=reason, strategy=strategy, emotion=emotion
     )
@@ -301,7 +307,7 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "股票代码"},
+                    "code": {"type": "string", "description": "6位股票代码或股票名称"},
                     "group": {"type": "string", "description": "分组名称，默认'默认'", "default": "默认"},
                     "target_price": {"type": "number", "description": "目标价位（可选）", "default": 0},
                     "stop_loss": {"type": "number", "description": "止损价位（可选）", "default": 0},
@@ -315,11 +321,11 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "remove_from_watchlist",
-            "description": "从自选股列表移除。",
+            "description": "从自选股列表移除。返回如实反映是否真的删除（未找到/分组不符会返回 error 及实际分组）。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "股票代码"},
+                    "code": {"type": "string", "description": "6位股票代码或股票名称"},
                     "group": {"type": "string", "description": "分组名称", "default": "默认"},
                 },
                 "required": ["code"],
@@ -397,18 +403,18 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "record_trade",
-            "description": "记录一笔交易操作。",
+            "description": "记录一笔交易操作（写入交易流水并更新持仓）。用户说清仓/止损/止盈时用 action=清仓。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "股票代码"},
+                    "code": {"type": "string", "description": "6位股票代码或股票名称"},
                     "action": {
                         "type": "string",
-                        "description": "操作 - 买入/卖出/加仓/减仓",
-                        "enum": ["买入", "卖出", "加仓", "减仓"],
+                        "description": "操作 - 买入/卖出/加仓/减仓/清仓（清仓=按实际持仓全量卖出）",
+                        "enum": ["买入", "卖出", "加仓", "减仓", "清仓"],
                     },
                     "price": {"type": "number", "description": "成交价格"},
-                    "shares": {"type": "integer", "description": "成交数量"},
+                    "shares": {"type": "integer", "description": "成交数量（清仓时可任意填，按实际持仓执行）"},
                     "name": {"type": "string", "description": "股票名称", "default": ""},
                     "reason": {"type": "string", "description": "交易理由", "default": ""},
                     "strategy": {"type": "string", "description": "使用的战法", "default": ""},

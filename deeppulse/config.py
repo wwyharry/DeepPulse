@@ -68,6 +68,10 @@ HISTORY_FOLD_SUMMARY_MAX_CHARS = 600  # 折叠占位符摘要的最大字符数
 # 工具调用去重检测窗口：检查最近N次调用是否有重复
 TOOL_REPEAT_DETECTION_WINDOW = 5
 
+# 卡死防护：工具执行与 LLM 请求超时（秒）
+TOOL_EXEC_TIMEOUT = 60  # 单个工具执行超时；超时返回错误 JSON 让 LLM 换路，不阻塞 ReAct 循环；0 = 不限
+LLM_REQUEST_TIMEOUT = 120.0  # LLM HTTP 请求/流式读超时（两次数据块间最大间隔）；setting.json llm.timeout 可覆盖；0 = SDK 默认
+
 # 实时行情配置（按优先级排序，三态熔断自动故障切换）
 REALTIME_SOURCES = ["sina", "tencent", "eastmoney"]  # tencent 带真实成交时间戳
 REALTIME_TIMEOUT = 10.0  # 单源超时秒数

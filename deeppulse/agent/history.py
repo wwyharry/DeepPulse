@@ -17,8 +17,8 @@
 占位符摘要并入新摘要。
 
 边界：预算是软目标 + 硬底（极小预算下输出仍可能超）；折叠不可逆，早前工具
-细节需重新查询；既有「异常中断留下的悬空 tool_call_id」在保留区不主动修复，
-该组被折叠即自愈。
+细节需重新查询；「异常中断留下的悬空 tool_call_id」由 repair_pairing 主动修复
+（合成 tool 结果占位），折叠保持配对不变量不变。
 """
 
 from __future__ import annotations
@@ -434,3 +434,92 @@ def _iter_tool_result_ids(msg: dict) -> list[str]:
             if isinstance(block, dict) and block.get("type") == "tool_result":
                 ids.append(str(block.get("tool_use_id") or ""))
     return ids
+
+
+# ── 配对修复 ──────────────────────────────────────
+
+INTERRUPTED_TOOL_NOTE = "[已中断] 工具 `{name}` 未执行或结果未返回（用户停止了分析/请求被中断）。请勿编造该工具的返回数据。"
+
+
+def _synthetic_tool_results(missing: list[tuple[str, str]], protocol: str) -> list[dict]:
+    """为缺结果的 tool_call 构造合成 tool 结果消息（两协议形状）。
+
+    missing: [(tool_call_id, tool_name), ...]，按调用顺序。
+    openai → 每 id 一条 role=tool 消息；anthropic → 单条 user 消息含全部 tool_result 块。
+    """
+    if protocol == "anthropic":
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tid,
+                        "content": INTERRUPTED_TOOL_NOTE.format(name=name or tid),
+                    }
+                    for tid, name in missing
+                ],
+            }
+        ]
+    return [
+        {
+            "role": "tool",
+            "tool_call_id": tid,
+            "content": INTERRUPTED_TOOL_NOTE.format(name=name or tid),
+        }
+        for tid, name in missing
+    ]
+
+
+def repair_pairing(messages: list[dict], protocol: str) -> list[dict]:
+    """修复 tool_call/tool_result 配对缺口，返回新列表（不改输入；已合法时等价副本）。
+
+    - assistant(tool_calls) 缺结果的 id：在该组末尾（下一 user/assistant 之前）
+      补合成 tool 结果占位，从构造上杜绝「tool_calls 后无 tool 消息」引发的
+      API 400（insufficient tool messages following tool_calls）。
+    - 孤儿 tool 结果（无对应 tool_call）：剔除（anthropic 下仅剔除孤儿块）。
+    - system 注释不关闭配对窗口（组内可夹 system 注释，与 validate_pairing 同口径）。
+    """
+    out: list[dict] = []
+    pending: dict[str, str] = {}  # tool_call_id -> tool_name（保序）
+
+    def flush_missing() -> list[dict]:
+        if not pending:
+            return []
+        synth = _synthetic_tool_results(list(pending.items()), protocol)
+        pending.clear()
+        return synth
+
+    for msg in messages:
+        if _is_tool_calls_assistant(msg, protocol):
+            out.extend(flush_missing())  # 上一组缺口先补，再开新组
+            out.append(msg)
+            for tid, name in _iter_tool_call_ids(msg):
+                if tid:
+                    pending[tid] = name
+        elif _is_tool_result(msg, protocol):
+            matched = [tid for tid in _iter_tool_result_ids(msg) if tid in pending]
+            if matched:
+                if protocol == "anthropic":
+                    kept = set(matched)
+                    blocks = [
+                        b
+                        for b in (msg.get("content") or [])
+                        if not (isinstance(b, dict) and b.get("type") == "tool_result")
+                        or str(b.get("tool_use_id") or "") in kept
+                    ]
+                    if blocks:
+                        out.append({**msg, "content": blocks})
+                else:
+                    out.append(msg)
+                for tid in matched:
+                    pending.pop(tid, None)
+            # 孤儿 tool 结果：丢弃，避免另一侧 API 报错
+        elif msg.get("role") in ("user", "assistant"):
+            out.extend(flush_missing())
+            out.append(msg)
+        else:
+            out.append(msg)  # system 等：原样保留，不关闭配对窗口
+
+    out.extend(flush_missing())
+    return out

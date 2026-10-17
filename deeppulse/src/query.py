@@ -359,6 +359,50 @@ class StockQuery:
             df.attrs["data_source"] = SOURCE_LOCAL
         return df
 
+    def resolve_stock(self, ref) -> tuple[dict | None, list[dict]]:
+        """把「6位代码 / 股票名称 / 代码片段」归一为 {"code", "name"}。
+
+        返回 (info, candidates)：
+        - 6位纯数字 → ({"code": ref, "name": 库中名称或""}, [])
+          （stock_info 查不到也视为有效代码：新股/未入库不阻断写操作）
+        - 名称/片段唯一命中（精确命中优先）→ (info, [])
+        - 多条命中 → (None, candidates)，candidates 最多5条 {"code","name"} 供 LLM 追问用户
+        - 空引用/零条命中 → (None, [])
+        """
+        ref_s = str(ref or "").strip()
+        if not ref_s:
+            return None, []
+        # 常见修饰剥离：sh600519 / 600519.SH / 600519.sz 等
+        cleaned = ref_s
+        for sep in (".", ":"):
+            if sep in cleaned:
+                cleaned = cleaned.split(sep)[0]
+        lowered = cleaned.lower()
+        for prefix in ("sh", "sz", "bj"):
+            if lowered.startswith(prefix) and len(cleaned) == 8 and cleaned[2:].isdigit():
+                cleaned = cleaned[2:]
+                break
+        ref_s = cleaned.strip() or ref_s
+
+        if ref_s.isdigit() and len(ref_s) == 6:
+            df = self._fetch_df("SELECT code, name FROM stock_info WHERE code = ?", [ref_s])
+            name = "" if df.empty else str(df.iloc[0].get("name") or "")
+            return {"code": ref_s, "name": name}, []
+
+        df = self.search_stocks(ref_s)
+        if df.empty:
+            return None, []
+        records = [
+            {"code": str(r.get("code") or ""), "name": str(r.get("name") or "")} for r in df.to_dict("records")[:20]
+        ]
+        records = [r for r in records if r["code"]]
+        exact = [r for r in records if r["name"] == ref_s or r["code"] == ref_s]
+        if len(exact) == 1:
+            return exact[0], []
+        if len(records) == 1:
+            return records[0], []
+        return None, (exact or records)[:5]
+
     def get_data_stats(self) -> dict:
         """获取数据库统计信息（纯本地库自省，不触发在线兜底；表缺返回空统计）"""
         stats = {"stock_count": 0, "kline_count": 0, "date_range": (None, None), "sources": []}

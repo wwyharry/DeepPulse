@@ -110,6 +110,20 @@ class TradeJournal:
         if norm is None:
             return {"status": "error", "message": f"不支持的 action: {action}"}
 
+        # 股票归一：6位代码或名称 → (code, name)，识别不了拒绝写库（不产生垃圾流水）
+        from deeppulse.src.query import StockQuery
+
+        info, candidates = StockQuery(db_path=self.db_path).resolve_stock(code)
+        if info is None:
+            return {
+                "status": "error",
+                "message": f"无法识别股票 {code!r}：请使用6位股票代码或准确名称",
+                "candidates": candidates,
+            }
+        code = info["code"]
+        if not name:
+            name = info.get("name") or ""
+
         now = datetime.now()
 
         conn = get_connection(self.db_path)

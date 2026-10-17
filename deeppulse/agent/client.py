@@ -109,24 +109,48 @@ class LLMClient:
         self._init_client()
 
     def _init_client(self):
+        # 请求超时：setting.json llm.timeout 优先，其次全局默认；0/非法 → SDK 默认
+        timeout = self._resolve_timeout()
         if self.protocol == "openai":
             from openai import AsyncOpenAI, OpenAI
 
             self.client = OpenAI(
                 api_key=self.llm_config["api_key"],
                 base_url=self.llm_config["base_url"],
+                timeout=timeout,
             )
             self.async_client = AsyncOpenAI(
                 api_key=self.llm_config["api_key"],
                 base_url=self.llm_config["base_url"],
+                timeout=timeout,
             )
         elif self.protocol == "anthropic":
             from anthropic import Anthropic, AsyncAnthropic
 
-            self.client = Anthropic(api_key=self.llm_config["api_key"])
-            self.async_client = AsyncAnthropic(api_key=self.llm_config["api_key"])
+            self.client = Anthropic(api_key=self.llm_config["api_key"], timeout=timeout)
+            self.async_client = AsyncAnthropic(api_key=self.llm_config["api_key"], timeout=timeout)
         else:
             raise ValueError(f"不支持的协议: {self.protocol}")
+
+    def _resolve_timeout(self):
+        """LLM 请求超时秒数（float）；未配置/0/非法返回 None（用 SDK 默认）。
+
+        流式场景下为两次数据块之间的最大间隔，静默卡住的连接会被掐断抛错，
+        而不是让推理永远挂着。
+        """
+        raw = self.llm_config.get("timeout")
+        if raw is None:
+            try:
+                from deeppulse import config as _config
+
+                raw = getattr(_config, "LLM_REQUEST_TIMEOUT", 0)
+            except Exception:
+                raw = 0
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return val if val > 0 else None
 
     def chat(self, messages: list, tools: list = None) -> dict:
         """发送对话请求，返回统一格式的响应

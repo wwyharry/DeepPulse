@@ -13,6 +13,7 @@ from deeppulse.agent.history import (
     iter_units,
     message_chars,
     message_tokens,
+    repair_pairing,
     validate_pairing,
 )
 
@@ -330,6 +331,121 @@ class TestEdges:
         out = compact_history(msgs, protocol="anthropic", max_messages=10, max_chars=0)
         assert validate_pairing(out, "anthropic") == []
         assert any(m.get("role") == "system" and str(m.get("content", "")).startswith(FOLD_MARKER) for m in out)
+
+
+# ── 配对修复 ──────────────────────────────────────
+
+
+class TestRepairPairing:
+    def test_openai_dangling_filled(self):
+        # 中断残留：assistant(c1,c2) 只有 c1 的结果 → 补 c2 合成结果
+        msgs = [
+            system_note("s"),
+            user("q"),
+            oa_assistant(tool_calls=[("c1", "t1"), ("c2", "t2")]),
+            oa_tool("c1"),
+        ]
+        out = repair_pairing(msgs, "openai")
+        assert validate_pairing(out, "openai") == []
+        tool_ids = [m["tool_call_id"] for m in out if m.get("role") == "tool"]
+        assert tool_ids == ["c1", "c2"]
+        synth = next(m for m in out if m.get("tool_call_id") == "c2")
+        assert "未执行" in synth["content"] and "t2" in synth["content"]
+
+    def test_openai_dangling_closed_before_next_turn(self):
+        # 悬空组在下一 user 消息前必须补完结果（API 顺序约束）
+        msgs = [
+            system_note("s"),
+            user("q1"),
+            oa_assistant(tool_calls=[("c1", "t")]),
+            user("q2"),
+        ]
+        out = repair_pairing(msgs, "openai")
+        assert validate_pairing(out, "openai") == []
+        idx_synth = next(i for i, m in enumerate(out) if m.get("role") == "tool")
+        idx_q2 = next(i for i, m in enumerate(out) if m == user("q2"))
+        assert idx_synth < idx_q2
+
+    def test_openai_orphan_tool_dropped(self):
+        msgs = [system_note("s"), oa_tool("ghost"), user("q")]
+        out = repair_pairing(msgs, "openai")
+        assert validate_pairing(out, "openai") == []
+        assert all(m.get("role") != "tool" for m in out)
+
+    def test_anthropic_dangling_filled(self):
+        msgs = [
+            system_note("s"),
+            user("q"),
+            an_assistant(tool_uses=[("c1", "t1"), ("c2", "t2")]),
+            an_tool_result("c1"),
+        ]
+        out = repair_pairing(msgs, "anthropic")
+        assert validate_pairing(out, "anthropic") == []
+        synth_ids = [
+            b["tool_use_id"]
+            for m in out
+            if m.get("role") == "user" and isinstance(m.get("content"), list)
+            for b in m["content"]
+            if b.get("type") == "tool_result"
+        ]
+        assert set(synth_ids) == {"c1", "c2"}
+
+    def test_anthropic_orphan_result_blocks_dropped(self):
+        msgs = [
+            system_note("s"),
+            an_assistant(tool_uses=[("c1", "t")]),
+            an_tool_result("ghost"),
+            an_tool_result("c1"),
+        ]
+        out = repair_pairing(msgs, "anthropic")
+        assert validate_pairing(out, "anthropic") == []
+        result_ids = [
+            b["tool_use_id"]
+            for m in out
+            if m.get("role") == "user" and isinstance(m.get("content"), list)
+            for b in m["content"]
+            if b.get("type") == "tool_result"
+        ]
+        assert result_ids == ["c1"]
+
+    def test_valid_history_unchanged_and_idempotent(self):
+        msgs = mk_history_oa(n_turns=2, tools_per_turn=2)
+        out1 = repair_pairing(msgs, "openai")
+        out2 = repair_pairing(out1, "openai")
+        assert out1 == msgs
+        assert out2 == out1
+        msgs_an = mk_history_an(n_turns=2, tools_per_turn=2)
+        assert repair_pairing(msgs_an, "anthropic") == msgs_an
+
+    def test_system_notes_do_not_close_group(self):
+        # 组内 system 注释不关闭配对窗口：合成结果补在收尾 assistant 之前
+        msgs = [
+            system_note("s"),
+            user("q"),
+            oa_assistant(tool_calls=[("c1", "t")]),
+            system_note("注释"),
+            oa_assistant("ok"),
+        ]
+        out = repair_pairing(msgs, "openai")
+        assert validate_pairing(out, "openai") == []
+        idx_synth = next(i for i, m in enumerate(out) if m.get("role") == "tool")
+        idx_final = next(i for i, m in enumerate(out) if m.get("role") == "assistant" and m.get("content") == "ok")
+        assert idx_synth < idx_final
+
+    def test_multiple_dangling_groups(self):
+        # 两段悬空历史各自补齐（下一组开始前先补上一组缺口）
+        msgs = [
+            system_note("s"),
+            user("q1"),
+            oa_assistant(tool_calls=[("a1", "t")]),
+            oa_assistant("中间回答"),
+            user("q2"),
+            oa_assistant(tool_calls=[("b1", "t")]),
+        ]
+        out = repair_pairing(msgs, "openai")
+        assert validate_pairing(out, "openai") == []
+        tool_ids = [m["tool_call_id"] for m in out if m.get("role") == "tool"]
+        assert tool_ids == ["a1", "b1"]
 
 
 # ── 摘要与工具函数 ──────────────────────────────────────
