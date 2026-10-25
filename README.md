@@ -4,11 +4,10 @@
 
 **演示视频** — [DeepPulse：一个专注于短线交易的 Agent](https://www.bilibili.com/video/BV1kbVQ6HELU)
 ### Web页面
-<img width="1479" height="891" alt="截屏2026-07-17 15 38 07" src="https://github.com/user-attachments/assets/680b2d0e-9c86-4df8-b859-83e24a1c4a06" />
+<img width="1483" height="884" alt="截屏2026-10-25 18 00 23" src="https://github.com/user-attachments/assets/a564f753-148e-4604-86be-908b97a8ade9" />
 
 
 ## 快速启动
-
 最快跑起 **Web 版**：三步、零配置文件——API Key 直接在界面里可视化配置。
 
 ### 1. 安装依赖
@@ -21,6 +20,7 @@ pip install -r requirements.txt
 
 ```bash
 python -m web
+Mac 可能需要使用 python3 -m web
 ```
 
 浏览器打开 **http://127.0.0.1:8000**（默认仅绑定本机；换端口加 `--port 9000`）。
@@ -33,6 +33,9 @@ python -m web
 - **API Key 全程掩码**：查询接口绝不回显明文，仅返回掩码形态；保存后原子写入 `setting.json`
 - 密钥可不落盘：填 `"${环境变量名}"` 引用环境变量即可
 - 各配置项留空保存 = 回落默认值（以面板提示为准）
+
+<img width="1480" height="888" alt="截屏2026-10-25 18 01 13" src="https://github.com/user-attachments/assets/21ea8f1e-562f-4909-b42f-e83732f1f1ac" />
+
 
 数据开箱即用：本地未落库时在线数据自动兜底并标注来源，无需先跑采集。
 
