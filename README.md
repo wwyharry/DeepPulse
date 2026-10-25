@@ -521,9 +521,11 @@ class DataSourceBase(ABC):
 # deeppulse/src/sources/tushare_source.py
 from deeppulse.src.sources.base import DataSourceBase
 
+
 class TushareSource(DataSourceBase):
     def __init__(self, token: str):
         import tushare as ts
+
         self.pro = ts.pro_api(token)
 
     @property
@@ -531,12 +533,11 @@ class TushareSource(DataSourceBase):
         return "tushare"
 
     def fetch_stock_list(self) -> list[dict]:
-        df = self.pro.stock_basic(exchange='', list_status='L')
+        df = self.pro.stock_basic(exchange="", list_status="L")
         # 需映射为 base.py 约定的 code/name/market/board/list_date，
         # 否则 upsert_stock_info 取列会 KeyError
         return [
-            {"code": str(r.ts_code)[:6], "name": r.name,
-             "market": ..., "board": ..., "list_date": r.list_date}
+            {"code": str(r.ts_code)[:6], "name": r.name, "market": ..., "board": ..., "list_date": r.list_date}
             for r in df.itertuples()
         ]
 

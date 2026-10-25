@@ -115,12 +115,11 @@ def my_new_tool(param1: str, param2: int = 10) -> str:
 ```python
 from src.sources.base import DataSourceBase
 
-class MySource(DataSourceBase):
-    def fetch_stock_list(self) -> list[dict]:
-        ...
 
-    def fetch_daily_kline(self, code: str, start_date: str, end_date: str) -> list[dict]:
-        ...
+class MySource(DataSourceBase):
+    def fetch_stock_list(self) -> list[dict]: ...
+
+    def fetch_daily_kline(self, code: str, start_date: str, end_date: str) -> list[dict]: ...
 ```
 
 ### 实时行情源
@@ -130,12 +129,11 @@ class MySource(DataSourceBase):
 ```python
 from src.realtime.base import RealtimeQuoteSource, RealtimeQuote
 
-class MyRealtimeSource(RealtimeQuoteSource):
-    def fetch_quote(self, code: str) -> RealtimeQuote | None:
-        ...
 
-    def fetch_quotes(self, codes: list[str]) -> dict[str, RealtimeQuote]:
-        ...
+class MyRealtimeSource(RealtimeQuoteSource):
+    def fetch_quote(self, code: str) -> RealtimeQuote | None: ...
+
+    def fetch_quotes(self, codes: list[str]) -> dict[str, RealtimeQuote]: ...
 ```
 
 然后在 `src/realtime/manager.py` 的 `SOURCE_REGISTRY` 中注册。
