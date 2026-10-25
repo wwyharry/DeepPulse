@@ -73,7 +73,9 @@ def _result_with_trades(n_trades=25, win_rate=0.55) -> BacktestResult:
     r.total_return = 0.15
     r.avg_hold_days = 6.5
     r.sharpe_ratio = 1.2
-    r.trades = [{"entry_date": "2020-02-01", "exit_date": "2020-02-05", "pnl_pct": 0.01, "exit_reason": "止盈"}] * n_trades
+    r.trades = [
+        {"entry_date": "2020-02-01", "exit_date": "2020-02-05", "pnl_pct": 0.01, "exit_reason": "止盈"}
+    ] * n_trades
     return r
 
 
@@ -195,8 +197,11 @@ class TestCalibrate:
         monkeypatch.setattr("deeppulse.strategy.optimizer.run_spec_backtest", fake_run)
         spec_dict = dict(SIMPLE_LOGIC)
         best, result, score, surface = calc_engine.grid_search_params(
-            "600000", __import__("deeppulse.strategy.spec", fromlist=["StrategySpec"]).StrategySpec.from_dict(spec_dict),
-            days=100, base_score=float("-inf"), budget=3,
+            "600000",
+            __import__("deeppulse.strategy.spec", fromlist=["StrategySpec"]).StrategySpec.from_dict(spec_dict),
+            days=100,
+            base_score=float("-inf"),
+            budget=3,
         )
         assert len(calls) <= 3
         assert len(surface) <= 3
@@ -293,16 +298,26 @@ class TestPositionSize:
     def test_kelly_requires_sample(self):
         # 样本 < 20 不给 Kelly
         out = calc_engine.position_size(
-            capital=100000, entry_price=10, stop_price=9.5,
-            win_rate=0.6, avg_win=0.05, avg_loss=0.02, sample_trades=10,
+            capital=100000,
+            entry_price=10,
+            stop_price=9.5,
+            win_rate=0.6,
+            avg_win=0.05,
+            avg_loss=0.02,
+            sample_trades=10,
         )
         assert "kelly_used" not in out
         assert "样本不足" in out["kelly_note"]
 
     def test_kelly_with_sample_caps_position(self):
         out = calc_engine.position_size(
-            capital=100000, entry_price=10, stop_price=9.5,
-            win_rate=0.55, avg_win=0.05, avg_loss=0.025, sample_trades=50,
+            capital=100000,
+            entry_price=10,
+            stop_price=9.5,
+            win_rate=0.55,
+            avg_win=0.05,
+            avg_loss=0.025,
+            sample_trades=50,
         )
         assert "kelly_used" in out
         assert out["kelly_used"] <= calc_engine.KELLY_POSITION_CAP
@@ -368,7 +383,6 @@ class TestEngineTools:
         fns = {d["function"]["name"]: d["function"] for d in TOOL_DEFINITIONS}
         assert "category" in fns["list_factors"]["parameters"]["properties"], "category 参数入 schema"
 
-
     def test_get_factor_error_slim(self):
         from deeppulse.strategy.factor_library import get_factor
 
@@ -416,8 +430,19 @@ class TestNormalizeLogicDict:
     def test_direction_coercion(self):
         from deeppulse.strategy.spec import normalize_logic_dict
 
-        for raw, want in (("1", 1), ("1.0", 1), ("正向", 1), ("做多", 1), (1.0, 1), (True, 1),
-                          ("-1", -1), ("反向", -1), ("short", -1), (-1.0, -1), (False, -1)):
+        for raw, want in (
+            ("1", 1),
+            ("1.0", 1),
+            ("正向", 1),
+            ("做多", 1),
+            (1.0, 1),
+            (True, 1),
+            ("-1", -1),
+            ("反向", -1),
+            ("short", -1),
+            (-1.0, -1),
+            (False, -1),
+        ):
             d = {"factors": [{"factor_id": "ma_trend", "direction": raw}]}
             norm, fixed, errs = normalize_logic_dict(d)
             assert not errs, (raw, errs)
@@ -477,7 +502,9 @@ class TestEvaluateTolerantParsing:
         monkeypatch.setattr(config, "DB_PATH", tmp_db_path)
         logic = {
             "name": "容错测试",
-            "factors": [{"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, "weight": "1.0", "direction": "1"}],
+            "factors": [
+                {"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, "weight": "1.0", "direction": "1"}
+            ],
             "entry_threshold": 0.5,
         }
         out = calc_engine.evaluate_trade_logic("600000", logic)

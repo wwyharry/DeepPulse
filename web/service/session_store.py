@@ -65,9 +65,7 @@ def restore_agent_state(agent, stored: dict) -> None:
     client = getattr(agent, "client", None)
     if client is not None:
         agent_proto = getattr(client, "protocol", None)
-    protocol_mismatch = bool(
-        stored_proto and agent_proto and str(stored_proto) != str(agent_proto)
-    )
+    protocol_mismatch = bool(stored_proto and agent_proto and str(stored_proto) != str(agent_proto))
 
     msgs = stored.get("messages") or []
     # 侧表仅在有历史可回灌时覆盖（全新空记录不冲掉构造期初值）；与协议无关，先于协议闸门执行
@@ -209,12 +207,9 @@ class SessionStore:
                 "created_at": prev.get("created_at"),
                 "protocol": protocol,
                 "messages": list(messages or []),
-                "user_messages": list(user_messages or [])
-                or list(prev.get("user_messages") or []),
-                "session_stocks": list(session_stocks or [])
-                or list(prev.get("session_stocks") or []),
-                "session_topics": list(session_topics or [])
-                or list(prev.get("session_topics") or []),
+                "user_messages": list(user_messages or []) or list(prev.get("user_messages") or []),
+                "session_stocks": list(session_stocks or []) or list(prev.get("session_stocks") or []),
+                "session_topics": list(session_topics or []) or list(prev.get("session_topics") or []),
             }
             self._write(p, self._normalize(data))
             self._enforce_cap()

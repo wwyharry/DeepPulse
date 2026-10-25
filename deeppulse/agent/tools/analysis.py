@@ -529,7 +529,12 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "6位股票代码"},
-                    "days": {"type": "integer", "description": "分析天数（交易日），默认120", "default": 120, "minimum": 1},
+                    "days": {
+                        "type": "integer",
+                        "description": "分析天数（交易日），默认120",
+                        "default": 120,
+                        "minimum": 1,
+                    },
                     "modules": {
                         "type": "string",
                         "description": "模块选择，逗号分隔：technical,patterns,divergence,sr,volume,trend；默认 all（全部）",

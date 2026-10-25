@@ -247,7 +247,9 @@ class TestPutValidation:
         self._assert_rejected(client, setting_path, {"agent": {"max_rounds": "many"}}, "整数", "数字", "max_rounds")
 
     def test_illegal_default_source(self, client, setting_path):
-        self._assert_rejected(client, setting_path, {"data": {"default_source": "yahoo"}}, "default_source", "数据源", "来源")
+        self._assert_rejected(
+            client, setting_path, {"data": {"default_source": "yahoo"}}, "default_source", "数据源", "来源"
+        )
 
     def test_anthropic_with_base_url_rejected(self, client, setting_path):
         """anthropic + base_url 校验：官方 SDK 不收 base_url，带 base_url 切换必须拒绝（中文说明）"""

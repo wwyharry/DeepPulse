@@ -13,7 +13,13 @@ class TestSearchEastmoneyNews:
         mock_resp.json.return_value = {
             "data": {
                 "list": [
-                    {"title": "A股大涨", "content": "<p>沪指收涨</p>", "digest": "", "showtime": "2026-10-07 10:00:00", "art_code": "1"},
+                    {
+                        "title": "A股大涨",
+                        "content": "<p>沪指收涨</p>",
+                        "digest": "",
+                        "showtime": "2026-10-07 10:00:00",
+                        "art_code": "1",
+                    },
                 ]
             }
         }

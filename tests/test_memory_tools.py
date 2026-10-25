@@ -206,9 +206,7 @@ class TestSessionBinding:
         memory_tools.save_memory("会话D依据", "insight", "会话D", "", 0.5)
         r = json.loads(memory_tools.save_prediction("600519", "bullish"))
         conn = mem._conn()
-        row = conn.execute(
-            "SELECT memory_ids_json FROM predictions WHERE id = ?", [r["prediction_id"]]
-        ).fetchone()
+        row = conn.execute("SELECT memory_ids_json FROM predictions WHERE id = ?", [r["prediction_id"]]).fetchone()
         conn.close()
         linked = json.loads(row[0])
         lst = json.loads(memory_tools.list_memories())

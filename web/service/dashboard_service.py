@@ -220,7 +220,9 @@ def _set_pool_date(ds: str) -> None:
 
 
 def _fresh_pool_date() -> str | None:
-    if _pool_date_state["date"] and (time.time() - _pool_date_state["at"]) < _pool_date_state.get("ttl", POOL_DATE_CACHE_S):
+    if _pool_date_state["date"] and (time.time() - _pool_date_state["at"]) < _pool_date_state.get(
+        "ttl", POOL_DATE_CACHE_S
+    ):
         return _pool_date_state["date"]
     return None
 
@@ -392,11 +394,7 @@ def zb_from_snapshot(snap) -> dict:
         limit_price = None
         if r["prev_close"] and r["prev_close"] > 0:
             limit_price = _round_half_up(r["prev_close"] * (1 + limit / 100), 2)
-        touched = (
-            limit_price is not None
-            and r["high"] is not None
-            and r["high"] >= limit_price - 0.01
-        )
+        touched = limit_price is not None and r["high"] is not None and r["high"] >= limit_price - 0.01
         sealed = r["change_pct"] >= limit - LIMIT_TOLERANCE
         if touched and not sealed:
             stocks.append(_pool_row(r, zt=False))
@@ -797,8 +795,7 @@ def build_overview(
         if ind:
             industry_count[ind] = industry_count.get(ind, 0) + 1
     industry_top = [
-        {"industry": k, "count": v}
-        for k, v in sorted(industry_count.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        {"industry": k, "count": v} for k, v in sorted(industry_count.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
     ]
 
     sources = {
@@ -841,7 +838,9 @@ def _make_fetchers() -> dict[str, PanelFetcher]:
         "zt_pool": PanelFetcher("zt_pool", [("em-zt-pool", _zt_pool_em), ("spot-derived", _zt_from_snapshot_fact)]),
         "dt_pool": PanelFetcher("dt_pool", [("em-dt-pool", _dt_pool_em), ("spot-derived", _dt_from_snapshot_fact)]),
         "zb_pool": PanelFetcher("zb_pool", [("em-zb-pool", _zb_pool_em), ("spot-derived", _zb_from_snapshot_fact)]),
-        "stats": PanelFetcher("stats", [("em-spot", _stats_from_snapshot_fact), ("local-duckdb", _stats_from_local_fact)]),
+        "stats": PanelFetcher(
+            "stats", [("em-spot", _stats_from_snapshot_fact), ("local-duckdb", _stats_from_local_fact)]
+        ),
         "sectors": PanelFetcher("sectors", [("sector-rank", _sectors_fact)]),
         "indices": PanelFetcher("indices", [("sina-tencent", _indices_fact)]),
         "news_em": PanelFetcher("news_em", [("em-news", _news_em_fact)]),

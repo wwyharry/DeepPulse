@@ -78,8 +78,10 @@ class StaticCachePolicy:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
-        if scope.get("type") == "http" and scope.get("method") in ("GET", "HEAD") and (
-            path in ("/", "/index.html") or path.startswith("/static/")
+        if (
+            scope.get("type") == "http"
+            and scope.get("method") in ("GET", "HEAD")
+            and (path in ("/", "/index.html") or path.startswith("/static/"))
         ):
 
             async def send_with_policy(message):
@@ -129,9 +131,7 @@ def create_app(
             if rt is None or rt.agent is None:
                 continue
             try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(rt.agent.on_session_end), timeout=15.0
-                )
+                await asyncio.wait_for(asyncio.to_thread(rt.agent.on_session_end), timeout=15.0)
             except Exception:
                 pass
 

@@ -146,9 +146,7 @@ class TestSearchChain:
         mm = _mm(tmp_path)
         saved = json.loads(mm.save_memory("损坏行关键词测试", "insight", "完好", "t", 0.5))
         conn = mm._conn()
-        conn.execute(
-            "UPDATE long_term_memories SET keywords_json = '{oops' WHERE id = ?", [saved["memory_id"]]
-        )
+        conn.execute("UPDATE long_term_memories SET keywords_json = '{oops' WHERE id = ?", [saved["memory_id"]])
         conn.close()
 
         r = json.loads(mm.search_memories("损坏"))
@@ -220,9 +218,7 @@ class TestCrudHonesty:
         mm.update_memory(saved["memory_id"], content="新内容BBB")
         assert saved["memory_id"] not in fake.cache, "encode 失败后幽灵向量仍在缓存"
         conn = mm._conn()
-        emb = conn.execute(
-            "SELECT embedding FROM long_term_memories WHERE id = ?", [saved["memory_id"]]
-        ).fetchone()[0]
+        emb = conn.execute("SELECT embedding FROM long_term_memories WHERE id = ?", [saved["memory_id"]]).fetchone()[0]
         conn.close()
         assert emb is None, "库内 embedding 列未清理"
 

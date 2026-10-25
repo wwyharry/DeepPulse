@@ -177,10 +177,7 @@ class TestResizePerformance:
                     await pilot.pause(0.05)
                 n = max(stats["n"], 1)
                 avg = stats["t"] / n
-                assert avg < 0.05, (
-                    f"单次重排均值 {avg * 1000:.1f}ms 超预算"
-                    f"（{stats['n']} 次，总 {stats['t']:.2f}s）"
-                )
+                assert avg < 0.05, f"单次重排均值 {avg * 1000:.1f}ms 超预算（{stats['n']} 次，总 {stats['t']:.2f}s）"
 
         asyncio.run(run())
 
@@ -233,14 +230,11 @@ class TestChatLogMessages:
                 chat.clear()
                 chat.add_user_message("分析一下贵州茅台")
                 chat.add_system_message("系统提示")
-                chat.add_session_stats(
-                    {"rounds": 2, "tool_count": 4, "elapsed": 9.5, "tools_used": ["a", "b"]}
-                )
+                chat.add_session_stats({"rounds": 2, "tool_count": 4, "elapsed": 9.5, "tools_used": ["a", "b"]})
                 container = chat.add_agent_container("主分析")
                 container.tools = ["update_stock"]
                 container.update_content(
-                    "## 结论\n\n- 看多 **MA5** 上方\n\n"
-                    "| 指标 | 值 |\n| --- | --- |\n| RSI | 32.1 |"
+                    "## 结论\n\n- 看多 **MA5** 上方\n\n| 指标 | 值 |\n| --- | --- |\n| RSI | 32.1 |"
                 )
                 container.mark_complete()
                 await pilot.pause(0.3)

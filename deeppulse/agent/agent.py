@@ -624,7 +624,6 @@ class StockAgent:
                 return
         mark(f"因子目录已严重截断：保留 {kept_n()}/{total} 个因子；用 list_factors(category=...) 按类取全量")
 
-
     @classmethod
     def _collect_shrinkables(cls, node, out: list):
         """收集可收缩节点 (kind, parent, key, size)：大列表与超长字符串。"""
@@ -702,9 +701,7 @@ class StockAgent:
                 f"[系统提示] 新记忆已保存 (类型: {mem_type})。在后续分析中可以引用此记忆。"
             )
         elif status == "existing":
-            self._pending_system_notes.append(
-                "[系统提示] 相同内容记忆已存在，已刷新旧条目（未重复新增）。"
-            )
+            self._pending_system_notes.append("[系统提示] 相同内容记忆已存在，已刷新旧条目（未重复新增）。")
         else:
             return
         # learning 类型触发完整上下文刷新（教学记忆当轮生效）

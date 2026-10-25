@@ -321,11 +321,7 @@ async def asgi_request(app, method, path, payload=None, send_hook=None):
 
 def sent_sse_frames(sent: list) -> list:
     """把 ASGI send 消息里的 SSE body 拼起来解析成帧列表"""
-    text = "".join(
-        m.get("body", b"").decode("utf-8", "replace")
-        for m in sent
-        if m.get("type") == "http.response.body"
-    )
+    text = "".join(m.get("body", b"").decode("utf-8", "replace") for m in sent if m.get("type") == "http.response.body")
     return parse_sse(text)
 
 
@@ -340,8 +336,15 @@ def sent_status(sent: list) -> int | None:
 # ── 会话落盘文件（session_store JSON 形状） ─────────────────────────
 
 
-def write_session_file(root, sid, messages=None, title="历史会话", created_at="2026-01-01T00:00:00",
-                       updated_at="2026-01-01T00:00:00", **extra):
+def write_session_file(
+    root,
+    sid,
+    messages=None,
+    title="历史会话",
+    created_at="2026-01-01T00:00:00",
+    updated_at="2026-01-01T00:00:00",
+    **extra,
+):
     """直接写 {root}/{sid}.json，形状对齐契约 §2（供坏 JSON / cap / 回灌用例预置）"""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)

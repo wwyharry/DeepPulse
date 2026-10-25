@@ -164,9 +164,9 @@ class TestVerify:
         assert v["outcome"] == "wrong"
         assert v["lesson_saved"] is True
         conn = pt._conn()
-        flag = conn.execute(
-            "SELECT learning_extracted FROM predictions WHERE id = ?", [r["prediction_id"]]
-        ).fetchone()[0]
+        flag = conn.execute("SELECT learning_extracted FROM predictions WHERE id = ?", [r["prediction_id"]]).fetchone()[
+            0
+        ]
         lessons = conn.execute(
             "SELECT COUNT(*) FROM long_term_memories WHERE memory_type = 'learning' AND is_archived = FALSE"
         ).fetchone()[0]
@@ -176,9 +176,7 @@ class TestVerify:
 
     def test_entry_price_cross_check(self, tmp_path):
         pt = _pt(tmp_path)
-        r = json.loads(
-            pt.save_prediction("600519", "n", "direction", "bullish", None, None, 5, "", 0.5, None, 100.0)
-        )
+        r = json.loads(pt.save_prediction("600519", "n", "direction", "bullish", None, None, 5, "", 0.5, None, 100.0))
         _make_due(pt, r["prediction_id"])
         v = json.loads(pt.verify_prediction(r["prediction_id"], 50.0, 5.0))
         assert "error" in v and "矛盾" in v["error"], "价格与收益率自相矛盾必须拒绝入库"

@@ -10,8 +10,8 @@ from tests.fakes_web import BAN_VALUES
 from tests.test_web_static import _run_node  # 复用 JS 桩执行器
 
 # 不可信内容样本（新闻标题/摘要级别）
-XSS_TITLE = '<img src=x onerror=alert(1)>'
-XSS_URL = 'javascript:alert(1)'
+XSS_TITLE = "<img src=x onerror=alert(1)>"
+XSS_URL = "javascript:alert(1)"
 
 
 @pytest.fixture
@@ -34,40 +34,92 @@ def fixture_payload() -> dict:
                     "note": "当日全市场快照口径",
                     "sources": {"stats": "em-spot", "zt": "em-zt-pool", "indices": "sina"},
                 },
-                "error": None, "source": "composite", "stale": False,
+                "error": None,
+                "source": "composite",
+                "stale": False,
             },
             "ladder": {
                 "data": {
-                    "trade_date": "2026-10-17", "max_streak": 5,
+                    "trade_date": "2026-10-17",
+                    "max_streak": 5,
                     "tiers": [
-                        {"streak": 5, "label": "5板", "count": 1,
-                         "stocks": [{"code": "600001", "name": "甲电子", "change_pct": 10.0, "streak": 5}]},
-                        {"streak": 1, "label": "首板", "count": 20,
-                         "stocks": [{"code": "000002", "name": "乙股份", "change_pct": 10.0, "streak": 1}]},
+                        {
+                            "streak": 5,
+                            "label": "5板",
+                            "count": 1,
+                            "stocks": [{"code": "600001", "name": "甲电子", "change_pct": 10.0, "streak": 5}],
+                        },
+                        {
+                            "streak": 1,
+                            "label": "首板",
+                            "count": 20,
+                            "stocks": [{"code": "000002", "name": "乙股份", "change_pct": 10.0, "streak": 1}],
+                        },
                     ],
                 },
-                "error": None, "source": "em-zt-pool", "stale": False,
+                "error": None,
+                "source": "em-zt-pool",
+                "stale": False,
             },
             "limit_up": {
-                "data": {"trade_date": "2026-10-17", "count": 1, "stocks": [
-                    {"code": "600001", "name": "甲电子", "price": 10.0, "change_pct": 10.0,
-                     "streak": 3, "first_time": "09:30:00", "industry": "电子"}]},
-                "error": None, "source": "em-zt-pool", "stale": False,
+                "data": {
+                    "trade_date": "2026-10-17",
+                    "count": 1,
+                    "stocks": [
+                        {
+                            "code": "600001",
+                            "name": "甲电子",
+                            "price": 10.0,
+                            "change_pct": 10.0,
+                            "streak": 3,
+                            "first_time": "09:30:00",
+                            "industry": "电子",
+                        }
+                    ],
+                },
+                "error": None,
+                "source": "em-zt-pool",
+                "stale": False,
             },
-            "failed": {"data": {"trade_date": "2026-10-17", "count": 0, "stocks": []},
-                       "error": None, "source": "em-zb-pool", "stale": False},
-            "limit_down": {"data": {"trade_date": "2026-10-17", "count": 0, "stocks": []},
-                           "error": None, "source": "em-dt-pool", "stale": False},
+            "failed": {
+                "data": {"trade_date": "2026-10-17", "count": 0, "stocks": []},
+                "error": None,
+                "source": "em-zb-pool",
+                "stale": False,
+            },
+            "limit_down": {
+                "data": {"trade_date": "2026-10-17", "count": 0, "stocks": []},
+                "error": None,
+                "source": "em-dt-pool",
+                "stale": False,
+            },
             "sectors": {
-                "data": {"board_type": "行业板块", "source_label": "同花顺详情", "note": None,
-                         "sectors": [{"name": "电子", "change_pct": 2.5, "inflow": 12.3, "leader": "甲电子"}]},
-                "error": None, "source": "sector-rank", "stale": False,
+                "data": {
+                    "board_type": "行业板块",
+                    "source_label": "同花顺详情",
+                    "note": None,
+                    "sectors": [{"name": "电子", "change_pct": 2.5, "inflow": 12.3, "leader": "甲电子"}],
+                },
+                "error": None,
+                "source": "sector-rank",
+                "stale": False,
             },
             "news": {
-                "data": {"items": [
-                    {"title": XSS_TITLE, "source": "东方财富", "time": "2026-10-17 10:00:00", "summary": "<b>x</b>", "url": XSS_URL},
-                ], "sources_used": ["东方财富"]},
-                "error": None, "source": "em", "stale": False,
+                "data": {
+                    "items": [
+                        {
+                            "title": XSS_TITLE,
+                            "source": "东方财富",
+                            "time": "2026-10-17 10:00:00",
+                            "summary": "<b>x</b>",
+                            "url": XSS_URL,
+                        },
+                    ],
+                    "sources_used": ["东方财富"],
+                },
+                "error": None,
+                "source": "em",
+                "stale": False,
             },
         },
     }
@@ -179,7 +231,10 @@ process.exit(0);
     def test_breadth_unknown_renders_no_ratio_bar(self, tmp_path, fixture_payload):
         """家数未知/非法（含部分缺失）不得画比例条冒充占比 —— 未知≠0 前端钉"""
         fixture_payload["panels"]["overview"]["data"]["breadth"] = {
-            "total": None, "up": None, "down": None, "flat": None,
+            "total": None,
+            "up": None,
+            "down": None,
+            "flat": None,
         }
         _run_node(
             tmp_path,

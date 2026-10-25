@@ -127,6 +127,7 @@ def parse_chart_args(arg: str, session_stocks: list[str] | None = None) -> tuple
         days = int(parts[1])
     return code, days
 
+
 # 响应式断点（列）：窗口过窄时自动收起侧栏/收紧留白
 # 对应 styles.tcss 中 Screen.hide-left / hide-right / compact
 BP_HIDE_LEFT = 100
@@ -274,9 +275,7 @@ class DeepPulseTUI(App):
 
         # 显示欢迎消息
         self.chat_log.add_system_message(
-            f"欢迎使用 DeepPulse {self._version()}！\n"
-            "正在后台初始化 Agent，请稍候…\n"
-            "输入 /help 查看所有命令和快捷键"
+            f"欢迎使用 DeepPulse {self._version()}！\n正在后台初始化 Agent，请稍候…\n输入 /help 查看所有命令和快捷键"
         )
 
         self.chat_input.focus()
@@ -665,7 +664,9 @@ class DeepPulseTUI(App):
 
         elif command == "/judge":
             if not self._judge_enabled:
-                self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（默认关闭，用 --judge 启动或配置 setting.agent.enable_judge=true 开启）")
+                self.chat_log.add_system_message(
+                    "⚠️ 评判Agent 已禁用（默认关闭，用 --judge 启动或配置 setting.agent.enable_judge=true 开启）"
+                )
             elif self._busy:
                 self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")
             elif self.agent and len(self.agent.messages) > 2:
@@ -888,14 +889,18 @@ class DeepPulseTUI(App):
                 code = arg[4:].strip().split()[0]
                 result = wl.add(code)
                 if result.get("status") == "ok":
-                    self.chat_log.add_system_message(f"✅ 已添加 {result.get('name', code)}({result.get('code', code)})")
+                    self.chat_log.add_system_message(
+                        f"✅ 已添加 {result.get('name', code)}({result.get('code', code)})"
+                    )
                 else:
                     self.chat_log.add_system_message(f"❌ 添加失败: {result.get('message', result)}")
             elif arg.startswith("remove "):
                 code = arg[7:].strip()
                 result = wl.remove(code)
                 if result.get("status") == "ok":
-                    self.chat_log.add_system_message(f"✅ 已移除 {result.get('name', code)}({result.get('code', code)})")
+                    self.chat_log.add_system_message(
+                        f"✅ 已移除 {result.get('name', code)}({result.get('code', code)})"
+                    )
                 else:
                     self.chat_log.add_system_message(f"❌ 移除失败: {result.get('message', result)}")
             else:
@@ -1158,7 +1163,9 @@ class DeepPulseTUI(App):
 
     async def action_judge(self) -> None:
         if not self._judge_enabled:
-            self.chat_log.add_system_message("⚠️ 评判Agent 已禁用（默认关闭，用 --judge 启动或配置 setting.agent.enable_judge=true 开启）")
+            self.chat_log.add_system_message(
+                "⚠️ 评判Agent 已禁用（默认关闭，用 --judge 启动或配置 setting.agent.enable_judge=true 开启）"
+            )
             self.chat_input.focus()
         elif self._busy:
             self.chat_log.add_system_message("⚠️ 当前分析仍在进行中（Ctrl+S 或 /stop 可停止）")

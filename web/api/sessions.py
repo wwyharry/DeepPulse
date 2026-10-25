@@ -84,9 +84,7 @@ async def delete_session(request: Request, session_id: str):
             return
         try:
             # forget=True：被删会话不沉淀摘要/画像（删除意图不得被记忆系统反向抵消）
-            await asyncio.wait_for(
-                asyncio.to_thread(agent.on_session_end, True), timeout=SESSION_END_TIMEOUT
-            )
+            await asyncio.wait_for(asyncio.to_thread(agent.on_session_end, True), timeout=SESSION_END_TIMEOUT)
         except Exception:
             pass
         finally:

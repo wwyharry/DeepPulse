@@ -99,5 +99,3 @@ def sample_kline_df():
             "data_source": "test",
         }
     )
-
-

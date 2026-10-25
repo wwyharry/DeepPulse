@@ -322,7 +322,9 @@ class PredictionTracker:
                 try:
                     ret = float(actual_return_pct)
                 except (TypeError, ValueError):
-                    return json.dumps({"error": f"actual_return_pct 必须为数字，收到 {actual_return_pct!r}"}, ensure_ascii=False)
+                    return json.dumps(
+                        {"error": f"actual_return_pct 必须为数字，收到 {actual_return_pct!r}"}, ensure_ascii=False
+                    )
 
             if price is None and ret is None:
                 return json.dumps(
@@ -441,7 +443,9 @@ class PredictionTracker:
             # 错误预测沉淀教训记忆（README 承诺的"从对错中学习"；learning_extracted 落真值）
             lesson_saved = False
             if outcome == "wrong":
-                lesson_saved = self._save_lesson(conn, prediction_id, stock_code, direction, reasoning, days_held, price, ret)
+                lesson_saved = self._save_lesson(
+                    conn, prediction_id, stock_code, direction, reasoning, days_held, price, ret
+                )
 
             return json.dumps(
                 {
@@ -483,9 +487,7 @@ class PredictionTracker:
                 learned_why="预测结果与预期相反，说明当时的判断依据不足或忽略了反向信号",
                 apply_when="再次分析同只股票或同类形态时，先回顾这次判断失效的原因",
             )
-            conn.execute(
-                "UPDATE predictions SET learning_extracted = TRUE WHERE id = ?", [prediction_id]
-            )
+            conn.execute("UPDATE predictions SET learning_extracted = TRUE WHERE id = ?", [prediction_id])
             return True
         except Exception:
             return False
@@ -526,9 +528,7 @@ class PredictionTracker:
             dir_total = sum(v for d, m in by_direction.items() if d != "neutral" for v in m.values())
             dir_correct = sum(m.get("correct", 0) for d, m in by_direction.items() if d != "neutral")
 
-            expired_row = conn.execute(
-                "SELECT COUNT(*) FROM predictions WHERE outcome = 'expired'"
-            ).fetchone()
+            expired_row = conn.execute("SELECT COUNT(*) FROM predictions WHERE outcome = 'expired'").fetchone()
 
             return json.dumps(
                 {

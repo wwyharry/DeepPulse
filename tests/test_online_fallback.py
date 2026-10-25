@@ -369,7 +369,9 @@ class TestIndexFallback:
             collector, "fetch_all_kline", lambda **k: {"total": 1, "success": 1, "failed": 0, "rows": 10}
         )
         monkeypatch.setattr(
-            collector, "fetch_all_index_kline", lambda **k: calls.append(1) or {"total": 6, "success": 6, "failed": 0, "rows": 20}
+            collector,
+            "fetch_all_index_kline",
+            lambda **k: calls.append(1) or {"total": 6, "success": 6, "failed": 0, "rows": 20},
         )
         monkeypatch.setattr(collector, "fetch_and_store_stock_list", lambda: 1)
         from deeppulse.agent.fetch_commands import run_fetch_command

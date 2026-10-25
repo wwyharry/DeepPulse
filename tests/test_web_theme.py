@@ -97,9 +97,13 @@ class TestThemeTokens:
         # 比例条段同锁涨红跌绿（背景色路径，防对调/防漂中性色）
         assert re.search(r"\.ratio-seg\.up\s*\{\s*background:\s*var\(--up\)", css), "比例条上涨段须恒 --up"
         assert re.search(r"\.ratio-seg\.down\s*\{\s*background:\s*var\(--down\)", css), "比例条下跌段须恒 --down"
-        assert re.search(r"\.ratio-seg\.flat\s*\{\s*background:\s*var\(--text-dim\)", css), "比例条平盘段须中性 --text-dim"
+        assert re.search(r"\.ratio-seg\.flat\s*\{\s*background:\s*var\(--text-dim\)", css), (
+            "比例条平盘段须中性 --text-dim"
+        )
         dark = _block_tokens(_theme_block(css, ":root"))
-        assert dark.get("stop-fg", "").strip() == "var(--up)", f"--stop-fg 须恒为 var(--up)，实际 {dark.get('stop-fg')!r}"
+        assert dark.get("stop-fg", "").strip() == "var(--up)", (
+            f"--stop-fg 须恒为 var(--up)，实际 {dark.get('stop-fg')!r}"
+        )
         assert dark.get("ok-fg", "").strip() == "var(--down)", f"--ok-fg 须恒为 var(--down)，实际 {dark.get('ok-fg')!r}"
         hues = {}
         for sel in (":root", ':root[data-theme="light"]'):
@@ -107,7 +111,7 @@ class TestThemeTokens:
             up_hue = _hex_hue(tokens["up"])
             down_hue = _hex_hue(tokens["down"])
             assert up_hue is not None and down_hue is not None, f"{sel} 的 --up/--down 须为 hex 色值"
-            assert (up_hue >= 345 or up_hue <= 15), f"{sel} --up 不是红相（hue={up_hue:.0f}）"
+            assert up_hue >= 345 or up_hue <= 15, f"{sel} --up 不是红相（hue={up_hue:.0f}）"
             assert 135 <= down_hue <= 165, f"{sel} --down 不是绿相（hue={down_hue:.0f}）"
             hues[sel] = (up_hue, down_hue)
         u0, d0 = hues[":root"]

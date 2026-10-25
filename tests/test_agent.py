@@ -494,9 +494,7 @@ class TestToolTimeout:
 
     def test_tool_normal_result_unaffected(self, mock_agent):
         _ready_agent(mock_agent, FakeLLM())
-        with patch.dict(
-            "deeppulse.agent.agent.TOOL_DISPATCH", {"fast_tool": lambda **kw: '{"ok": true}'}, clear=False
-        ):
+        with patch.dict("deeppulse.agent.agent.TOOL_DISPATCH", {"fast_tool": lambda **kw: '{"ok": true}'}, clear=False):
             with patch("deeppulse.config.TOOL_EXEC_TIMEOUT", 5):
                 result = mock_agent._run_tool("fast_tool", {})
         assert json.loads(result) == {"ok": True}
@@ -562,13 +560,14 @@ class BudgetLLM(FakeLLM):
     calls_tools[i] = 第 i+1 次调用收到的 tools 参数（None 即强制收尾合成轮）。
     """
 
-    def __init__(self, tool_rounds: int = 10**6, synth_text: str = "合成结论",
-                 synth_mode: str = "text", text_at: int = None):
+    def __init__(
+        self, tool_rounds: int = 10**6, synth_text: str = "合成结论", synth_mode: str = "text", text_at: int = None
+    ):
         super().__init__()
-        self.tool_rounds = tool_rounds          # 前 N 次带工具调用返回 tool_calls，之后返回文本
-        self.text_at = text_at                  # 指定第几次调用直接返回文本（续杯决策模拟）
+        self.tool_rounds = tool_rounds  # 前 N 次带工具调用返回 tool_calls，之后返回文本
+        self.text_at = text_at  # 指定第几次调用直接返回文本（续杯决策模拟）
         self.synth_text = synth_text
-        self.synth_mode = synth_mode            # "text" / "empty" / "raise"
+        self.synth_mode = synth_mode  # "text" / "empty" / "raise"
         self.calls_tools = []
         self.round = 0
 
@@ -908,14 +907,16 @@ class TestSmartTruncateCatalog:
             out_f = json.loads(a._run_tool("list_factors", {}))
             out_g = json.loads(a._run_tool("get_daily_kline", {}))
         ids = [f["id"] for c in out_f["categories"] for f in c["factors"]]
-        assert len(ids) == 60 and out_f.get("_truncated") is not True, \
+        assert len(ids) == 60 and out_f.get("_truncated") is not True, (
             "list_factors 走 16384 预算：介于两预算间的样例整体不触发截断"
+        )
         assert out_g["_truncated"] is True, "其他工具仍受 8000 约束"
         assert len(json.dumps(out_g, ensure_ascii=False)) <= 8000
         g_ids = [f["id"] for c in out_g["categories"] for f in c["factors"]]
         assert g_ids and all(i in set(ids) for i in g_ids), "8000 预算收缩后 id 不得腰斩"
-        assert all("description" not in f for c in out_g["categories"] for f in c["factors"]), \
+        assert all("description" not in f for c in out_g["categories"] for f in c["factors"]), (
             "8000 预算先剥说明（16384 预算的 list_factors 不必剥，此差即预算接线证据）"
+        )
 
     def test_non_catalog_results_still_shrink_normally(self):
         a = self._agent()

@@ -217,7 +217,9 @@ def fetch_and_store_stock_list() -> int:
         return count
 
 
-def _split_resume_segments(first_date: str | None, last_date: str | None, start: date, end: date) -> list[tuple[date, date]]:
+def _split_resume_segments(
+    first_date: str | None, last_date: str | None, start: date, end: date
+) -> list[tuple[date, date]]:
     """按已有覆盖端点把 [start, end] 切成至多两段（前缀补历史 + 后缀增量）
 
     断点续传不只看 MAX(trade_date)：库中已有近期数据时，调用方请求更早
@@ -237,7 +239,9 @@ def _split_resume_segments(first_date: str | None, last_date: str | None, start:
     return segments
 
 
-def fetch_kline_for_stock(code: str, failover: SourceFailover, start: date, end: date, conn, cover_all_sources: bool = True) -> int:
+def fetch_kline_for_stock(
+    code: str, failover: SourceFailover, start: date, end: date, conn, cover_all_sources: bool = True
+) -> int:
     """为单只股票采集日K数据（带验证、按端点覆盖分段续传，经多源故障切换取数）
 
     cover_all_sources=True（多源互备）：续传端点取全部源的合并覆盖——任一源
@@ -376,7 +380,9 @@ def fetch_all_kline(
                 i > 0 and i % config.FETCH_RECONNECT_INTERVAL == 0
             ) or time_since_reconnect > RECONNECT_TIME_INTERVAL
             if should_reconnect:
-                logger.info(f"--- 定期重连 {failover.active.name} (第{i}只, 距上次重连{time_since_reconnect:.0f}秒) ---")
+                logger.info(
+                    f"--- 定期重连 {failover.active.name} (第{i}只, 距上次重连{time_since_reconnect:.0f}秒) ---"
+                )
                 failover.cleanup_active()
                 time.sleep(1)
                 last_reconnect_time = time.time()

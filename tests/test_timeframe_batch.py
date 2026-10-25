@@ -85,7 +85,7 @@ class TestEastMoneyMinuteKline:
         monkeypatch.setattr(
             src,
             "_get_json",
-            lambda h, p, params: (seen.update(params) or {"data": {"klines": []}}),
+            lambda h, p, params: seen.update(params) or {"data": {"klines": []}},
         )
         src._fetch_minute_kline_impl("600000", "weekly", date(2026, 1, 1), date(2026, 10, 7))
         assert seen["klt"] == "102"
@@ -257,7 +257,16 @@ class TestFetchAllTimeframe:
         init_tables(conn)
         upsert_stock_info(
             conn,
-            [{"code": "600000", "name": "浦发", "market": "sh", "board": "main", "list_date": None, "delist_date": None}],
+            [
+                {
+                    "code": "600000",
+                    "name": "浦发",
+                    "market": "sh",
+                    "board": "main",
+                    "list_date": None,
+                    "delist_date": None,
+                }
+            ],
         )
         conn.close()
 
@@ -276,7 +285,9 @@ class TestQueryFallbackStillWorks:
         tf_mod.init_timeframe_tables(conn)
         conn.close()
         df = _minute_df().head(2)
-        monkeypatch.setattr(tf_mod, "_fallback_timeframe_online", lambda code, tf, limit, db_path=None: (df, "online-akshare"))
+        monkeypatch.setattr(
+            tf_mod, "_fallback_timeframe_online", lambda code, tf, limit, db_path=None: (df, "online-akshare")
+        )
         monkeypatch.setattr(config, "DATA_ONLINE_FALLBACK", True)
 
         out = tf_mod.query_timeframe("600000", "5m", limit=5, db_path=tmp_db_path)
@@ -302,7 +313,9 @@ class TestFetchCommandDispatch:
         monkeypatch.setattr(
             tf_mod,
             "fetch_all_timeframe",
-            lambda tf, days=5, **k: calls.append((tf, days)) or {"total": 1, "success": 1, "skipped": 0, "failed": 0, "rows": 9},
+            lambda tf, days=5, **k: (
+                calls.append((tf, days)) or {"total": 1, "success": 1, "skipped": 0, "failed": 0, "rows": 9}
+            ),
         )
         out = run_fetch_command("timeframe 3 5m", log=lambda m: None)
         assert calls == [("5m", 3)]

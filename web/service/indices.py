@@ -25,7 +25,9 @@ def _to_item(code: str, name: str, current: float, yesterday: float | None) -> d
     }
 
 
-def _check_complete(indices: list[dict], empty_msg: str = "指数行情解析结果为空（可能休市或接口返回异常）") -> tuple[list[dict], str | None]:
+def _check_complete(
+    indices: list[dict], empty_msg: str = "指数行情解析结果为空（可能休市或接口返回异常）"
+) -> tuple[list[dict], str | None]:
     """三码完整性校验：缺任一指数按失败处理，触发备源——部分缺失不得冒充成功"""
     if not indices:
         return [], empty_msg

@@ -17,11 +17,22 @@ CHARTS_DIR.mkdir(exist_ok=True)
 # 中文字体候选（按平台覆盖：macOS / Windows / Linux）
 _CJK_FONT_CANDIDATES = [
     # macOS
-    "PingFang SC", "Hiragino Sans GB", "Heiti SC", "STHeiti", "Songti SC", "Arial Unicode MS",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Heiti SC",
+    "STHeiti",
+    "Songti SC",
+    "Arial Unicode MS",
     # Windows
-    "Microsoft YaHei", "SimHei", "SimSun",
+    "Microsoft YaHei",
+    "SimHei",
+    "SimSun",
     # Linux
-    "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Noto Sans CJK SC", "Source Han Sans SC", "Droid Sans Fallback",
+    "WenQuanYi Micro Hei",
+    "WenQuanYi Zen Hei",
+    "Noto Sans CJK SC",
+    "Source Han Sans SC",
+    "Droid Sans Fallback",
 ]
 
 

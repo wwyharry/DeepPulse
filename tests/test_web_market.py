@@ -212,7 +212,10 @@ class TestPortfolioTrades:
 
     def test_trades_history_serializes_timestamps(self, client, db_path):
         seed_stock_info(db_path, [("600519", "贵州茅台")])
-        assert client.post("/api/trades", json={"code": "600519", "action": "buy", "price": 10, "shares": 100}).status_code == 200
+        assert (
+            client.post("/api/trades", json={"code": "600519", "action": "buy", "price": 10, "shares": 100}).status_code
+            == 200
+        )
         r = client.get("/api/trades?days=7")
         assert r.status_code == 200, "pandas.Timestamp 序列化不得炸"
         trades = r.json()["trades"]
@@ -234,7 +237,12 @@ class TestPortfolioTrades:
 
     def test_clear_position_ignores_shares(self, client, monkeypatch, db_path):
         seed_stock_info(db_path, [("600519", "贵州茅台")])
-        assert client.post("/api/trades", json={"code": "600519", "action": "买入", "price": 1000, "shares": 100}).status_code == 200
+        assert (
+            client.post(
+                "/api/trades", json={"code": "600519", "action": "买入", "price": 1000, "shares": 100}
+            ).status_code
+            == 200
+        )
         # 清仓：shares 任意，以实际持仓为准
         r = client.post("/api/trades", json={"code": "600519", "action": "清仓", "price": 1100, "shares": 1})
         assert r.status_code == 200

@@ -47,12 +47,15 @@ class TestSessionCrud:
         assert FakeWebAgent.instances == []
 
     def test_list_sorted_by_updated_at_desc(self, client, session_root):
-        write_session_file(session_root, "s-a", title="最早", updated_at="2026-01-01T00:00:01",
-                           created_at="2026-01-01T00:00:01")
-        write_session_file(session_root, "s-b", title="居中", updated_at="2026-01-02T00:00:01",
-                           created_at="2026-01-01T00:00:02")
-        write_session_file(session_root, "s-c", title="最新", updated_at="2026-01-03T00:00:01",
-                           created_at="2026-01-01T00:00:03")
+        write_session_file(
+            session_root, "s-a", title="最早", updated_at="2026-01-01T00:00:01", created_at="2026-01-01T00:00:01"
+        )
+        write_session_file(
+            session_root, "s-b", title="居中", updated_at="2026-01-02T00:00:01", created_at="2026-01-01T00:00:02"
+        )
+        write_session_file(
+            session_root, "s-c", title="最新", updated_at="2026-01-03T00:00:01", created_at="2026-01-01T00:00:03"
+        )
         r = client.get("/api/sessions")
         assert r.status_code == 200
         sessions = r.json()["sessions"]
@@ -295,9 +298,7 @@ class TestProtocolMismatchRestore:
     def test_matched_protocol_still_restores_messages(self, client, session_root):
         """对照：协议一致时消息体照常回灌（M10 不得误伤正常回灌）"""
         sid = "proto-match"
-        write_session_file(
-            session_root, sid, messages=stored_history_messages(), protocol="openai"
-        )
+        write_session_file(session_root, sid, messages=stored_history_messages(), protocol="openai")
         r = client.post("/api/chat", json={"session_id": sid, "message": "新问题"})
         assert r.status_code == 200
         agent = FakeWebAgent.instances[-1]

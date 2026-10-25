@@ -142,8 +142,14 @@ class TestContextBlock:
         mm.start_session("s1")
         mm.save_memory("带日期的结论", "insight", "日期", "", 0.7)
         mm.save_memory(
-            "教学内容", "learning", "教学", "", 0.8,
-            learned_what="低吸为主", learned_why="风险低", apply_when="超卖时",
+            "教学内容",
+            "learning",
+            "教学",
+            "",
+            0.8,
+            learned_what="低吸为主",
+            learned_why="风险低",
+            apply_when="超卖时",
         )
         mm.end_session("s1", summary="讨论了：日期测试", stocks=[])
         ctx = mm.get_context_block("")
@@ -163,12 +169,22 @@ class TestContextBlock:
         """单条超长 teaching 不得静默清空整个注入块（预算不足跳过本行而非 break）"""
         mm = _mm(tmp_path)
         mm.save_memory(
-            "超长教学", "learning", "超长", "", 0.8,
-            learned_what="很长" * 200, apply_when="很长" * 200,
+            "超长教学",
+            "learning",
+            "超长",
+            "",
+            0.8,
+            learned_what="很长" * 200,
+            apply_when="很长" * 200,
         )
         mm.save_memory(
-            "短教学", "learning", "短", "", 0.7,
-            learned_what="短要点", apply_when="随时",
+            "短教学",
+            "learning",
+            "短",
+            "",
+            0.7,
+            learned_what="短要点",
+            apply_when="随时",
         )
         block = mm._get_learning_block(500)
         assert "短要点" in block or "短教学" in block, f"短条目被超长条目挤没了: {block!r}"
@@ -176,8 +192,14 @@ class TestContextBlock:
     def test_budget_respected_and_learning_fields_present(self, tmp_path):
         mm = _mm(tmp_path)
         mm.save_memory(
-            "教学内容", "learning", "教学", "", 0.8,
-            learned_what="要点", learned_why="原因", apply_when="时机",
+            "教学内容",
+            "learning",
+            "教学",
+            "",
+            0.8,
+            learned_what="要点",
+            learned_why="原因",
+            apply_when="时机",
         )
         ctx = mm.get_context_block("", max_chars=50)
         assert len(ctx) <= 50, f"预算超限: {len(ctx)}"

@@ -325,9 +325,7 @@ def get_multi_timeframe_data(code: str, timeframes: list[str] = None, limit: int
     return result
 
 
-def fetch_all_timeframe(
-    timeframe: str = "5m", days: int = 5, codes: list[str] | None = None, db_path=None
-) -> dict:
+def fetch_all_timeframe(timeframe: str = "5m", days: int = 5, codes: list[str] | None = None, db_path=None) -> dict:
     """批量采集多周期K线到本地（东财直连 + 断点续传 + 节流 + 失败重试一次跳过）
 
     - 批量唯一路径走东财 kline 接口（服务端按窗口裁剪；akshare 分钟接口

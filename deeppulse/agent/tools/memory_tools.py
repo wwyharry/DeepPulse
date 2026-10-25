@@ -73,7 +73,8 @@ def save_memory(
         return json.dumps({"error": "content 不能为空"}, ensure_ascii=False)
     if len(content) > _CONTENT_SOFT_MAX:
         return json.dumps(
-            {"error": f"content 超长（{len(content)} 字符，上限 {_CONTENT_SOFT_MAX}），请精炼后保存"}, ensure_ascii=False
+            {"error": f"content 超长（{len(content)} 字符，上限 {_CONTENT_SOFT_MAX}），请精炼后保存"},
+            ensure_ascii=False,
         )
     if memory_type not in DEFAULT_HALF_LIFE:
         return json.dumps(
@@ -291,9 +292,7 @@ def get_user_profile() -> str:
 def update_user_profile(key: str, value: str, confidence: float = 0.5, source_memory_ids: str = "") -> str:
     """更新用户画像信息。低置信度的新值不会推翻高置信度的旧共识。"""
     if key not in VALID_PROFILE_KEYS:
-        return json.dumps(
-            {"error": f"未知画像键: {key!r}，允许值: {sorted(VALID_PROFILE_KEYS)}"}, ensure_ascii=False
-        )
+        return json.dumps({"error": f"未知画像键: {key!r}，允许值: {sorted(VALID_PROFILE_KEYS)}"}, ensure_ascii=False)
     try:
         conf = _validate_confidence(confidence)
     except ValueError as e:
@@ -413,14 +412,21 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "memory_id": {"type": "string", "description": "要更新的记忆ID"},
-                    "content": {"type": "string", "description": "新内容（可选；原关键词会保留并与新提取合并）", "default": ""},
+                    "content": {
+                        "type": "string",
+                        "description": "新内容（可选；原关键词会保留并与新提取合并）",
+                        "default": "",
+                    },
                     "importance": {
                         "type": "number",
                         "description": "新的重要度 0.0-1.0（可选，-1表示保持原值）",
                         "default": -1,
                     },
                     "tags": {"type": "string", "description": "新的标签（可选，逗号分隔；空串=清空；不传=不变）"},
-                    "keywords": {"type": "string", "description": "新的关键词（可选，逗号分隔；不传=保留原词并自动补充）"},
+                    "keywords": {
+                        "type": "string",
+                        "description": "新的关键词（可选，逗号分隔；不传=保留原词并自动补充）",
+                    },
                     "learned_what": {"type": "string", "description": "学到了什么（可选，不传=不变）"},
                     "learned_why": {"type": "string", "description": "为什么重要（可选，不传=不变）"},
                     "apply_when": {"type": "string", "description": "应用时机（可选，不传=不变）"},

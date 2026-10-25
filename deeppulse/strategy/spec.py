@@ -18,7 +18,7 @@ from deeppulse.strategy.factor_library import get_factor
 LOGIC_JSON_HINT = (
     'logic_json 形状: {"name": "...", "factors": [{"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, '
     '"weight": 1.0, "direction": 1}], "entry_threshold": 0.6}。direction 只能是 1（正向）或 -1（反向），'
-    'weight 为正数，factor_id 须来自 list_factors。请按此一次性修正后重试（最多 1 次），不要逐字段试错。'
+    "weight 为正数，factor_id 须来自 list_factors。请按此一次性修正后重试（最多 1 次），不要逐字段试错。"
 )
 
 _DIRECTION_POSITIVE = {"1", "1.0", "+1", "正向", "做多", "多", "long", "+"}
@@ -46,8 +46,8 @@ def _norm_direction(raw):
             return 1, f'direction: "{raw}" → 1', None
         if s in _DIRECTION_NEGATIVE:
             return -1, f'direction: "{raw}" → -1', None
-        return None, None, f'direction 非法: {raw!r}（只能是 1 或 -1）'
-    return None, None, f'direction 非法: {raw!r}（只能是 1 或 -1）'
+        return None, None, f"direction 非法: {raw!r}（只能是 1 或 -1）"
+    return None, None, f"direction 非法: {raw!r}（只能是 1 或 -1）"
 
 
 def _norm_weight(raw):
@@ -128,6 +128,7 @@ def normalize_logic_dict(logic) -> tuple:
         norm_factors.append(nf)
     out["factors"] = norm_factors
     return out, auto_fixed, hard_errors
+
 
 # 跨参数语义约束（按参数名实际含义，作用于同一因子内合并 default 后的生效值）：
 # "lt" = 必须严格小于（快/慢、短/长、区间上下界相等即语义倒置，如空强势区/自比较）；

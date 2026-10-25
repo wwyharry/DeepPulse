@@ -58,8 +58,8 @@ REQUIRED_ICONS = [
 
 # emoji 码点兜底：图标必须全 SVG，静态目录不得出现 emoji
 EMOJI_RE = re.compile(
-    "[\U0001F000-\U0001FAFF"  # 象形文字/交通/补充-A
-    "\U0001F1E6-\U0001F1FF"  # 区域指示符（旗帜）
+    "[\U0001f000-\U0001faff"  # 象形文字/交通/补充-A
+    "\U0001f1e6-\U0001f1ff"  # 区域指示符（旗帜）
     "☀-➿"  # 杂项符号/装饰符号（含 U+2705/U+270F 等）
     "⯀-⯿"  # 杂项符号与箭头（含 U+2B50 等）
     "️"  # 变体选择符
@@ -141,7 +141,7 @@ class TestIcons:
 
     def test_required_icon_names_defined(self):
         icons_js = _read_static("icons.js")
-        missing = [n for n in REQUIRED_ICONS if f'i-{n}' not in icons_js]
+        missing = [n for n in REQUIRED_ICONS if f"i-{n}" not in icons_js]
         assert not missing, f"icons.js 缺少必备图标定义: {missing}"
 
     def test_index_icon_refs_all_defined(self):
@@ -842,10 +842,25 @@ class TestSettingsModalLayout:
         """功能闭包：设置区每个控件都要在 HTML 定义且被 app.js 读写，不许「存在但没接线」"""
         html, _, js = self._srcs()
         ids = [
-            "llmProvider", "llmBaseUrl", "llmApiKey", "llmModel", "llmMaxTokens",
-            "llmTemperature", "llmTimeout", "embProvider", "embModel", "embApiKey",
-            "embBaseUrl", "agentMaxRounds", "agentMaxRoundsExtension", "agentVerbose", "agentJudge",
-            "dataOnlineFallback", "dataCacheToDb", "dataSource", "dataDbPath",
+            "llmProvider",
+            "llmBaseUrl",
+            "llmApiKey",
+            "llmModel",
+            "llmMaxTokens",
+            "llmTemperature",
+            "llmTimeout",
+            "embProvider",
+            "embModel",
+            "embApiKey",
+            "embBaseUrl",
+            "agentMaxRounds",
+            "agentMaxRoundsExtension",
+            "agentVerbose",
+            "agentJudge",
+            "dataOnlineFallback",
+            "dataCacheToDb",
+            "dataSource",
+            "dataDbPath",
         ]
         for cid in ids:
             assert f'id="{cid}"' in html, f"index.html 缺少控件 {cid}"
@@ -863,14 +878,14 @@ class TestSettingsModalLayout:
             r'<input type="checkbox" id="\w+">\s*'
             r'<span class="track"></span>\s*'
             r'<span class="knob"></span>\s*'
-            r'</label>'
+            r"</label>"
         )
         blocks = block.findall(html)
         assert len(blocks) == 4, f"应有 4 个结构完好的开关 label 块，实际 {len(blocks)}"
         # 坏嵌套兜底：<label class="switch"> 的块内不得再出现交错（label 收尾必须在 track/knob 之后）
         for m in re.finditer(r'<label class="switch">([\s\S]{0,200}?)</label>', html):
             assert '<input type="checkbox"' in m.group(1)
-            assert m.group(1).rstrip().endswith(('<span class="knob"></span>', '</span>')), m.group(1)[-60:]
+            assert m.group(1).rstrip().endswith(('<span class="knob"></span>', "</span>")), m.group(1)[-60:]
         assert re.search(r"\.switch input\s*\{[^}]*display:\s*none", css)
 
     def test_section_nav_targets_exist(self):
@@ -1037,12 +1052,16 @@ process.exit(0);
         assert m and re.search(r"flex:\s*none", m.group(1)), "伸缩垫须 flex:none（不许被压缩吸收）"
         # 缺陷 3：sticky top 被 modal-body padding-top 顶偏 16px，负偏移抵掉
         body_m = re.search(r"\.modal-body\s*\{([^}]*)\}", css)
-        assert body_m and re.search(r"--body-pad-top:\s*16px", body_m.group(1)), "modal-body 须声明 --body-pad-top: 16px"
+        assert body_m and re.search(r"--body-pad-top:\s*16px", body_m.group(1)), (
+            "modal-body 须声明 --body-pad-top: 16px"
+        )
         head_m = re.search(r"\.form-section-head\s*\{([^}]*)\}", css)
         assert head_m, "缺少 .form-section-head 吸顶规则"
         head_norm = re.sub(r"\s+", "", head_m.group(1))
         assert "calc(0px-var(--body-pad-top" in head_norm, "吸顶 top 须抵掉 body 内边距（缺陷 3）"
-        assert re.search(r"\.form-section\s*\{[^}]*scroll-margin-top:\s*8px", css), "scroll-margin-top:8px 是 spacerNeedPx 公式的落点契约"
+        assert re.search(r"\.form-section\s*\{[^}]*scroll-margin-top:\s*8px", css), (
+            "scroll-margin-top:8px 是 spacerNeedPx 公式的落点契约"
+        )
         # 缺陷 4：列 flex 收缩把页签行压到 23px——头/页签/底栏必须锁高
         for sel in (".modal-head", ".modal-tabs", ".modal-foot"):
             m2 = re.search(re.escape(sel) + r"\s*\{([^}]*)\}", css)
@@ -1066,10 +1085,25 @@ class TestSettingsFieldClosure:
         fill_body = js[i_fill:i_collect]
         collect_body = js[i_collect:i_end]
         ids = [
-            "llmProvider", "llmBaseUrl", "llmApiKey", "llmModel", "llmMaxTokens",
-            "llmTemperature", "llmTimeout", "embProvider", "embModel", "embApiKey",
-            "embBaseUrl", "agentMaxRounds", "agentMaxRoundsExtension", "agentVerbose", "agentJudge",
-            "dataOnlineFallback", "dataCacheToDb", "dataSource", "dataDbPath",
+            "llmProvider",
+            "llmBaseUrl",
+            "llmApiKey",
+            "llmModel",
+            "llmMaxTokens",
+            "llmTemperature",
+            "llmTimeout",
+            "embProvider",
+            "embModel",
+            "embApiKey",
+            "embBaseUrl",
+            "agentMaxRounds",
+            "agentMaxRoundsExtension",
+            "agentVerbose",
+            "agentJudge",
+            "dataOnlineFallback",
+            "dataCacheToDb",
+            "dataSource",
+            "dataDbPath",
         ]
         for cid in ids:
             assert f"#{cid}" in fill_body, f"fill() 未回填控件 {cid}（打开设置静默丢字段）"

@@ -596,7 +596,11 @@ class MemoryManager:
                 updates.append("tags_json = ?")
                 params.append(json.dumps(tag_list, ensure_ascii=False))
 
-            for field, value in (("learned_what", learned_what), ("learned_why", learned_why), ("apply_when", apply_when)):
+            for field, value in (
+                ("learned_what", learned_what),
+                ("learned_why", learned_why),
+                ("apply_when", apply_when),
+            ):
                 if value is not None:
                     updates.append(f"{field} = ?")
                     params.append(value)
@@ -686,9 +690,7 @@ class MemoryManager:
                     }
                 )
 
-            return json.dumps(
-                {"results": results, "returned": len(results), "total": total_in_db}, ensure_ascii=False
-            )
+            return json.dumps({"results": results, "returned": len(results), "total": total_in_db}, ensure_ascii=False)
         finally:
             conn.close()
 
@@ -1314,7 +1316,11 @@ class MemoryManager:
             )
             self._bm25_index = None
             return json.dumps(
-                {"status": "forgotten", "session_id": session_id, "archived_summaries": cur.fetchone()[0] if cur else 0},
+                {
+                    "status": "forgotten",
+                    "session_id": session_id,
+                    "archived_summaries": cur.fetchone()[0] if cur else 0,
+                },
                 ensure_ascii=False,
             )
         finally:

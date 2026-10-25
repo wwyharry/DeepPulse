@@ -190,9 +190,13 @@ class TestResolveMaxTokens:
 
     def test_stream_kwargs_never_hand_none_to_anthropic_sdk(self):
         msgs = [{"role": "user", "content": "hi"}]
-        kw = self._client("anthropic", {"model": "m", "max_tokens": None, "temperature": None})._build_anthropic_stream_kwargs(msgs, None)
+        kw = self._client(
+            "anthropic", {"model": "m", "max_tokens": None, "temperature": None}
+        )._build_anthropic_stream_kwargs(msgs, None)
         assert kw["max_tokens"] == 4096, f"anthropic 必填项不得是 None，实际 {kw['max_tokens']}"
-        kw = self._client("openai", {"model": "m", "max_tokens": None, "temperature": None})._build_openai_stream_kwargs(msgs, None)
+        kw = self._client(
+            "openai", {"model": "m", "max_tokens": None, "temperature": None}
+        )._build_openai_stream_kwargs(msgs, None)
         assert kw["max_tokens"] is None  # openai 兼容协议允许缺省
         # temperature 键缺失不得 KeyError（旧实现 4 处硬索引 llm_config["temperature"]）
         kw = self._client("openai", {"model": "m"})._build_openai_stream_kwargs(msgs, None)

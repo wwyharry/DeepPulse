@@ -49,7 +49,19 @@ class CachedContent(Content):
         super().__init__(*args, **kwargs)
         self._wrap_cache: dict[tuple, list] = {}
 
-    def _wrap_and_format(self, width, align="left", overflow="fold", no_wrap=False, line_pad=0, tab_size=8, selection=None, selection_style=None, post_style=None, get_style=None):
+    def _wrap_and_format(
+        self,
+        width,
+        align="left",
+        overflow="fold",
+        no_wrap=False,
+        line_pad=0,
+        tab_size=8,
+        selection=None,
+        selection_style=None,
+        post_style=None,
+        get_style=None,
+    ):
         if selection is not None:
             return super()._wrap_and_format(
                 width,

@@ -56,8 +56,7 @@ class _TurnState:
         store.persist_turn(
             self.session_id,
             title=self.title,
-            protocol=getattr(getattr(agent, "client", None), "protocol", None)
-            or _resolve_protocol(self.app),
+            protocol=getattr(getattr(agent, "client", None), "protocol", None) or _resolve_protocol(self.app),
             messages=list(getattr(agent, "messages", []) or []),
             user_messages=list(getattr(agent, "_user_messages", []) or []),
             session_stocks=list(getattr(agent, "_session_stocks", []) or []),

@@ -30,6 +30,7 @@ JOIN_TIMEOUT = 15.0
 
 def _post_chat_in_thread(client, payload, out: dict):
     """后台线程发 chat（SSE 流未结束前阻塞），结果写入 out"""
+
     def _run():
         out["resp"] = client.post("/api/chat", json=payload)
 
@@ -116,9 +117,7 @@ class TestSseFrames:
 
     def test_content_tail_is_not_the_end_signal(self, tmp_path):
         """max_rounds 耗尽路径先发 content 提示再 done——以 done 收束"""
-        factory = fake_agent_factory(
-            events=[("round", 3), ("content", "已达最大轮次，先给出当前结论。"), ("done", "")]
-        )
+        factory = fake_agent_factory(events=[("round", 3), ("content", "已达最大轮次，先给出当前结论。"), ("done", "")])
         with make_test_client(tmp_path, agent_factory=factory) as client:
             sid = _new_session(client)
             r = client.post("/api/chat", json={"session_id": sid, "message": "多轮问题"})
@@ -292,7 +291,9 @@ class TestDisconnectCleanup:
                             raise OSError("客户端断连")
 
                 await asgi_request(
-                    app, "POST", "/api/chat",
+                    app,
+                    "POST",
+                    "/api/chat",
                     {"session_id": sid, "message": "长分析"},
                     send_hook=fail_on_second_body,
                 )
@@ -304,7 +305,9 @@ class TestDisconnectCleanup:
                 assert rt.task is None or rt.task.done(), "running task 必须清掉"
                 # 第二路同会话必须 200 + session 帧（不是 409）
                 sent2, _ = await asgi_request(
-                    app, "POST", "/api/chat",
+                    app,
+                    "POST",
+                    "/api/chat",
                     {"session_id": sid, "message": "再来一问"},
                     send_hook=fail_on_second_body,
                 )
@@ -327,16 +330,16 @@ class TestDisconnectCleanup:
                     raise OSError("body 迭代前断连")
 
                 await asgi_request(
-                    app, "POST", "/api/chat",
+                    app,
+                    "POST",
+                    "/api/chat",
                     {"session_id": sid, "message": "问"},
                     send_hook=fail_immediately,
                 )
                 rt = pool.runtime(sid)
                 assert not rt.lock.locked(), "生成器未启动时 finally 不会执行，也必须放锁"
                 assert rt.task is None, "consume 从未启动"
-                sent2, _ = await asgi_request(
-                    app, "POST", "/api/chat", {"session_id": sid, "message": "再问"}
-                )
+                sent2, _ = await asgi_request(app, "POST", "/api/chat", {"session_id": sid, "message": "再问"})
                 assert sent_status(sent2) == 200, "第二路不得 409"
                 assert "done" in frame_events(sent_sse_frames(sent2))
 
@@ -376,7 +379,9 @@ class TestDisconnectCleanup:
                         raise OSError("再次断连")
 
                 sent2, _ = await asgi_request(
-                    app, "POST", "/api/chat",
+                    app,
+                    "POST",
+                    "/api/chat",
                     {"session_id": sid, "message": "再来一问"},
                     send_hook=fail_on_body,
                 )
@@ -399,9 +404,7 @@ class TestDisconnectCleanup:
                     await asyncio.Event().wait()
 
                 pool.get_agent = hanging_get_agent
-                task = asyncio.create_task(
-                    asgi_request(app, "POST", "/api/chat", {"session_id": sid, "message": "问"})
-                )
+                task = asyncio.create_task(asgi_request(app, "POST", "/api/chat", {"session_id": sid, "message": "问"}))
                 await asyncio.wait_for(started.wait(), timeout=5)
                 task.cancel()
                 with contextlib.suppress(BaseException):
@@ -484,7 +487,8 @@ class TestRenameDuringAnalysis:
             root = tmp_path / "sessions"
             sid = "rename-mid-hist"
             write_session_file(
-                root, sid,
+                root,
+                sid,
                 messages=[{"role": "user", "content": "老问题"}],
                 user_messages=["老问题"],
                 title="老问题",  # 自动标题形态

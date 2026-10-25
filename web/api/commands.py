@@ -223,10 +223,7 @@ async def _cmd_watchlist(request: Request, arg: str, session_id: str) -> dict:
             return "当前无自选股"
         lines = ["当前自选股:\n"]
         for r in rows:
-            lines.append(
-                f"  {r.get('name') or r.get('code')}({r.get('code')}) "
-                f"分组:{r.get('group_name') or '默认'}"
-            )
+            lines.append(f"  {r.get('name') or r.get('code')}({r.get('code')}) 分组:{r.get('group_name') or '默认'}")
         return "\n".join(lines)
 
     if sub in ("", "list"):
@@ -365,9 +362,7 @@ async def _cmd_fetch(request: Request, arg: str, session_id: str) -> dict:
         _FETCH_JOBS[job_id] = {"lines": [], "done": False, "t0": time.time()}
         # 只保留最近 50 个 job，防内存泄漏
         if len(_FETCH_JOBS) > 50:
-            for old in sorted(_FETCH_JOBS, key=lambda k: _FETCH_JOBS[k].get("t0", 0))[
-                : len(_FETCH_JOBS) - 50
-            ]:
+            for old in sorted(_FETCH_JOBS, key=lambda k: _FETCH_JOBS[k].get("t0", 0))[: len(_FETCH_JOBS) - 50]:
                 _FETCH_JOBS.pop(old, None)
     threading.Thread(target=_run_fetch_job, args=(job_id, arg), daemon=True).start()
     return {"job_id": job_id}

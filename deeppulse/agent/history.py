@@ -438,7 +438,9 @@ def _iter_tool_result_ids(msg: dict) -> list[str]:
 
 # ── 配对修复 ──────────────────────────────────────
 
-INTERRUPTED_TOOL_NOTE = "[已中断] 工具 `{name}` 未执行或结果未返回（用户停止了分析/请求被中断）。请勿编造该工具的返回数据。"
+INTERRUPTED_TOOL_NOTE = (
+    "[已中断] 工具 `{name}` 未执行或结果未返回（用户停止了分析/请求被中断）。请勿编造该工具的返回数据。"
+)
 
 
 def _synthetic_tool_results(missing: list[tuple[str, str]], protocol: str) -> list[dict]:

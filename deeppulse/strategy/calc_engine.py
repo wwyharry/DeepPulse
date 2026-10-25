@@ -74,14 +74,19 @@ def evaluate_trade_logic(
     # 1) 逻辑校验：先容错归一化（direction/weight 等常见格式错误自动修复），再一次性返回全部错误
     spec_d, auto_fixed, hard_errors = normalize_logic_dict(logic)
     if hard_errors:
-        return {"error": "策略规格非法", "validation_errors": hard_errors, "auto_fixed": auto_fixed, "hint": LOGIC_JSON_HINT}
+        return {
+            "error": "策略规格非法",
+            "validation_errors": hard_errors,
+            "auto_fixed": auto_fixed,
+            "hint": LOGIC_JSON_HINT,
+        }
     try:
         spec = StrategySpec.from_dict(spec_d)
     except Exception as e:
         return {"error": f"logic_json 解析失败: {e}", "hint": LOGIC_JSON_HINT}
     errors = spec.validate()
     if errors:
-        out = {"error": "策略规格非法", "validation_errors": errors}
+        out: dict = {"error": "策略规格非法", "validation_errors": errors}
         if auto_fixed:
             out["auto_fixed"] = auto_fixed
         return out
@@ -237,14 +242,19 @@ def calibrate_params(code: str, logic: dict, days: int = 250, max_combos: int = 
         return {"error": "code 不能为空"}
     spec_d, auto_fixed, hard_errors = normalize_logic_dict(logic)
     if hard_errors:
-        return {"error": "策略规格非法", "validation_errors": hard_errors, "auto_fixed": auto_fixed, "hint": LOGIC_JSON_HINT}
+        return {
+            "error": "策略规格非法",
+            "validation_errors": hard_errors,
+            "auto_fixed": auto_fixed,
+            "hint": LOGIC_JSON_HINT,
+        }
     try:
         spec = StrategySpec.from_dict(spec_d)
     except Exception as e:
         return {"error": f"logic_json 解析失败: {e}", "hint": LOGIC_JSON_HINT}
     errors = spec.validate()
     if errors:
-        out = {"error": "策略规格非法", "validation_errors": errors}
+        out: dict = {"error": "策略规格非法", "validation_errors": errors}
         if auto_fixed:
             out["auto_fixed"] = auto_fixed
         return out
@@ -320,7 +330,9 @@ def compute_market_regime(codes=None, sample_size: int = 20, days: int = 120) ->
         try:
             info = StockQuery().get_stock_info()
         except Exception as e:
-            return _degraded("market", f"股票列表获取失败: {e}", 0, "无法刻画市场状态，请改用 market_sentiment 情绪评级定性判断")
+            return _degraded(
+                "market", f"股票列表获取失败: {e}", 0, "无法刻画市场状态，请改用 market_sentiment 情绪评级定性判断"
+            )
         if info is None or info.empty:
             return _degraded("market", "本地无股票列表数据", 0, "请先 /fetch stocks 采集，或对指定 codes 调用")
         pool = info
@@ -507,7 +519,9 @@ def position_size(
                 position_value = shares * entry_price
                 position_pct = position_value / capital
         else:
-            kelly_note = f"样本不足（{int(sample_trades)} < {MIN_TRADES_FOR_KELLY} 笔），不给出 Kelly，仅按风险预算+档位"
+            kelly_note = (
+                f"样本不足（{int(sample_trades)} < {MIN_TRADES_FOR_KELLY} 笔），不给出 Kelly，仅按风险预算+档位"
+            )
     else:
         kelly_note = "未提供胜率/盈亏样本，不给出 Kelly，仅按风险预算+档位"
 
