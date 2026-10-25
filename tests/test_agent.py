@@ -551,3 +551,379 @@ class TestRepeatDetection:
         mock_agent._pending_system_notes.clear()
         self._track(mock_agent, "query_kline", {"code": "600519"}, '{"kline": []}')
         assert not any("勿重复调用" in n for n in mock_agent._pending_system_notes)
+
+
+# ── 轮次预算：软上限/附加额度/硬上限强制收尾合成 ─────────────────────────
+
+
+class BudgetLLM(FakeLLM):
+    """带工具的调用按脚本返回 tool_calls；tools=None 的合成调用按配置返回文本/空/抛错。
+
+    calls_tools[i] = 第 i+1 次调用收到的 tools 参数（None 即强制收尾合成轮）。
+    """
+
+    def __init__(self, tool_rounds: int = 10**6, synth_text: str = "合成结论",
+                 synth_mode: str = "text", text_at: int = None):
+        super().__init__()
+        self.tool_rounds = tool_rounds          # 前 N 次带工具调用返回 tool_calls，之后返回文本
+        self.text_at = text_at                  # 指定第几次调用直接返回文本（续杯决策模拟）
+        self.synth_text = synth_text
+        self.synth_mode = synth_mode            # "text" / "empty" / "raise"
+        self.calls_tools = []
+        self.round = 0
+
+    def _respond(self, tools):
+        self.calls_tools.append(tools)
+        self.round += 1
+        if tools:
+            if self.text_at is not None and self.round >= self.text_at:
+                return {"content": "自然收尾结论", "tool_calls": None, "stop_reason": "stop"}
+            if self.round <= self.tool_rounds:
+                return {
+                    "content": "",
+                    "tool_calls": [{"id": f"c{self.round}", "name": "t1", "arguments": {}}],
+                    "stop_reason": "tool_calls",
+                }
+            return {"content": "自然收尾结论", "tool_calls": None, "stop_reason": "stop"}
+        # 强制收尾合成调用（tools=None）
+        if self.synth_mode == "raise":
+            raise RuntimeError("合成调用失败")
+        if self.synth_mode == "empty":
+            return {"content": "   ", "tool_calls": None, "stop_reason": "stop"}
+        return {"content": self.synth_text, "tool_calls": None, "stop_reason": "stop"}
+
+    def chat(self, messages, tools=None):
+        self.received.append(list(messages))
+        return self._respond(tools)
+
+    def chat_stream(self, messages, tools=None):
+        self.received.append(list(messages))
+        resp = self._respond(tools)
+
+        class Chunk:
+            type = "content"
+            text = resp.get("content") or ""
+
+        yield Chunk()
+        self.last_stream_response = resp
+
+    async def chat_stream_async(self, messages, tools=None):
+        self.received.append(list(messages))
+        resp = self._respond(tools)
+
+        class Chunk:
+            type = "content"
+            text = resp.get("content") or ""
+
+        yield Chunk()
+        self.last_stream_response = resp
+
+    def format_assistant_message(self, response):
+        msg = {"role": "assistant", "content": response.get("content") or ""}
+        if response.get("tool_calls"):
+            msg["tool_calls"] = [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": "{}"}}
+                for tc in response["tool_calls"]
+            ]
+        return msg
+
+    def format_tool_result_message(self, tool_call_id, tool_name, result):
+        return {"role": "tool", "tool_call_id": tool_call_id, "content": result}
+
+
+_T1_TOOLS = {"t1": lambda **kw: '{"ok": 1}'}
+
+
+class TestRoundBudgetLimits:
+    def test_default_extension_when_attr_missing(self, mock_agent):
+        # mock_agent 只有 max_rounds=10，无 max_rounds_extension → 默认 10
+        assert mock_agent._round_limits() == (10, 10, 20)
+
+    def test_zero_extension_disables(self, mock_agent):
+        mock_agent.max_rounds_extension = 0
+        assert mock_agent._round_limits() == (10, 0, 10)
+
+    def test_invalid_extension_falls_back_default(self, mock_agent):
+        for bad in (-1, "abc", 3.5, True):
+            mock_agent.max_rounds_extension = bad
+            assert mock_agent._round_limits() == (10, 10, 20), bad
+
+    def test_extension_value_zero_is_kept(self):
+        assert StockAgent._extension_value(0) == 0
+        assert StockAgent._extension_value(7) == 7
+
+
+class TestBudgetNotes:
+    def _agent(self, base, ext):
+
+        a = StockAgent.__new__(StockAgent)
+        a.max_rounds = base
+        a.max_rounds_extension = ext
+        a._pending_system_notes = []
+        a._wrapup_noted = False
+        a.verbose = False
+        a.client = FakeLLM()
+        a._tool_call_history = []
+        a._consecutive_tool_errors = 0
+        a._truncated_tools = set()
+        return a
+
+    def test_boundary_note_fires_once(self):
+        a = self._agent(3, 2)
+        a._queue_budget_notes(4)  # 基础 3 轮用完，下一调用是第 4 轮
+        assert len(a._pending_system_notes) == 1
+        note = a._pending_system_notes[0]
+        assert "基础轮次已用完（3 轮）" in note and "附加额度还剩 2 轮（硬上限 5 轮）" in note
+        a._queue_budget_notes(5)  # 边界只注一次
+        assert not any("基础轮次已用完" in n for n in a._pending_system_notes[1:])
+
+    def test_wrapup_note_near_hard_cap(self):
+        a = self._agent(3, 3)
+        a._queue_budget_notes(5)  # remaining = 6-5+1 = 2
+        assert any("轮次预算仅剩 2 轮" in n for n in a._pending_system_notes)
+        a._pending_system_notes.clear()
+        a._queue_budget_notes(6)  # 整 turn 至多一次
+        assert not any("仅剩" in n for n in a._pending_system_notes)
+
+    def test_no_double_fire_on_boundary_when_ext_small(self):
+        a = self._agent(3, 1)  # 边界 next_round=4 与 remaining<=2 重合
+        a._queue_budget_notes(4)
+        assert len(a._pending_system_notes) == 1
+        assert "基础轮次已用完" in a._pending_system_notes[0]
+
+    def test_zero_extension_no_boundary_note(self):
+        a = self._agent(3, 0)  # hard_cap=3：下一调用第 2 轮时 remaining=2
+        a._queue_budget_notes(2)
+        assert not any("基础轮次已用完" in n for n in a._pending_system_notes)
+        # 但临近硬上限（=基础）仍有收尾预告
+        assert any("仅剩" in n for n in a._pending_system_notes)
+
+
+class TestForcedSynthesis:
+    """硬上限处强制收尾：tools=None 合成轮把已收集数据写成结论，绝不丢工作"""
+
+    def test_chat_synthesizes_at_hard_cap(self, mock_agent):
+        client = BudgetLLM(tool_rounds=10**6)  # 永远要工具 → 必触硬上限
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 2
+        mock_agent.max_rounds_extension = 0
+        out = mock_agent.chat("问题")
+        assert out == "合成结论"
+        assert client.calls_tools[-1] is None, "最后一次调用必须 tools=None（合成轮）"
+        assert client.calls_tools.count(None) == 1
+        assert mock_agent.messages[-1]["role"] == "assistant"
+        assert "合成结论" in mock_agent.messages[-1]["content"]
+        assert "分析轮次已达上限" not in out
+
+    def test_chat_stream_synthesizes_with_round_event(self, mock_agent):
+        client = BudgetLLM(tool_rounds=10**6)
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 2
+        mock_agent.max_rounds_extension = 1  # hard=3 → 合成轮 round 4
+        events = list(mock_agent.chat_stream("问题"))
+        rounds = [n for t, n in events if t == "round"]
+        assert rounds == [1, 2, 3, 4], f"round 事件应含合成轮，实际 {rounds}"
+        assert events[-1] == ("done", "")
+        assert client.calls_tools[-1] is None
+        contents = [t for typ, t in events if typ == "content"]
+        assert any("合成结论" in c for c in contents)
+        assert mock_agent.messages[-1]["role"] == "assistant"
+
+    def test_chat_stream_async_synthesizes(self, mock_agent):
+        import asyncio
+
+        client = BudgetLLM(tool_rounds=10**6)
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 1
+        mock_agent.max_rounds_extension = 1
+
+        async def run():
+            return [ev async for ev in mock_agent.chat_stream_async("问题")]
+
+        events = asyncio.run(run())
+        assert [n for t, n in events if t == "round"] == [1, 2, 3]
+        assert client.calls_tools[-1] is None
+        assert any(t == "content" and "合成结论" in txt for txt, t in [(e[1], e[0]) for e in events] if t == "content")
+
+    def test_synthesis_failure_falls_back_to_canned(self, mock_agent):
+        client = BudgetLLM(synth_mode="raise")
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 1
+        mock_agent.max_rounds_extension = 0
+        out = mock_agent.chat("问题")
+        assert out == "分析轮次已达上限，请简化问题后重试。"
+        assert mock_agent.messages[-1]["role"] == "assistant"
+
+    def test_synthesis_empty_content_falls_back(self, mock_agent):
+        client = BudgetLLM(synth_mode="empty")
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 1
+        mock_agent.max_rounds_extension = 0
+        events = list(mock_agent.chat_stream("问题"))
+        contents = [t for typ, t in events if typ == "content"]
+        assert any("分析轮次已达上限" in c for c in contents)
+        assert events[-1] == ("done", "")
+
+    def test_stream_synthesis_failure_does_not_leak_stale_response(self, mock_agent):
+        """合成调用早期抛错：不得把上一轮残留 last_stream_response 当终稿写进历史"""
+        client = BudgetLLM(tool_rounds=10**6, synth_mode="raise")
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 1
+        mock_agent.max_rounds_extension = 0
+        events = list(mock_agent.chat_stream("问题"))
+        # 上一轮的 tool_calls 残留不得出现在终稿
+        assert mock_agent.messages[-1]["role"] == "assistant"
+        assert "分析轮次已达上限" in mock_agent.messages[-1]["content"]
+        assert mock_agent.messages[-1].get("tool_calls") is None
+        assert events[-1] == ("done", "")
+
+
+class TestExtensionSelfSelection:
+    """基础边界处由模型自主决定：继续调工具 = 续杯，直接答 = 自然收尾（无合成轮）"""
+
+    def test_model_wraps_at_boundary(self, mock_agent):
+        client = BudgetLLM(tool_rounds=2, text_at=3)  # 第 3 次调用（决策轮）直接作答
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 2
+        mock_agent.max_rounds_extension = 3
+        out = mock_agent.chat("问题")
+        assert out == "自然收尾结论"
+        assert client.calls_tools.count(None) == 0, "自然收尾不应触发合成轮"
+        assert len(client.calls_tools) == 3
+        # 决策轮收到的历史里必须有边界提示
+        assert any("基础轮次已用完" in str(m.get("content", "")) for m in client.received[-1])
+        assert mock_agent.messages[-1]["role"] == "assistant"
+
+    def test_model_extends_at_boundary(self, mock_agent):
+        client = BudgetLLM(tool_rounds=3, text_at=4)  # 决策轮继续要工具，第 4 次作答
+        _ready_agent(mock_agent, client)
+        mock_agent.max_rounds = 2
+        mock_agent.max_rounds_extension = 3
+        out = mock_agent.chat("问题")
+        assert out == "自然收尾结论"
+        assert client.calls_tools.count(None) == 0
+        assert len(client.calls_tools) == 4
+        # 边界后的续杯轮里仍有边界提示可见
+        assert any("基础轮次已用完" in str(m.get("content", "")) for m in client.received[2])
+
+
+class TestSmartTruncateCatalog:
+    """工具输出结构化截断：因子目录剥说明保 id/参数、按类裁剪如实报数、按工具预算"""
+
+    def _agent(self):
+        a = StockAgent.__new__(StockAgent)
+        a._pending_system_notes = []
+        a._truncated_tools = set()
+        return a
+
+    @staticmethod
+    def _catalog(n_cats=4, n_per=25):
+        return {
+            "categories": [
+                {
+                    "category": f"类{i}",
+                    "factors": [
+                        {
+                            "id": f"f_{i}_{j}",
+                            "name": f"因子{i}-{j}",
+                            "description": "说明" + "长" * 100,
+                            "params": {"fast": {"default": 5, "min": 2, "max": 60, "step": 1}},
+                        }
+                        for j in range(n_per)
+                    ],
+                }
+                for i in range(n_cats)
+            ]
+        }
+
+    def test_result_budget_override(self):
+        from deeppulse import config
+
+        assert StockAgent._result_budget("list_factors") == 16384
+        assert StockAgent._result_budget("get_daily_kline") == config.MAX_TOOL_RESULT_CHARS == 8000
+
+    def test_catalog_strip_descriptions_keeps_all_ids(self):
+        a = self._agent()
+        raw = json.dumps(self._catalog(), ensure_ascii=False)
+        assert len(raw) > 8000, "样例须大过通用上限才有截断意义"
+        out = a._smart_truncate(raw, StockAgent._result_budget("list_factors"), "list_factors")
+        data = json.loads(out)
+        assert len(out) <= StockAgent._result_budget("list_factors")
+        assert data["_truncated"] is True
+        assert "说明" in data["_truncated_hint"] and "list_factors" in data["_truncated_hint"]
+        ids = [f["id"] for c in data["categories"] for f in c["factors"]]
+        assert ids == [f"f_{i}_{j}" for i in range(4) for j in range(25)], "剥说明后因子 id 全保"
+        assert all("description" not in f for c in data["categories"] for f in c["factors"])
+        assert all(set(f) >= {"id", "name", "params"} for c in data["categories"] for f in c["factors"])
+
+    def test_catalog_trims_factors_with_honest_counts(self):
+        a = self._agent()
+        cat = self._catalog()
+        all_ids = {f["id"] for c in cat["categories"] for f in c["factors"]}
+        raw = json.dumps(cat, ensure_ascii=False)
+        out = a._smart_truncate(raw, 8000, "list_factors")
+        data = json.loads(out)
+        assert len(out) <= 8000
+        kept = sum(len(c["factors"]) for c in data["categories"])
+        assert 0 < kept < 100, "超预算须裁因子但不得全丢"
+        assert f"{kept}/100" in data["_truncated_hint"], "hint 须报保留/总数"
+        assert "list_factors" in data["_truncated_hint"], "hint 须指路按类取全量"
+        for c in data["categories"]:
+            for f in c["factors"]:
+                assert set(f) >= {"id", "name", "params"}, "保留条目形态完整，不得腰斩成裸字符串"
+                assert f["id"] in all_ids, "factor_id 必须是完整原 id（防截字符串腰斩）"
+                assert "description" not in f
+
+    def test_catalog_last_resort_keeps_structure(self):
+        a = self._agent()
+        cat = self._catalog(n_cats=30, n_per=40)
+        all_ids = {f["id"] for c in cat["categories"] for f in c["factors"]}
+        raw = json.dumps(cat, ensure_ascii=False)
+        out = a._smart_truncate(raw, 1200, "list_factors")
+        data = json.loads(out)
+        assert len(out) <= 1200
+        assert data["_truncated"] is True and "list_factors" in data["_truncated_hint"]
+        assert isinstance(data["categories"], list) and data["categories"], "收窄后仍是合法目录结构"
+        kept = sum(len(c["factors"]) for c in data["categories"])
+        assert 0 < kept < 30 * 40, "至少每类留 1 个因子，不得裁成空目录"
+        for c in data["categories"]:
+            assert "category" in c
+            assert c["factors"], "每个保留分类必须仍有因子"
+            for f in c["factors"]:
+                assert set(f) >= {"id", "name", "params"}
+                assert f["id"] in all_ids, "factor_id 必须是完整原 id"
+
+    def test_run_tool_respects_per_tool_budget(self):
+        """预算须经 _run_tool 生产接缝生效——回退硬编码 8000 此钉变红"""
+        import deeppulse.agent.agent as agent_mod
+
+        a = self._agent()
+        big = json.dumps(self._catalog(n_cats=1, n_per=60), ensure_ascii=False)
+        assert 8000 < len(big) < 16384, "样例介于两个预算之间才有区分度"
+        with patch.dict(
+            agent_mod.TOOL_DISPATCH,
+            {"list_factors": lambda **kw: big, "get_daily_kline": lambda **kw: big},
+            clear=False,
+        ):
+            out_f = json.loads(a._run_tool("list_factors", {}))
+            out_g = json.loads(a._run_tool("get_daily_kline", {}))
+        ids = [f["id"] for c in out_f["categories"] for f in c["factors"]]
+        assert len(ids) == 60 and out_f.get("_truncated") is not True, \
+            "list_factors 走 16384 预算：介于两预算间的样例整体不触发截断"
+        assert out_g["_truncated"] is True, "其他工具仍受 8000 约束"
+        assert len(json.dumps(out_g, ensure_ascii=False)) <= 8000
+        g_ids = [f["id"] for c in out_g["categories"] for f in c["factors"]]
+        assert g_ids and all(i in set(ids) for i in g_ids), "8000 预算收缩后 id 不得腰斩"
+        assert all("description" not in f for c in out_g["categories"] for f in c["factors"]), \
+            "8000 预算先剥说明（16384 预算的 list_factors 不必剥，此差即预算接线证据）"
+
+    def test_non_catalog_results_still_shrink_normally(self):
+        a = self._agent()
+        payload = {"results": [{"i": k, "s": "x" * 40} for k in range(400)]}
+        raw = json.dumps(payload, ensure_ascii=False)
+        assert len(raw) > 8000
+        out = a._smart_truncate(raw, 8000, "get_daily_kline")
+        data = json.loads(out)
+        assert data["_truncated"] is True
+        assert len(data["results"]) < 400, "非目录结构仍走识别键收缩"
+        assert len(out) <= 8000

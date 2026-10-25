@@ -34,17 +34,30 @@ class TestBuildSystemPrompt:
         # generate_chart 工具以 auto_open=False 调用，提示词不得承诺自动打开浏览器
         assert "浏览器自动打开" not in build_system_prompt()
 
-    def test_analysis_framework_numbering(self):
+    def test_analysis_framework_batched(self):
+        """个股分析框架按批次组织（批内并行），锚定批次标签防漂移回串行菜谱"""
         p = build_system_prompt()
-        assert "10. 用 stock_news" in p
-        assert "15. 用 assess_trend" in p
-        assert "18. **用 save_memory" in p
-        assert p.count("\n16.") == 1  # 无重复编号
+        assert "批次 2（技术面全景）" in p
+        assert "批次 5（按需·量化校验" in p
+        assert "批次 6（输出物）" in p
+        assert "stock_news" in p and "save_memory" in p
+        assert p.count("批次 2（") == 1  # 批次标签无重复
 
     def test_market_hotspot_section(self):
         p = build_system_prompt()
         assert "## 市场热点分析" in p
-        assert "7. 综合分析市场情绪和热点方向" in p
+        assert "2. 综合分析市场情绪和热点方向" in p
+        assert "一批并行取数" in p
+
+    def test_budget_discipline_section(self):
+        """轮次纪律：预算告知、并行优先、错误重试上限、范围路由缺一不可"""
+        p = build_system_prompt()
+        assert "轮次预算与工具调用纪律" in p
+        assert "并行优先" in p
+        assert "最多修正重试 1 次" in p
+        assert "2~3 轮内作答" in p
+        # 纪律在工具全景之前（模型先读规则再读工具清单）
+        assert p.index("轮次预算与工具调用纪律") < p.index("工具全景")
 
     def test_screen_v2_mentioned(self):
         assert "screen_stocks_v2" in build_system_prompt()

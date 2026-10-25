@@ -3,6 +3,8 @@
 import math
 import struct
 
+from deeppulse import config
+
 
 class EmbeddingIndex:
     """Embedding 向量索引，支持本地模型和 API 两种方式（懒加载）"""
@@ -10,7 +12,7 @@ class EmbeddingIndex:
     def __init__(self, setting: dict = None):
         self._model = None
         self._api_client = None
-        self._cache = {}  # {memory_id: vector}
+        self._cache = {}  # {memory_id: vector}（插入序 = 近似 LRU 序）
         self._provider = "none"
         self._ready = False
         self._setting = setting
@@ -77,7 +79,7 @@ class EmbeddingIndex:
         return self._ready
 
     def encode(self, texts: list[str]) -> list[list[float]]:
-        """批量生成 embedding 向量（懒加载）"""
+        """批量生成 embedding 向量（懒加载）；失败回落空向量（未知不伪造）"""
         # 延迟初始化
         self._ensure_initialized()
 
@@ -106,32 +108,58 @@ class EmbeddingIndex:
         return result[0] if result else []
 
     def load_cache(self, conn) -> int:
-        """从数据库加载所有 embedding 到内存缓存"""
+        """从数据库加载 embedding 到内存缓存；单条坏 blob 跳过不拖垮整批"""
         try:
             rows = conn.execute("""
                 SELECT id, embedding FROM long_term_memories
                 WHERE embedding IS NOT NULL AND is_archived = FALSE
+                ORDER BY updated_at DESC
             """).fetchall()
-            self._cache = {}
-            for row in rows:
-                vec = self._bytes_to_vector(row[1])
-                if vec:
-                    self._cache[row[0]] = vec
-            return len(self._cache)
         except Exception:
             return 0
 
-    def add_to_cache(self, memory_id: str, vector: list[float]):
-        """添加向量到缓存"""
-        if vector:
-            self._cache[memory_id] = vector
+        self._cache = {}
+        skipped = 0
+        max_cache = int(getattr(config, "EMBEDDING_CACHE_MAX", 5000) or 5000)
+        for row in rows:
+            if max_cache > 0 and len(self._cache) >= max_cache:
+                skipped += 1
+                continue
+            try:
+                vec = self._bytes_to_vector(row[1])
+            except Exception:
+                skipped += 1
+                continue
+            if vec:
+                self._cache[row[0]] = vec
+        return len(self._cache)
+
+    def add_to_cache(self, memory_id: str, vector: list[float]) -> bool:
+        """添加向量到缓存；维度与缓存内既有向量不一致时拒收（换模型后防静默算错）"""
+        if not vector:
+            return False
+        expected = self._cache_dim()
+        if expected is not None and len(vector) != expected:
+            return False
+        # 超限按插入序淘汰最旧（近似 LRU）
+        max_cache = int(getattr(config, "EMBEDDING_CACHE_MAX", 5000) or 5000)
+        if max_cache > 0 and memory_id not in self._cache and len(self._cache) >= max_cache:
+            self._cache.pop(next(iter(self._cache)), None)
+        self._cache[memory_id] = vector
+        return True
+
+    def _cache_dim(self) -> int | None:
+        """缓存内向量的统一维度（空缓存返回 None）"""
+        for vec in self._cache.values():
+            return len(vec)
+        return None
 
     def remove_from_cache(self, memory_id: str):
         """从缓存移除向量"""
         self._cache.pop(memory_id, None)
 
     def search(self, query_vector: list[float], top_k: int = 50) -> list[tuple[str, float]]:
-        """向量相似度搜索，返回 (memory_id, similarity) 列表"""
+        """向量相似度搜索，返回 (memory_id, similarity) 列表；相似度已夹取到 [0,1]"""
         if not query_vector or not self._cache:
             return []
 
@@ -140,19 +168,24 @@ class EmbeddingIndex:
         if q_norm == 0:
             return []
 
+        q_dim = len(query_vector)
         for mid, vec in self._cache.items():
+            if len(vec) != q_dim:
+                # 换模型后的新旧向量混存：维度不齐的直接跳过，绝不按短边截断硬算
+                continue
             v_norm = self._norm(vec)
             if v_norm == 0:
                 continue
             sim = self._dot(query_vector, vec) / (q_norm * v_norm)
-            results.append((mid, sim))
+            results.append((mid, min(1.0, max(0.0, sim))))
 
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
 
     @staticmethod
     def _dot(a: list[float], b: list[float]) -> float:
-        return sum(x * y for x, y in zip(a, b, strict=False))
+        # strict=True：维度不齐直接抛错，不许 zip 按短边截断掩盖维度漂移
+        return sum(x * y for x, y in zip(a, b, strict=True))
 
     @staticmethod
     def _norm(a: list[float]) -> float:
@@ -167,8 +200,10 @@ class EmbeddingIndex:
 
     @staticmethod
     def _bytes_to_vector(data: bytes) -> list[float]:
-        """将 bytes 还原为向量"""
+        """将 bytes 还原为向量；长度非 4 倍数抛 ValueError（由调用方跳过该条）"""
         if not data:
             return []
+        if len(data) % 4 != 0:
+            raise ValueError(f"embedding blob 长度非法: {len(data)} bytes")
         n = len(data) // 4
         return list(struct.unpack(f"{n}f", data))

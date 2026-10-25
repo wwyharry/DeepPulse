@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>DeepPulse · 智能投研助手</title>
+  <script>
+    /* 主题引导（防 FOUC）：须在样式表之前执行；存储键/取值与 app.js themeUI 保持一致 */
+    (function () {
+      var t = 'dark';
+      try {
+        t = localStorage.getItem('deeppulse.theme');
+        if (t !== 'light' && t !== 'dark') {
+          t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+        }
+      } catch (e) {
+        try { t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark'; } catch (e2) {}
+      }
+      document.documentElement.setAttribute('data-theme', t);
+      document.documentElement.style.colorScheme = t;
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" media="(prefers-color-scheme: light)" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a5fae' stroke-width='1.8'%3E%3Cpath d='M8 3v4'/%3E%3Crect x='5.25' y='7' width='5.5' height='8' rx='1'/%3E%3Cpath d='M8 15v6'/%3E%3Cpath d='M16 5v3'/%3E%3Crect x='13.25' y='8' width='5.5' height='6' rx='1'/%3E%3Cpath d='M16 14v6'/%3E%3C/svg%3E">
+  <link rel="icon" media="(prefers-color-scheme: dark)" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237db8f5' stroke-width='1.8'%3E%3Cpath d='M8 3v4'/%3E%3Crect x='5.25' y='7' width='5.5' height='8' rx='1'/%3E%3Cpath d='M8 15v6'/%3E%3Cpath d='M16 5v3'/%3E%3Crect x='13.25' y='8' width='5.5' height='6' rx='1'/%3E%3Cpath d='M16 14v6'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div id="icon-sprite-host" aria-hidden="true"></div>
+
+  <div id="app">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <button class="icon-btn menu-toggle" id="menuToggle" title="会话列表" data-icon="menu"></button>
+      <div class="brand">
+        <span data-icon="logo" data-size="22"></span>
+        <span>DeepPulse</span>
+      </div>
+      <!-- 视图切换：看板（纯数据整理）| 对话 -->
+      <div class="view-tabs" id="viewTabs">
+        <button class="view-tab" id="viewDashboard" data-view="dashboard" title="市场看板">
+          <span data-icon="layers"></span>
+          <span>看板</span>
+        </button>
+        <button class="view-tab" id="viewChat" data-view="chat" title="投研对话">
+          <span data-icon="chat"></span>
+          <span>对话</span>
+        </button>
+      </div>
+      <div class="topbar-stats" id="topbarStats">
+        <!-- 窄屏丢弃顺序：工具数→耗时→会话→模型；轮次 R{n} 常驻（比模型更久） -->
+        <span class="stat-chip hide-xs" id="statModel" title="当前模型"><span data-icon="zap"></span><b>--</b></span>
+        <span class="stat-chip hide-xs" id="statSession" title="会话 ID"><span data-icon="chat"></span><b>--</b></span>
+        <span class="stat-chip" id="statRound" title="推理轮次"><b>R0</b></span>
+        <span class="stat-chip hide-sm" id="statTools" title="工具调用次数"><span data-icon="wrench"></span><b>0</b></span>
+        <span class="stat-chip hide-sm" id="statTime" title="本轮耗时"><span data-icon="clock"></span><b>0s</b></span>
+        <span class="stat-chip" id="statStatus"><span data-icon="check"></span><b>就绪</b></span>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="themeBtn" title="切换到浅色模式" data-icon="sun"></button>
+        <button class="icon-btn primary" id="settingsBtn" title="设置" data-icon="gear"></button>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- 左栏：会话列表 -->
+      <aside class="col col-left" id="colLeft">
+        <div class="sessions-toolbar">
+          <button class="btn primary block" id="newSessionBtn">
+            <span data-icon="plus"></span>
+            <span>新对话</span>
+          </button>
+          <div class="session-search">
+            <span data-icon="search"></span>
+            <input type="text" id="sessionSearch" placeholder="搜索会话" autocomplete="off">
+          </div>
+        </div>
+        <div class="panel-head">
+          <span data-icon="clock"></span>
+          <span>历史会话</span>
+        </div>
+        <div class="session-list" id="sessionList"></div>
+      </aside>
+
+      <!-- 中栏：对话流 -->
+      <section class="col col-chat" id="colChat">
+        <div class="chat-scroll" id="chatScroll">
+          <div class="chat-inner" id="chatInner"></div>
+        </div>
+        <button class="back-to-latest" id="backToLatest">
+          <span data-icon="chevron-down"></span>
+          <span>回到最新</span>
+        </button>
+        <div class="chat-input-area">
+          <div class="cmd-menu" id="cmdMenu"></div>
+          <div class="input-shell">
+            <textarea id="chatInput" rows="1" placeholder="输入你的问题…  / 唤起命令" spellcheck="false"></textarea>
+            <button class="send-btn" id="sendBtn" title="发送">
+              <span id="sendIcon" data-icon="send"></span>
+            </button>
+          </div>
+          <div class="input-hint">
+            <span>Enter 发送 · Shift+Enter 换行</span>
+            <span>/ 命令菜单</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 中栏：市场看板（纯数据整理，不含任何算法推荐） -->
+      <section class="col col-dashboard" id="colDashboard" hidden>
+        <div class="dash-scroll" id="dashScroll">
+          <div class="dash-banner" id="dashBanner" hidden>
+            <span data-icon="clock"></span>
+            <span id="dashBannerText"></span>
+          </div>
+          <div class="dash-head">
+            <div class="dash-title">
+              <span data-icon="layers"></span>
+              <span>市场看板</span>
+              <span class="dash-updated" id="dashUpdated">--</span>
+            </div>
+            <button class="mini-refresh" id="dashRefresh" title="立即刷新" data-icon="refresh"></button>
+          </div>
+          <div class="dash-grid">
+            <div class="side-card dash-card dash-wide">
+              <div class="side-card-head">
+                <span data-icon="chart-line"></span>
+                <span>市场概况</span>
+              </div>
+              <div class="side-card-body" id="dashOverviewBody"></div>
+            </div>
+            <div class="side-card dash-card dash-wide">
+              <div class="side-card-head">
+                <span data-icon="layers"></span>
+                <span>连板梯队</span>
+              </div>
+              <div class="side-card-body" id="dashLadderBody"></div>
+            </div>
+            <div class="side-card dash-card">
+              <div class="side-card-head">
+                <span data-icon="sparkle"></span>
+                <span>涨停池</span>
+              </div>
+              <div class="side-card-body" id="dashLimitUpBody"></div>
+            </div>
+            <div class="side-card dash-card">
+              <div class="side-card-head">
+                <span data-icon="warning"></span>
+                <span>炸板池</span>
+              </div>
+              <div class="side-card-body" id="dashFailedBody"></div>
+            </div>
+            <div class="side-card dash-card">
+              <div class="side-card-head">
+                <span data-icon="chevron-down"></span>
+                <span>跌停池</span>
+              </div>
+              <div class="side-card-body" id="dashLimitDownBody"></div>
+            </div>
+            <div class="side-card dash-card">
+              <div class="side-card-head">
+                <span data-icon="database"></span>
+                <span>行业板块</span>
+              </div>
+              <div class="side-card-body" id="dashSectorsBody"></div>
+            </div>
+            <div class="side-card dash-card dash-wide">
+              <div class="side-card-head">
+                <span data-icon="book"></span>
+                <span>资讯要闻</span>
+              </div>
+              <div class="side-card-body" id="dashNewsBody"></div>
+            </div>
+          </div>
+          <div class="dash-foot">
+            <span data-icon="shield"></span>
+            <span>看板仅为公开数据整理与客观统计，不构成任何投资建议。</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右栏：数据面板 -->
+      <aside class="col col-right" id="colRight">
+        <div class="panel-head">
+          <span data-icon="chart-line"></span>
+          <span>市场面板</span>
+        </div>
+
+        <div class="side-card">
+          <div class="side-card-head">
+            <span data-icon="star"></span>
+            <span>自选股</span>
+            <span class="spacer"></span>
+            <button class="mini-refresh" id="refreshWatchlist" title="刷新自选股" data-icon="refresh"></button>
+          </div>
+          <div class="side-card-body" id="watchlistBody"></div>
+        </div>
+
+        <div class="side-card">
+          <div class="side-card-head">
+            <span data-icon="wallet"></span>
+            <span>持仓</span>
+            <span class="spacer"></span>
+            <button class="mini-refresh" id="refreshPortfolio" title="刷新持仓" data-icon="refresh"></button>
+          </div>
+          <div class="side-card-body" id="portfolioBody"></div>
+        </div>
+
+        <div class="side-card">
+          <div class="side-card-head">
+            <span data-icon="chart-line"></span>
+            <span>市场指数</span>
+            <span class="spacer"></span>
+            <button class="mini-refresh" id="refreshIndices" title="刷新指数" data-icon="refresh"></button>
+          </div>
+          <div class="side-card-body" id="indicesBody"></div>
+        </div>
+
+        <div class="side-card">
+          <div class="side-card-head">
+            <span data-icon="database"></span>
+            <span>数据摘要</span>
+            <span class="spacer"></span>
+            <button class="mini-refresh" id="clearSummary" title="清空摘要" data-icon="x"></button>
+          </div>
+          <div class="side-card-body" id="summaryBody"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="drawer-mask" id="drawerMask"></div>
+
+  <!-- 设置模态框 -->
+  <div class="modal-mask" id="settingsMask">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="设置">
+      <div class="modal-head">
+        <span data-icon="gear"></span>
+        <span>设置</span>
+        <span class="spacer"></span>
+        <button class="icon-btn" id="settingsClose" title="关闭" data-icon="x"></button>
+      </div>
+      <div class="modal-tabs" id="settingsTabs">
+        <button type="button" class="modal-tab active" data-target="secLlm"><span data-icon="zap"></span><span>LLM 连接</span></button>
+        <button type="button" class="modal-tab" data-target="secEmbed"><span data-icon="layers"></span><span>嵌入</span></button>
+        <button type="button" class="modal-tab" data-target="secAgent"><span data-icon="brain"></span><span>代理</span></button>
+        <button type="button" class="modal-tab" data-target="secData"><span data-icon="database"></span><span>数据</span></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="form-section" id="secLlm">
+          <div class="form-section-head">
+            <span data-icon="zap"></span>
+            <span>LLM 连接</span>
+          </div>
+          <div class="form-section-body">
+            <div class="field span2">
+              <label>服务商预设</label>
+              <div class="preset-group" id="llmPresets">
+                <button type="button" class="preset-btn" data-preset="deepseek">DeepSeek</button>
+                <button type="button" class="preset-btn" data-preset="openai">OpenAI</button>
+                <button type="button" class="preset-btn" data-preset="anthropic">Anthropic</button>
+                <button type="button" class="preset-btn" data-preset="custom">自定义</button>
+              </div>
+              <div class="hint">选中预设会自动填入 base_url 与推荐模型，可再手动修改。</div>
+            </div>
+
+            <div class="field">
+              <label>协议 protocol</label>
+              <div class="radio-group" id="protocolGroup">
+                <label class="radio-chip active"><input type="radio" name="protocol" value="openai" checked>openai</label>
+                <label class="radio-chip"><input type="radio" name="protocol" value="anthropic">anthropic</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>提供商 provider（备注用）</label>
+              <input type="text" id="llmProvider" placeholder="如 deepseek / openai">
+            </div>
+
+            <div class="field span2">
+              <label>API 地址 base_url</label>
+              <input type="text" id="llmBaseUrl" placeholder="https://api.deepseek.com">
+              <div class="hint" id="baseUrlHint">openai 协议下生效；anthropic 协议使用官方固定地址。</div>
+            </div>
+
+            <div class="field span2">
+              <label>API Key</label>
+              <div class="input-with-btn">
+                <input type="password" id="llmApiKey" placeholder="留空保持不变" autocomplete="off">
+                <button type="button" class="icon-btn" id="toggleKey" title="显示/隐藏" data-icon="eye"></button>
+              </div>
+              <div class="hint" id="apiKeyHint"><span data-icon="shield"></span> 出于安全考虑不回显明文；留空表示保持原有密钥不变。</div>
+            </div>
+
+            <div class="field">
+              <label>模型 model</label>
+              <input type="text" id="llmModel" list="modelList" placeholder="deepseek-chat">
+              <datalist id="modelList">
+                <option value="deepseek-chat"></option>
+                <option value="deepseek-reasoner"></option>
+                <option value="gpt-4o"></option>
+                <option value="gpt-4o-mini"></option>
+                <option value="gpt-4.1"></option>
+                <option value="claude-sonnet-4-5"></option>
+                <option value="claude-opus-4-1"></option>
+              </datalist>
+            </div>
+
+            <div class="field">
+              <label>最大输出 tokens</label>
+              <input type="number" id="llmMaxTokens" min="1" step="1" placeholder="4096">
+              <div class="hint">留空保存 = 清除该项（回落默认）；anthropic 协议下清除回落 4096。</div>
+            </div>
+
+            <div class="field">
+              <label>温度 temperature</label>
+              <div class="range-row">
+                <input type="range" id="llmTemperature" min="0" max="2" step="0.1" value="0.7">
+                <span class="range-val" id="llmTemperatureVal">0.7</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>超时 timeout（秒）</label>
+              <input type="number" id="llmTimeout" min="0" step="1" placeholder="120">
+              <div class="hint">留空保存 = 清除该项（回落全局默认 120 秒）；0 = 用 SDK 默认。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section" id="secEmbed">
+          <div class="form-section-head">
+            <span data-icon="layers"></span>
+            <span>嵌入 Embedding</span>
+          </div>
+          <div class="form-section-body">
+            <div class="field">
+              <label>嵌入提供商</label>
+              <select id="embProvider">
+                <option value="none">none（默认，不启用）</option>
+                <option value="local">local（本地模型）</option>
+                <option value="openai">openai（兼容接口）</option>
+              </select>
+              <div class="hint">local 会占用较多内存；openai 需填写 api_key 与 base_url。</div>
+            </div>
+            <div class="field">
+              <label>嵌入模型</label>
+              <input type="text" id="embModel" placeholder="text-embedding-3-small">
+            </div>
+            <div class="field">
+              <label>嵌入 API Key</label>
+              <input type="password" id="embApiKey" placeholder="留空保持不变" autocomplete="off">
+            </div>
+            <div class="field">
+              <label>嵌入 base_url</label>
+              <input type="text" id="embBaseUrl" placeholder="https://api.openai.com/v1">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section" id="secAgent">
+          <div class="form-section-head">
+            <span data-icon="brain"></span>
+            <span>代理 Agent</span>
+          </div>
+          <div class="form-section-body">
+            <div class="field">
+              <label>最大推理轮次 max_rounds</label>
+              <input type="number" id="agentMaxRounds" min="1" step="1" placeholder="12">
+              <div class="hint">必填项：留空保存 = 保持原值不变（不支持清除）。</div>
+            </div>
+            <div class="field">
+              <label>附加轮次额度 max_rounds_extension</label>
+              <input type="number" id="agentMaxRoundsExtension" min="0" step="1" placeholder="10">
+              <div class="hint">基础轮次用完后由代理自主决定是否续杯的附加额度，硬上限 = 基础 + 附加。0=不附加；留空保存 = 保持原值不变；缺省 10。</div>
+            </div>
+            <div class="field">
+              <label>输出详细过程 verbose</label>
+              <div class="switch-row">
+                <label class="switch">
+                  <input type="checkbox" id="agentVerbose">
+                  <span class="track"></span>
+                  <span class="knob"></span>
+                </label>
+                <span class="hint">开启后终端日志更详细。</span>
+              </div>
+            </div>
+            <div class="field span2">
+              <label>评判 Agent enable_judge</label>
+              <div class="switch-row">
+                <label class="switch">
+                  <input type="checkbox" id="agentJudge">
+                  <span class="track"></span>
+                  <span class="knob"></span>
+                </label>
+                <span class="hint">开启后支持手动触发评判 Agent 对回答打分。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section" id="secData">
+          <div class="form-section-head">
+            <span data-icon="database"></span>
+            <span>数据</span>
+          </div>
+          <div class="form-section-body">
+            <div class="field">
+              <label>在线兜底 online_fallback</label>
+              <div class="switch-row">
+                <label class="switch">
+                  <input type="checkbox" id="dataOnlineFallback">
+                  <span class="track"></span>
+                  <span class="knob"></span>
+                </label>
+                <span class="hint">本地缺数据时在线取数。</span>
+              </div>
+            </div>
+            <div class="field">
+              <label>回写缓存 cache_to_db</label>
+              <div class="switch-row">
+                <label class="switch">
+                  <input type="checkbox" id="dataCacheToDb">
+                  <span class="track"></span>
+                  <span class="knob"></span>
+                </label>
+                <span class="hint">在线数据写入本地库。</span>
+              </div>
+            </div>
+            <div class="field">
+              <label>默认数据源 default_source</label>
+              <select id="dataSource">
+                <option value="baostock">baostock</option>
+                <option value="akshare">akshare</option>
+                <option value="eastmoney">eastmoney</option>
+                <option value="tencent">tencent</option>
+                <option value="sina">sina</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>数据库路径 db_path</label>
+              <input type="text" id="dataDbPath" readonly>
+              <div class="hint">只读展示，如需更换请修改 setting.json。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="test-result" id="testResult"></div>
+        <div class="modal-scroll-spacer" id="settingsScrollSpacer" aria-hidden="true"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="testConnectionBtn">
+          <span data-icon="zap"></span>
+          <span>测试连接</span>
+        </button>
+        <span class="spacer"></span>
+        <button class="btn" id="settingsCancel">取消</button>
+        <button class="btn primary" id="settingsSave">
+          <span data-icon="check"></span>
+          <span>保存</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script src="/static/icons.js"></script>
+  <script src="/static/markdown.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

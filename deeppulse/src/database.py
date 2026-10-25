@@ -300,18 +300,6 @@ def init_memory_tables(conn: duckdb.DuckDBPyConnection) -> None:
     """)
 
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS session_memories (
-            id VARCHAR PRIMARY KEY,
-            session_id VARCHAR NOT NULL,
-            memory_type VARCHAR NOT NULL,
-            content VARCHAR NOT NULL,
-            metadata_json VARCHAR,
-            created_at TIMESTAMP DEFAULT current_timestamp,
-            expires_at TIMESTAMP NOT NULL
-        )
-    """)
-
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS memory_sessions (
             session_id VARCHAR PRIMARY KEY,
             started_at TIMESTAMP DEFAULT current_timestamp,

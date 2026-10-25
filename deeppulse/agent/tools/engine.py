@@ -7,17 +7,34 @@
 import json
 
 from deeppulse.agent.tools._shared import parse_positive_int
+from deeppulse.strategy.spec import LOGIC_JSON_HINT
 
 
-def list_factors() -> str:
+def list_factors(category: str = "") -> str:
     """列出量化引擎全部因子目录（按分类分组）：id/名称/描述/参数搜索范围。
 
     写 logic_json 之前必须先调用本工具确认 factor_id 与参数取值范围，
     禁止凭记忆猜测 factor_id（猜错会浪费评测次数）。
+    全量目录较大，可能被结构化截断（id/参数搜索范围始终保留）；
+    传 category 可只取单类全量（精确或包含匹配），如 category="技术指标"。
     """
     from deeppulse.strategy.factor_library import list_factors_catalog
 
-    return json.dumps({"categories": list_factors_catalog()}, ensure_ascii=False, default=str)
+    cats = list_factors_catalog()
+    if category:
+        key = str(category).strip()
+        matched = [c for c in cats if key in str(c.get("category", ""))]
+        if not matched:
+            return json.dumps(
+                {
+                    "error": f"未找到分类: {category}",
+                    "categories_available": [str(c.get("category", "")) for c in cats],
+                },
+                ensure_ascii=False,
+                default=str,
+            )
+        cats = matched
+    return json.dumps({"categories": cats}, ensure_ascii=False, default=str)
 
 
 def evaluate_trade_logic(
@@ -42,9 +59,9 @@ def evaluate_trade_logic(
     try:
         logic = json.loads(logic_json) if isinstance(logic_json, str) else logic_json
     except Exception as e:
-        return json.dumps({"error": f"logic_json 不是合法 JSON: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": f"logic_json 不是合法 JSON: {e}", "hint": LOGIC_JSON_HINT}, ensure_ascii=False)
     if not isinstance(logic, dict):
-        return json.dumps({"error": "logic_json 必须是 JSON 对象"}, ensure_ascii=False)
+        return json.dumps({"error": "logic_json 必须是 JSON 对象", "hint": LOGIC_JSON_HINT}, ensure_ascii=False)
 
     out = calc_engine.evaluate_trade_logic(
         code,
@@ -69,9 +86,9 @@ def calibrate_params(code: str, logic_json: str, days: int = 250, max_combos: in
     try:
         logic = json.loads(logic_json) if isinstance(logic_json, str) else logic_json
     except Exception as e:
-        return json.dumps({"error": f"logic_json 不是合法 JSON: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": f"logic_json 不是合法 JSON: {e}", "hint": LOGIC_JSON_HINT}, ensure_ascii=False)
     if not isinstance(logic, dict):
-        return json.dumps({"error": "logic_json 必须是 JSON 对象"}, ensure_ascii=False)
+        return json.dumps({"error": "logic_json 必须是 JSON 对象", "hint": LOGIC_JSON_HINT}, ensure_ascii=False)
 
     out = calc_engine.calibrate_params(code, logic, days=days, max_combos=parse_positive_int(max_combos, "max_combos"))
     return json.dumps(out, ensure_ascii=False, default=str)
@@ -133,8 +150,17 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "list_factors",
-            "description": "列出量化引擎全部因子目录（按 13 类分组，含 id/名称/描述/参数搜索范围）。写 logic_json 之前必须先调用确认 factor_id 与参数取值范围。",
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "description": "列出量化引擎全部因子目录（按 13 类分组，含 id/名称/描述/参数搜索范围）。写 logic_json 之前必须先调用确认 factor_id 与参数取值范围。目录大时可传 category 只取单类全量。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "可选：按分类名筛选（精确或包含匹配），减小输出体积",
+                    },
+                },
+                "required": [],
+            },
         },
     },
     {

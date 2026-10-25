@@ -39,15 +39,15 @@ MEMORY_DECAY_THRESHOLD = 0.1  # 有效权重低于此值的记忆将被遗忘
 MEMORY_CONTEXT_MAX_CHARS = 4000  # 注入 system prompt 的记忆上下文最大字符数
 MEMORY_SEARCH_TOP_K = 5  # 默认搜索返回条数
 MEMORY_COMPRESSION_BATCH = 10  # 单次压缩合并的记忆条数
-MEMORY_SESSION_TTL_HOURS = 24  # 会话临时记忆过期时间（小时）
 
 # Embedding 配置
-EMBEDDING_DIMENSION = 768  # 向量维度（text2vec-base-chinese 输出 768 维）
-EMBEDDING_BATCH_SIZE = 10  # 每批生成 embedding 的条数
 EMBEDDING_CACHE_MAX = 5000  # 内存中缓存的最大向量数
 
 # 工具输出限制：单个工具结果的最大字符数，防止上下文溢出导致 LLM 调用卡死
 MAX_TOOL_RESULT_CHARS = 8000
+# 按工具覆盖上限：目录型大对象（list_factors 全量因子目录约 1.6 万字）用 8000 会腰斩 factor_id；
+# 放宽其上限并配合结构化收缩（先剥 description、保 id/参数）保住可用性
+MAX_TOOL_RESULT_CHARS_BY_TOOL = {"list_factors": 16384}
 
 # 数据可选化：在线兜底与本地缓存（股票行情数据可不预先下载）
 DATA_ONLINE_FALLBACK = True  # 本地缺数时在线拉取（默认开）
@@ -64,6 +64,10 @@ HISTORY_MAX_CHARS = 40000  # 保留历史最大字符预算；0 = 不限
 HISTORY_MAX_TOKENS = 16000  # 保留历史最大 token 预算（estimate_tokens 粗估）；0 = 不限
 HISTORY_KEEP_LAST_TURNS = 1  # 最近 N 轮用户问答永不折叠
 HISTORY_FOLD_SUMMARY_MAX_CHARS = 600  # 折叠占位符摘要的最大字符数
+
+# 轮次预算：基础轮次（软上限，setting.json agent.max_rounds）+ 附加额度（agent 自主决定是否续杯）
+# 硬上限 = max_rounds + 附加额度；硬上限处强制收尾合成（tools=None），绝不丢弃已收集数据
+AGENT_MAX_ROUNDS_EXTENSION_DEFAULT = 10  # 附加额度默认；0 = 关闭附加（硬上限 = 基础轮次）
 
 # 工具调用去重检测窗口：检查最近N次调用是否有重复
 TOOL_REPEAT_DETECTION_WINDOW = 5
@@ -99,15 +103,16 @@ DATA_VALIDATION_ENABLED = True  # 是否启用数据验证
 # ── setting.json "data" 段覆盖 ──────────────────────────────────────
 
 
-def load_data_settings() -> dict:
+def load_data_settings(path=None) -> dict:
     """读取 setting.json 的 data 段。
 
+    path: 配置文件路径（str/Path），缺省读 PROJECT_ROOT/setting.json（向后兼容）。
     只取数据相关配置（online_fallback / cache_to_db / default_source / db_path），
     不做 API Key 校验（不能走 agent.client.load_setting，src 层不应依赖 agent）。
     文件缺失/无 data 段/解析失败 → 返回 {}（用默认值）。
     """
     try:
-        with open(PROJECT_ROOT / "setting.json", encoding="utf-8") as f:
+        with open(Path(path) if path else PROJECT_ROOT / "setting.json", encoding="utf-8") as f:
             data = json.load(f)
         data = (data or {}).get("data") or {}
         return data if isinstance(data, dict) else {}
@@ -115,13 +120,15 @@ def load_data_settings() -> dict:
         return {}
 
 
-def reload_data_settings() -> None:
+def reload_data_settings(path=None) -> None:
     """按 setting.json 的 data 段覆盖模块级常量（import 期自动调用一次，测试可重载）。
 
+    path: 可选配置文件路径（str/Path），缺省读 PROJECT_ROOT/setting.json（向后兼容）。
+    web 写盘钩子应传本次写入的 settings_store.SETTING_PATH——写哪个文件就重载哪个文件。
     每次从默认值重新合并，重复调用不会叠加覆盖。
     """
     global DB_PATH, DATA_ONLINE_FALLBACK, DATA_CACHE_TO_DB, DATA_DEFAULT_SOURCE
-    data = load_data_settings()
+    data = load_data_settings(path)
 
     db_path = data.get("db_path")
     DB_PATH = Path(db_path) if db_path else _DEFAULT_DB_PATH

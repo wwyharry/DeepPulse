@@ -14,6 +14,121 @@ import pandas as pd
 
 from deeppulse.strategy.factor_library import get_factor
 
+# logic_json 统一格式提示：解析/校验失败时一次性给出，防止模型逐字段试错烧轮
+LOGIC_JSON_HINT = (
+    'logic_json 形状: {"name": "...", "factors": [{"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, '
+    '"weight": 1.0, "direction": 1}], "entry_threshold": 0.6}。direction 只能是 1（正向）或 -1（反向），'
+    'weight 为正数，factor_id 须来自 list_factors。请按此一次性修正后重试（最多 1 次），不要逐字段试错。'
+)
+
+_DIRECTION_POSITIVE = {"1", "1.0", "+1", "正向", "做多", "多", "long", "+"}
+_DIRECTION_NEGATIVE = {"-1", "-1.0", "反向", "做空", "空", "short", "-"}
+
+
+def _norm_direction(raw):
+    """→ (值 | None, 自动修正说明 | None, 硬错误 | None)。
+
+    数值型非 ±1（如 5）原样放行给 validate()——保持既有校验错误清单行为；
+    非法字符串/None/复合类型才是硬错误。
+    """
+    if isinstance(raw, bool):
+        val = 1 if raw else -1
+        return val, f"direction: {raw} → {val}", None
+    if isinstance(raw, int):
+        return raw, None, None  # ±1 或越界数值都放行给 validate 判（保持既有错误清单）
+    if isinstance(raw, float):
+        if raw.is_integer() and int(raw) in (1, -1):
+            return int(raw), f"direction: {raw} → {int(raw)}", None
+        return raw, None, None  # 同上：越界数值交给 validate
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in _DIRECTION_POSITIVE:
+            return 1, f'direction: "{raw}" → 1', None
+        if s in _DIRECTION_NEGATIVE:
+            return -1, f'direction: "{raw}" → -1', None
+        return None, None, f'direction 非法: {raw!r}（只能是 1 或 -1）'
+    return None, None, f'direction 非法: {raw!r}（只能是 1 或 -1）'
+
+
+def _norm_weight(raw):
+    if isinstance(raw, bool):
+        return None, None, f"weight 非法: {raw!r}（必须是正数）"
+    if isinstance(raw, (int, float)):
+        return float(raw), None, None
+    if isinstance(raw, str):
+        try:
+            return float(raw.strip()), f'weight: "{raw}" → {float(raw.strip())}', None
+        except ValueError:
+            return None, None, f"weight 非法: {raw!r}（必须是正数）"
+    return None, None, f"weight 非法: {raw!r}（必须是正数）"
+
+
+def normalize_logic_dict(logic) -> tuple:
+    """归一化 logic_json（容错修复常见格式错误）→ (normalized, auto_fixed, hard_errors)。
+
+    - 自动修正（进 auto_fixed，透明可查）：direction "1"/1.0/True/"正向"→1（负向同理）；
+      weight 数字串→float；单 dict factors→[dict]；params 非 dict→{}；缺 name 补默认。
+    - 硬错误（进 hard_errors，一次性列全）：缺 factor_id、direction/weight 不可修复、factors 形状非法。
+    - 数值型非法 direction（如 5）与越界数值原样放行给 StrategySpec.validate()（保持既有错误清单）。
+    """
+    auto_fixed: list = []
+    hard_errors: list = []
+    if not isinstance(logic, dict):
+        return {}, auto_fixed, [f"logic_json 必须是 JSON 对象，当前: {type(logic).__name__}"]
+
+    out: dict = {}
+    out["name"] = logic.get("name") or "未命名策略"
+    out["entry_threshold"] = logic.get("entry_threshold", 0.6)
+    out["exit_preset"] = logic.get("exit_preset", "balanced")
+    out["exit_params"] = logic.get("exit_params") if isinstance(logic.get("exit_params"), dict) else {}
+    out["llm_rationale"] = logic.get("llm_rationale") or ""
+
+    factors = logic.get("factors", [])
+    if isinstance(factors, dict):
+        factors = [factors]
+        auto_fixed.append("factors: 单对象已包装为列表")
+    if not isinstance(factors, list):
+        hard_errors.append(f"factors 必须是列表，当前: {type(factors).__name__}")
+        factors = []
+
+    norm_factors = []
+    for i, f in enumerate(factors):
+        if not isinstance(f, dict):
+            hard_errors.append(f"factors[{i}] 必须是 JSON 对象")
+            continue
+        fid = f.get("factor_id")
+        if not fid or not isinstance(fid, str) or not fid.strip():
+            hard_errors.append(f"factors[{i}] 缺少 factor_id")
+            continue
+        nf = {"factor_id": fid.strip()}
+        params = f.get("params")
+        if params is None:
+            nf["params"] = {}
+        elif isinstance(params, dict):
+            nf["params"] = params
+        else:
+            nf["params"] = {}
+            auto_fixed.append(f"factors[{i}].params 非对象，已置空")
+        if "weight" in f:
+            w, fixed, err = _norm_weight(f.get("weight"))
+            if err:
+                hard_errors.append(f"factors[{i}].{err}")
+            else:
+                nf["weight"] = w
+                if fixed:
+                    auto_fixed.append(f"factors[{i}].{fixed}")
+        if "direction" in f:
+            d, fixed, err = _norm_direction(f.get("direction"))
+            if err:
+                hard_errors.append(f"factors[{i}].{err}")
+            else:
+                nf["direction"] = d
+                if fixed:
+                    auto_fixed.append(f"factors[{i}].{fixed}")
+        norm_factors.append(nf)
+    out["factors"] = norm_factors
+    return out, auto_fixed, hard_errors
+
 # 跨参数语义约束（按参数名实际含义，作用于同一因子内合并 default 后的生效值）：
 # "lt" = 必须严格小于（快/慢、短/长、区间上下界相等即语义倒置，如空强势区/自比较）；
 # "le" = 必须小于等于（min/max 范围端点，相等合法，仅 min>max 才是倒置）。

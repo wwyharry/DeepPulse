@@ -1,6 +1,10 @@
 """共享的全局实例与工具函数 - 延迟初始化，避免 import 时副作用"""
 
+import contextvars
 from datetime import date, datetime
+
+# 当前工具调用所属会话（agent._run_tool 注入；跨线程工具执行经 copy_context 传递）
+_current_session_id = contextvars.ContextVar("deeppulse_current_session_id", default=None)
 
 # 成交量单位：数据库存储为股，展示时转为手（1手=100股）
 LOTS_PER_SHARE = 100  # 1手 = 100股
@@ -58,6 +62,38 @@ def get_realtime_manager():
 def get_memory():
     ensure_initialized()
     return _memory
+
+
+def set_current_session(session_id):
+    """绑定当前工具调用的会话归属（save_memory 等落 source_session_id 用）。
+
+    返回 contextvars.Token，调用方须以 reset_current_session 还原，防跨调用泄漏。
+    """
+    return _current_session_id.set(session_id)
+
+
+def reset_current_session(token) -> None:
+    try:
+        _current_session_id.reset(token)
+    except Exception:
+        pass
+
+
+def get_current_session_id():
+    return _current_session_id.get()
+
+
+def set_memory(manager) -> None:
+    """注入共享 MemoryManager 单例（agent 构造后调用）。
+
+    agent 与工具层必须共用同一实例：否则 on_session_end 的 LLM 整合永远看不到
+    工具保存的记忆（_session_new_memory_ids 各自为政）。会话态归属已改为按
+    source_session_id 落库查询，多实例也不会跨会话污染。
+    """
+    global _memory, _initialized
+    if not _initialized:
+        ensure_initialized()
+    _memory = manager
 
 
 def get_strategy_loader():

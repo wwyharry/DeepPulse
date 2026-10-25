@@ -297,18 +297,12 @@ def market_overview() -> str:
     )
 
 
-def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kdj,boll") -> str:
-    """计算股票技术指标"""
-    days = parse_positive_int(days, "days")
-    query = get_query()
-    end = date.today()
-    start = end - timedelta(days=days * 3)
-    df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
-    if df.empty:
-        return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
-    data_source = result_source(df)
+def technical_snapshot(df, indicators: str = "ma,macd,rsi,kdj,boll") -> dict:
+    """技术指标快照（纯函数，供 calc_technical 与 analyze_stock 共享同一份 df）。
 
-    df = df.sort_values("trade_date").reset_index(drop=True)
+    df 需已按 trade_date 升序。返回指标字典；indicators 全无效时返回 {"error": ...}。
+    指标数学零改动——calc_technical 的行为由此函数原样承载。
+    """
     known_indicators = {"ma", "macd", "rsi", "kdj", "boll"}
     indicator_list = [i.strip().lower() for i in str(indicators).split(",") if i.strip()]
     if not indicator_list:
@@ -317,11 +311,8 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kd
     unknown = sorted({i for i in indicator_list if i not in known_indicators})
     indicator_list = [i for i in indicator_list if i in known_indicators]
     if not indicator_list:
-        return json.dumps(
-            {"error": f"indicators 中无有效指标: {indicators!r}，可选 ma,macd,rsi,kdj,boll"},
-            ensure_ascii=False,
-        )
-    result = {"code": code, "count": len(df), "data_source": data_source}
+        return {"error": f"indicators 中无有效指标: {indicators!r}，可选 ma,macd,rsi,kdj,boll"}
+    result = {}
     if unknown:
         result["warning"] = f"忽略未知指标: {','.join(unknown)}，可选 ma,macd,rsi,kdj,boll"
 
@@ -476,6 +467,26 @@ def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kd
             else "量价平稳",
         }
 
+    return result
+
+
+def calc_technical(code: str, days: int = 120, indicators: str = "ma,macd,rsi,kdj,boll") -> str:
+    """计算股票技术指标"""
+    days = parse_positive_int(days, "days")
+    query = get_query()
+    end = date.today()
+    start = end - timedelta(days=days * 3)
+    df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
+    if df.empty:
+        return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
+    data_source = result_source(df)
+
+    df = df.sort_values("trade_date").reset_index(drop=True)
+    snap = technical_snapshot(df, indicators)
+    if "error" in snap:
+        return json.dumps(snap, ensure_ascii=False)
+    result = {"code": code, "count": len(df), "data_source": data_source}
+    result.update(snap)
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -663,7 +674,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "realtime_price",
-            "description": "获取单只股票的实时行情（当前价、涨跌幅、成交量等）。支持多数据源自动故障切换（新浪、东财）。盘中可获取实时数据，盘后获取收盘数据。返回结果包含日期，注意与K线数据去重。",
+            "description": "获取单只股票的实时行情（当前价、涨跌幅、成交量等）。支持多数据源自动故障切换（新浪、腾讯、东财）。盘中可获取实时数据，盘后获取收盘数据。返回结果包含日期，注意与K线数据去重。",
             "parameters": {
                 "type": "object",
                 "properties": {"code": {"type": "string", "description": "6位股票代码"}},

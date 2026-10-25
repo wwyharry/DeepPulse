@@ -23,6 +23,44 @@ def _is_placeholder_api_key(key_val) -> bool:
     return s.startswith("sk-your")
 
 
+def resolve_api_key(key_val) -> str:
+    """解析 api_key 值：占位校验 + 环境变量展开。返回展开后的真实 key（配置问题抛 ValueError 中文提示）。
+
+    语义（load_setting 与 Web 运行路径共用，勿在别处复制）：
+    - 占位值（空/空白/"${}"/"sk-your" 示例）→ 报「未配置」；
+    - "${ENV_VAR}"：查环境变量；未设置但内容以 sk- 开头时按字面 key 直用；否则报「环境变量未设置」；
+    - 展开后复查占位（防环境变量里存了示例 key）。
+    """
+    if _is_placeholder_api_key(key_val):
+        raise ValueError(
+            'API Key 未配置（空值/空白/"${}"占位/"sk-your"示例值）。请编辑 setting.json:\n'
+            '  1. 直接填入 API Key: "api_key": "sk-..."（真实 key）\n'
+            '  2. 或引用环境变量: "api_key": "${YOUR_ENV_VAR}"'
+        )
+    key_val = str(key_val)
+    if key_val.startswith("${") and key_val.endswith("}"):
+        inner = key_val[2:-1].strip()
+        # 先尝试作为环境变量名查找
+        env_val = os.environ.get(inner)
+        if env_val:
+            key_val = env_val
+        elif inner.startswith("sk-"):
+            # 内容本身是 API key，直接使用
+            key_val = inner
+        else:
+            raise ValueError(
+                f"环境变量 {inner} 未设置。请:\n"
+                f"  1. 设置环境变量: set {inner}=your-key (Windows) 或 export {inner}=your-key (Linux/Mac)\n"
+                f'  2. 或直接在 setting.json 中填入 API Key: "api_key": "sk-..."（真实 key）'
+            )
+    # 展开后再次拦截占位值（如环境变量里存了示例 key）
+    if _is_placeholder_api_key(key_val):
+        raise ValueError(
+            'API Key 解析后仍为占位值（空值/空白/"${}"占位/"sk-your"示例值）。请编辑 setting.json 配置真实 API Key'
+        )
+    return key_val
+
+
 def load_setting() -> dict:
     """加载 setting.json 配置"""
     setting_path = Path(__file__).parent.parent.parent / "setting.json"
@@ -30,39 +68,7 @@ def load_setting() -> dict:
         setting = json.load(f)
 
     llm = setting["llm"]
-    key_val = llm["api_key"]
-    # 载入时拒绝明显占位 key（空/空白/"${}"/"sk-your" 示例值），提示配置 setting.json
-    if _is_placeholder_api_key(key_val):
-        raise ValueError(
-            'API Key 未配置（空值/空白/"${}"占位/"sk-your"示例值）。请编辑 setting.json:\n'
-            '  1. 直接填入 API Key: "api_key": "sk-..."（真实 key）\n'
-            '  2. 或引用环境变量: "api_key": "${YOUR_ENV_VAR}"'
-        )
-
-    # 解析 api_key: 支持 ${ENV_VAR} 引用环境变量，或直接写 key
-    key_val = str(key_val)
-    if key_val.startswith("${") and key_val.endswith("}"):
-        inner = key_val[2:-1].strip()
-        # 先尝试作为环境变量名查找
-        env_val = os.environ.get(inner)
-        if env_val:
-            llm["api_key"] = env_val
-        elif inner.startswith("sk-"):
-            # 内容本身是 API key，直接使用
-            llm["api_key"] = inner
-        else:
-            raise ValueError(
-                f"环境变量 {inner} 未设置。请:\n"
-                f"  1. 设置环境变量: set {inner}=your-key (Windows) 或 export {inner}=your-key (Linux/Mac)\n"
-                f'  2. 或直接在 setting.json 中填入 API Key: "api_key": "sk-..."（真实 key）'
-            )
-
-    # 展开后再次拦截占位值（如环境变量里存了示例 key）
-    if _is_placeholder_api_key(llm["api_key"]):
-        raise ValueError(
-            'API Key 解析后仍为占位值（空值/空白/"${}"占位/"sk-your"示例值）。请编辑 setting.json 配置真实 API Key'
-        )
-
+    llm["api_key"] = resolve_api_key(llm["api_key"])
     return setting
 
 
@@ -152,6 +158,23 @@ class LLMClient:
             return None
         return val if val > 0 else None
 
+    def _resolve_max_tokens(self):
+        """max_tokens（int 或 None）；未配置/None/0/非法 → None（不设上限，交 API 默认）。
+
+        openai 兼容协议允许缺省；anthropic 的 Messages API 必填 max_tokens，
+        None 直接传入会在 SDK 内部 `int * None` TypeError，故回退默认 4096。
+        """
+        raw = self.llm_config.get("max_tokens")
+        try:
+            val = int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            val = None
+        if val is not None and val <= 0:
+            val = None
+        if val is None and self.protocol == "anthropic":
+            return 4096
+        return val
+
     def chat(self, messages: list, tools: list = None) -> dict:
         """发送对话请求，返回统一格式的响应
 
@@ -218,8 +241,8 @@ class LLMClient:
         kwargs = {
             "model": self.llm_config["model"],
             "messages": messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
+            "max_tokens": self._resolve_max_tokens(),
+            "temperature": self.llm_config.get("temperature"),
         }
         if tools:
             kwargs["tools"] = tools
@@ -263,8 +286,8 @@ class LLMClient:
         kwargs = {
             "model": self.llm_config["model"],
             "messages": api_messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
+            "max_tokens": self._resolve_max_tokens(),
+            "temperature": self.llm_config.get("temperature"),
         }
         if system_parts:
             kwargs["system"] = "\n\n".join(system_parts)
@@ -301,8 +324,8 @@ class LLMClient:
         kwargs = {
             "model": self.llm_config["model"],
             "messages": messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
+            "max_tokens": self._resolve_max_tokens(),
+            "temperature": self.llm_config.get("temperature"),
             "stream": True,
         }
         if tools:
@@ -424,8 +447,8 @@ class LLMClient:
         kwargs = {
             "model": self.llm_config["model"],
             "messages": api_messages,
-            "max_tokens": self.llm_config["max_tokens"],
-            "temperature": self.llm_config["temperature"],
+            "max_tokens": self._resolve_max_tokens(),
+            "temperature": self.llm_config.get("temperature"),
         }
         if system_parts:
             kwargs["system"] = "\n\n".join(system_parts)

@@ -38,6 +38,10 @@ dependencies = [
     "numpy>=1.24.0",
     "mplfinance>=0.12.10b0",
     "textual>=0.47.0",
+    "pydantic>=2.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -52,9 +56,13 @@ dev = [
 [project.scripts]
 deeppulse = "deeppulse.agent.cli:main"
 deeppulse-tui = "deeppulse.agent.tui_cli:main"
+deeppulse-web = "web.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["deeppulse*"]
+include = ["deeppulse*", "web*"]
+
+[tool.setuptools.package-data]
+"web" = ["static/*"]
 
 [tool.setuptools]
 py-modules = []
@@ -93,7 +101,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests that require real database or network",
 ]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not integration'"
 
 # ── coverage ──────────────────────────────────────────────────────────
 [tool.coverage.run]

@@ -44,7 +44,7 @@ MARKET_STATE_STRATEGIES = {
             "在主线板块中寻找低位补涨机会",
             "仓位可适当提升，但不超过半仓",
         ],
-        "strategy_preference": ["龙头战法", "二板接力", "板块首板"],
+        "strategy_preference": ["龙头战法", "二板接力", "题材首板"],
         "output_style": "平衡攻防，强调主线确认",
     },
     "启动期": {
@@ -175,10 +175,10 @@ def build_dynamic_system_prompt(base_prompt: str, market_state: str = None, user
             f"## 当前市场状态: {market_state}",
             f"- 风险等级: {strategy['risk_level']}",
             f"- 分析重点: {'、'.join(strategy['focus'])}",
-            f"- 工具优先级: {' → '.join(strategy['priority_tools'])}",
+            f"- 工具优先级（并行批量调用）: {'、'.join(strategy['priority_tools'])}",
             f"- 操作风格: {strategy['output_style']}",
             "",
-            "### 动态推理步骤",
+            "### 动态推理步骤（以下步骤指导思考顺序；工具调用按批并行，不必逐步单发）",
         ]
         for i, step in enumerate(strategy["reasoning"], 1):
             lines.append(f"{i}. {step}")
@@ -194,7 +194,7 @@ def build_dynamic_system_prompt(base_prompt: str, market_state: str = None, user
 
         if style or risk:
             lines = [
-                "## 用户画像适配",
+                "## 用户画像适配（规则提取的推测，可能有误；与用户当前表述冲突时以当前表述为准）",
                 f"- 交易风格: {style or '未确定'}",
                 f"- 风险偏好: {risk or '未确定'}",
             ]
@@ -205,7 +205,8 @@ def build_dynamic_system_prompt(base_prompt: str, market_state: str = None, user
             elif "追高" in style:
                 lines.append("- 提醒追高风险，建议设置严格止损")
 
-            if "稳健" in risk:
+            # 词表与画像提取对齐：保守型/稳健型 同义（提取层输出「保守型」）
+            if "稳健" in risk or "保守" in risk:
                 lines.append("- 操作建议偏向稳健，控制仓位，严格止损")
             elif "激进" in risk:
                 lines.append("- 可推荐进攻性操作，但仍需提示风险")

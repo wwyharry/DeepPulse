@@ -355,6 +355,20 @@ class TestEngineTools:
                 for p in f["params"].values():
                     assert set(p) == {"default", "min", "max", "step"}
 
+    def test_list_factors_category_filter(self):
+        from deeppulse.agent.tools.engine import TOOL_DEFINITIONS, list_factors
+
+        out = json.loads(list_factors())
+        name = out["categories"][0]["category"]
+        one = json.loads(list_factors(category=name))
+        assert [c["category"] for c in one["categories"]] == [name], "单类精确命中"
+        assert one["categories"][0]["factors"] == out["categories"][0]["factors"], "单类取全量不得缩水"
+        bad = json.loads(list_factors(category="没有这个分类"))
+        assert "error" in bad and bad["categories_available"], "未知分类给可用分类名列表以便恢复"
+        fns = {d["function"]["name"]: d["function"] for d in TOOL_DEFINITIONS}
+        assert "category" in fns["list_factors"]["parameters"]["properties"], "category 参数入 schema"
+
+
     def test_get_factor_error_slim(self):
         from deeppulse.strategy.factor_library import get_factor
 
@@ -391,3 +405,109 @@ class TestEngineTools:
 
         out = json.loads(position_size(capital=100000, entry_price=10, stop_price=9.5))
         assert out["suggested_shares"] > 0
+
+
+# ═══════════════════ logic_json 容错归一化（防重试烧轮） ═══════════════════
+
+
+class TestNormalizeLogicDict:
+    """direction/weight 常见格式错误自动修复，不可修复的一次性列全"""
+
+    def test_direction_coercion(self):
+        from deeppulse.strategy.spec import normalize_logic_dict
+
+        for raw, want in (("1", 1), ("1.0", 1), ("正向", 1), ("做多", 1), (1.0, 1), (True, 1),
+                          ("-1", -1), ("反向", -1), ("short", -1), (-1.0, -1), (False, -1)):
+            d = {"factors": [{"factor_id": "ma_trend", "direction": raw}]}
+            norm, fixed, errs = normalize_logic_dict(d)
+            assert not errs, (raw, errs)
+            assert norm["factors"][0]["direction"] == want, (raw, want)
+            if isinstance(raw, str) or isinstance(raw, float) or isinstance(raw, bool):
+                assert fixed, f"{raw} 应记录自动修正"
+
+    def test_direction_numeric_out_of_range_passes_to_validate(self):
+        # direction=5 不得被 normalize 吞掉——必须交给 validate 出完整错误清单（test_all_errors_at_once 钉住）
+        from deeppulse.strategy.spec import normalize_logic_dict
+
+        norm, fixed, errs = normalize_logic_dict({"factors": [{"factor_id": "ma_trend", "direction": 5}]})
+        assert not errs
+        assert norm["factors"][0]["direction"] == 5
+
+    def test_weight_and_factors_shape(self):
+        from deeppulse.strategy.spec import normalize_logic_dict
+
+        norm, fixed, errs = normalize_logic_dict(
+            {"factors": {"factor_id": "ma_trend", "weight": "1.5", "params": "bad"}}
+        )
+        assert not errs
+        assert isinstance(norm["factors"], list) and len(norm["factors"]) == 1
+        assert norm["factors"][0]["weight"] == 1.5
+        assert norm["factors"][0]["params"] == {}
+        assert any("包装" in f for f in fixed) and any("weight" in f for f in fixed)
+
+    def test_hard_errors_listed_at_once(self):
+        from deeppulse.strategy.spec import normalize_logic_dict
+
+        norm, fixed, errs = normalize_logic_dict(
+            {
+                "factors": [
+                    {"factor_id": "ma_trend", "direction": "abc"},
+                    {"factor_id": "x", "weight": "重"},
+                    "not-a-dict",
+                    {"direction": 1},  # 缺 factor_id
+                ]
+            }
+        )
+        assert any("缺少 factor_id" in e for e in errs)
+        assert any("direction 非法" in e for e in errs)
+        assert any("weight 非法" in e for e in errs)
+        assert any("必须是 JSON 对象" in e for e in errs)
+
+    def test_non_dict_logic_rejected(self):
+        from deeppulse.strategy.spec import normalize_logic_dict
+
+        _, _, errs = normalize_logic_dict("not-a-dict")
+        assert errs and "JSON 对象" in errs[0]
+
+
+class TestEvaluateTolerantParsing:
+    def test_string_direction_auto_fixed_and_succeeds(self, tmp_db_path, monkeypatch):
+        """真实事故形态：direction:"1" 曾触发解析失败连烧 2 轮重试"""
+        _seed_db(tmp_db_path)
+        monkeypatch.setattr(config, "DB_PATH", tmp_db_path)
+        logic = {
+            "name": "容错测试",
+            "factors": [{"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, "weight": "1.0", "direction": "1"}],
+            "entry_threshold": 0.5,
+        }
+        out = calc_engine.evaluate_trade_logic("600000", logic)
+        assert "error" not in out or out.get("status") == "degraded"
+        assert out.get("auto_fixed"), f"自动修正须透明披露，实际 {out.keys()}"
+        assert not out.get("validation_errors")
+
+    def test_hard_error_carries_unified_hint(self):
+        out = calc_engine.evaluate_trade_logic("600000", {"factors": [{"direction": "abc"}]})
+        assert out["error"] == "策略规格非法"
+        assert out["validation_errors"] and out["hint"]
+        assert "一次性修正后重试" in out["hint"] and "direction" in out["hint"]
+
+    def test_direction_five_still_validation_error(self):
+        # 既有钉子：数值型非法 direction 走 validate，错误清单一次给全
+        bad = {
+            "name": "bad",
+            "factors": [
+                {"factor_id": "不存在的因子", "weight": 1.0, "direction": 1},
+                {"factor_id": "ma_trend", "params": {"fast": 30, "slow": 10}, "weight": -1, "direction": 5},
+            ],
+            "entry_threshold": 2.0,
+        }
+        out = calc_engine.evaluate_trade_logic("600000", bad)
+        assert out["error"] == "策略规格非法"
+        assert len(out["validation_errors"]) >= 3
+
+    def test_engine_tool_bad_json_returns_hint(self):
+        from deeppulse.agent.tools.engine import evaluate_trade_logic as tool_eval
+
+        out = json.loads(tool_eval("600000", "not-json{"))
+        assert "error" in out and "hint" in out
+        assert "一次性修正后重试" in out["hint"]

@@ -22,7 +22,7 @@ from deeppulse.strategy.backtest import (
 from deeppulse.strategy.exit_strategies import PRESET_EXIT_STRATEGIES
 from deeppulse.strategy.models import BacktestResult
 from deeppulse.strategy.optimizer import grid_search_params
-from deeppulse.strategy.spec import StrategySpec
+from deeppulse.strategy.spec import LOGIC_JSON_HINT, StrategySpec, normalize_logic_dict
 
 # ── 数据充分性阈值（保守） ─────────────────────────────
 MIN_BARS_FOR_BACKTEST = 120  # 低于此根数不输出任何回测统计
@@ -71,14 +71,20 @@ def evaluate_trade_logic(
     if not code:
         return {"error": "code 不能为空"}
 
-    # 1) 逻辑校验：一次性返回全部错误（避免 Agent 反复试错）
+    # 1) 逻辑校验：先容错归一化（direction/weight 等常见格式错误自动修复），再一次性返回全部错误
+    spec_d, auto_fixed, hard_errors = normalize_logic_dict(logic)
+    if hard_errors:
+        return {"error": "策略规格非法", "validation_errors": hard_errors, "auto_fixed": auto_fixed, "hint": LOGIC_JSON_HINT}
     try:
-        spec = StrategySpec.from_dict(logic if isinstance(logic, dict) else {})
+        spec = StrategySpec.from_dict(spec_d)
     except Exception as e:
-        return {"error": f"logic_json 解析失败: {e}", "hint": '形状示例: {"name": "...", "factors": [{"factor_id": "ma_trend", "params": {"fast": 5, "slow": 20}, "weight": 1.0, "direction": 1}], "entry_threshold": 0.6}'}
+        return {"error": f"logic_json 解析失败: {e}", "hint": LOGIC_JSON_HINT}
     errors = spec.validate()
     if errors:
-        return {"error": "策略规格非法", "validation_errors": errors}
+        out = {"error": "策略规格非法", "validation_errors": errors}
+        if auto_fixed:
+            out["auto_fixed"] = auto_fixed
+        return out
 
     # 2) 退出策略：默认保守（安全优先）
     if exit_preset not in PRESET_EXIT_STRATEGIES:
@@ -152,6 +158,8 @@ def evaluate_trade_logic(
         except Exception as e:
             out["multi_stock"] = {"skipped": f"多股验证失败: {e}"}
 
+    if auto_fixed:
+        out["auto_fixed"] = auto_fixed  # 透明披露自动修正项，模型无需重试
     return out
 
 
@@ -227,13 +235,19 @@ def calibrate_params(code: str, logic: dict, days: int = 250, max_combos: int = 
     code = str(code or "").strip()
     if not code:
         return {"error": "code 不能为空"}
+    spec_d, auto_fixed, hard_errors = normalize_logic_dict(logic)
+    if hard_errors:
+        return {"error": "策略规格非法", "validation_errors": hard_errors, "auto_fixed": auto_fixed, "hint": LOGIC_JSON_HINT}
     try:
-        spec = StrategySpec.from_dict(logic if isinstance(logic, dict) else {})
+        spec = StrategySpec.from_dict(spec_d)
     except Exception as e:
-        return {"error": f"logic_json 解析失败: {e}"}
+        return {"error": f"logic_json 解析失败: {e}", "hint": LOGIC_JSON_HINT}
     errors = spec.validate()
     if errors:
-        return {"error": "策略规格非法", "validation_errors": errors}
+        out = {"error": "策略规格非法", "validation_errors": errors}
+        if auto_fixed:
+            out["auto_fixed"] = auto_fixed
+        return out
 
     try:
         df = StockQuery().get_daily_kline(code, limit=days)
@@ -266,7 +280,7 @@ def calibrate_params(code: str, logic: dict, days: int = 250, max_combos: int = 
             "guidance": "请检查逻辑是否产生交易信号，或改用更宽松的 entry_threshold",
         }
 
-    return {
+    out = {
         "status": "ok",
         "code": code,
         "in_sample": True,
@@ -286,6 +300,9 @@ def calibrate_params(code: str, logic: dict, days: int = 250, max_combos: int = 
         "combos_tested": len(surface),
         "score_surface": surface[:10],
     }
+    if auto_fixed:
+        out["auto_fixed"] = auto_fixed
+    return out
 
 
 # ═══════════════════ 市场状态刻画 ═══════════════════

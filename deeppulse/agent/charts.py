@@ -14,6 +14,32 @@ from deeppulse.src.query import StockQuery
 CHARTS_DIR = Path(__file__).parent.parent / "charts"
 CHARTS_DIR.mkdir(exist_ok=True)
 
+# 中文字体候选（按平台覆盖：macOS / Windows / Linux）
+_CJK_FONT_CANDIDATES = [
+    # macOS
+    "PingFang SC", "Hiragino Sans GB", "Heiti SC", "STHeiti", "Songti SC", "Arial Unicode MS",
+    # Windows
+    "Microsoft YaHei", "SimHei", "SimSun",
+    # Linux
+    "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Noto Sans CJK SC", "Source Han Sans SC", "Droid Sans Fallback",
+]
+
+
+def pick_cjk_font(installed: set | None = None) -> str | None:
+    """从已安装字体中挑第一个可用的中文字体名；没有则 None。
+
+    必须按**真实安装集**匹配：FontProperties(family=X).get_name() 只回显请求名，
+    用它判可用性会把缺失字体当可用（macOS 上曾误选 Microsoft YaHei 落 DejaVu 缺字）。
+    """
+    if installed is None:
+        from matplotlib import font_manager
+
+        installed = {f.name for f in font_manager.fontManager.ttflist}
+    for name in _CJK_FONT_CANDIDATES:
+        if name in installed:
+            return name
+    return None
+
 
 def generate_kline_chart(
     code: str,
@@ -120,31 +146,11 @@ def generate_kline_chart(
 
     matplotlib.rcParams["axes.unicode_minus"] = False
 
-    # 尝试多种中文字体
-    font_found = False
-    for font in [
-        "Microsoft YaHei",
-        "SimHei",
-        "PingFang SC",
-        "Heiti SC",
-        "WenQuanYi Micro Hei",
-        "Noto Sans CJK SC",
-        "sans-serif",
-    ]:
-        try:
-            from matplotlib.font_manager import FontProperties
-
-            fp = FontProperties(family=font)
-            if fp.get_name() != font and font != "sans-serif":
-                continue
-            matplotlib.rcParams["font.sans-serif"] = [font] + matplotlib.rcParams.get("font.sans-serif", [])
-            font_found = True
-            break
-        except Exception:
-            continue
-
-    if not font_found:
-        # 使用默认字体，中文可能显示为方块但不会报错
+    font = pick_cjk_font()
+    if font:
+        matplotlib.rcParams["font.sans-serif"] = [font] + matplotlib.rcParams.get("font.sans-serif", [])
+    else:
+        # 未装任何中文字体：退回默认（中文可能显示为方块但不报错）
         matplotlib.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 
     mc = mpf.make_marketcolors(up="#FF3333", down="#00AA00", inherit=True)

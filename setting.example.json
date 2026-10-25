@@ -16,6 +16,7 @@
   },
   "agent": {
     "max_rounds": 10,
+    "max_rounds_extension": 10,
     "verbose": true,
     "max_history_messages": 60,
     "max_history_chars": 40000,

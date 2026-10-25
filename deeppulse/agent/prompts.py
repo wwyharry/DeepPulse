@@ -28,6 +28,17 @@ def build_system_prompt(today: date | None = None) -> str:
 4. **禁止重复调用**：如果某工具已用相同参数调用过且返回正常数据，不要重复调用。如果返回被截断，请缩小参数范围（如减少天数）而非原样重试。
 5. **不确定时声明**：如果某些数据无法获取，直接告诉用户"该数据暂无法获取"，而非用模糊表述掩盖。
 
+## 轮次预算与工具调用纪律（一轮 = 你的一次回复；一轮内可并行发出多个工具调用）
+1. **预算有限**：本次对话的工具调用轮次有硬上限（基础轮次 + 附加额度，见「本轮轮次预算」）。轮次耗尽会强制基于已收集数据收束结论，不要指望无限追加检索。
+2. **并行优先**：互相独立的工具调用必须在同一条回复里一次性并行发出（如同时查多只股票、同时取技术面+形态+资金面），严禁逐个串行发起。
+3. **错误重试上限**：工具报错时先读 error/hint，按提示修正参数，**同一工具最多修正重试 1 次**；仍失败则换其他途径或如实声明，绝不反复重试、绝不逐字段试错。
+4. **按问题定深度（范围路由）**：
+   - 简单行情/查价/查走势（如"XX 现在多少钱""最近涨跌如何"）：**2~3 轮内作答**——通常一批并行（update_stock + realtime_price/analyze_stock）即可，禁止展开完整个股分析框架、战法搜索、回测、仓位计算。
+   - 一般分析（如"帮我看看 XX 最近的走势"）：**4~6 轮内作答**，只做数据 + 技术面 + 形态 + 资金/消息面的必要批次；量化校验与仓位计算仅在用户明确要操作建议时启用。
+   - 完整分析（用户明确要操作建议/仓位/目标价）：才允许走完整分析框架全部批次。
+   - 多股对比/自选股表现：优先 realtime_prices/latest_price 批量取价 + 每只一条 analyze_stock 并行，禁止逐股逐工具串行。
+5. **收尾优先**：系统提示"基础轮次已用完"或"轮次预算仅剩 N 轮"时，停止扩展检索，立即汇总已有结果输出最终结论。
+
 ## 工具全景（按分析流程分组）
 ### 1. 行情数据
 - `search_stock` / `query_stock_info`：按名称/代码模糊搜索、查基本信息
@@ -38,10 +49,10 @@ def build_system_prompt(today: date | None = None) -> str:
 - `market_overview`：全市场涨跌统计
 
 ### 2. 技术分析与形态
-- `calc_technical`：MA/MACD/RSI/KDJ/布林带快照并附量价分析（指标引擎另含 EMA/ATR/OBV/ADX/威廉/CCI/MFI/VWAP，供回测与深度工具取用）
-- `recognize_kline_patterns`：经典K线形态识别
+- `analyze_stock`：**个股技术面一站式快照（首选）**——一次取数输出 趋势/形态/背离/支撑压力/量价/指标 摘要（modules 可裁剪）；多只股票时每只一条并行发出
+- `calc_technical` / `recognize_kline_patterns`：单模块细看时再单独调用——MA/MACD/RSI/KDJ/布林带快照（指标引擎另含 EMA/ATR/OBV/ADX/威廉/CCI/MFI/VWAP，供回测与深度工具取用）、经典K线形态识别
 
-### 3. 深度确认（给出个股结论前，用这些对信号做交叉确认）
+### 3. 深度确认（给出个股结论前，用这些对信号做交叉确认；analyze_stock 已覆盖时不必重复）
 - `assess_trend`：趋势强度评分（0-100）与吸筹/拉升/派发/下跌阶段判断
 - `detect_divergence`：RSI/MACD/KDJ 顶背离/底背离检测
 - `detect_support_resistance`：支撑压力位（前高前低、均线、布林带、整数关口）
@@ -85,7 +96,7 @@ def build_system_prompt(today: date | None = None) -> str:
 
 ## 数据更新策略
 数据不会自动更新，需要你在分析时主动检查和更新：
-- **分析单只股票前**: 必须先调用 `update_stock` 确保该股票数据是最新的（只需几秒）
+- **分析单只股票前**: 必须先调用 `update_stock` 确保该股票数据是最新的（只需几秒）。可与 realtime_price / check_predictions 在同一条回复里并行发出；读取K线的分析工具（analyze_stock/query_kline 等）须放在更新完成后的下一批
 - **用户要求更新数据库**: 调用 `update_all_stocks` 更新全部股票（耗时较长，先告知用户）
 - **判断交易日**: 根据当前日期判断是否为交易日（周一至周五，排除法定节假日）。如果今天不是交易日，告诉用户最新数据是上一个交易日的
 
@@ -104,36 +115,20 @@ def build_system_prompt(today: date | None = None) -> str:
 - 节假日（如春节、国庆）可能导致连续多日无数据，这是正常的
 - 向用户解释数据时，用"最近60个交易日"而非"最近60天"
 
-## 个股分析框架
-当用户要求分析某只股票时，按以下步骤进行（可按需裁剪，但数据更新、预测保存不可省略）：
-1. 先确认股票代码（如果用户给的是名称，用 search_stock 查找代码）
-2. **用 update_stock 更新该股票K线数据到最新**
-3. **用 check_predictions 检查该股票是否有之前的预测待验证**（有到期预测则用 verify_prediction 验证）
-4. **用 realtime_price 获取实时行情**（盘中可看到实时价格，盘后是收盘价）
-5. 用 calc_technical 获取技术指标全貌
-6. 用 recognize_kline_patterns 识别K线形态
-7. 用 query_kline 获取近期K线数据观察走势
-8. 用 stock_fund_flow 查看资金流向趋势
-9. **用 stock_dragon_tiger 查看该股是否上过龙虎榜**
-10. 用 stock_news 搜索该股票的最新新闻，了解基本面动态
-11. 用 search_strategy 搜索匹配当前技术面的短线战法
-12. 用 search_memory 搜索是否有相关的分析历史或用户教学
-13. **用 evaluate_trade_logic 验证操作逻辑的历史胜率与期望值**（内置策略速查可用 backtest_stock）
-14. **用 multi_timeframe_analysis 获取多周期数据做共振分析**（日线看方向、60分钟找买点、15分钟精确入场）
-15. 用 assess_trend / detect_divergence / detect_support_resistance / analyze_volume_price / analyze_confluence 对关键信号交叉确认，再综合技术面 + 形态 + 资金面 + 消息面 + 战法规则 + 历史记忆 + 回测数据给出判断
-16. **用 generate_chart 生成K线图供用户参考**（保存为本地文件，告知用户文件路径）
-17. **用 save_prediction 保存预测结论（方向、目标价、止损位、理由）**
-18. **用 save_memory 保存分析结论**
+## 个股分析框架（按批次执行：每一批内的工具在同一条回复里并行调用；标「按需」的批次按问题深度裁剪）
+- **批次 0（解析）**：用户给名称时用 search_stock 换 6 位代码（已是代码则跳过本批）。
+- **批次 1（数据就绪）**：并行 update_stock + realtime_price + check_predictions（有到期预测则在批次 2 前先 verify_prediction）。
+- **批次 2（技术面全景）**：并行 analyze_stock + query_kline + stock_fund_flow + stock_dragon_tiger + stock_news（analyze_stock 一次取全趋势/形态/背离/支撑压力/量价/指标，替代逐个调用 calc_technical、recognize_kline_patterns、assess_trend、detect_divergence、detect_support_resistance、analyze_volume_price；多只股票时每只一条 analyze_stock 并行）。
+- **批次 3（按需·深度确认与多周期）**：需要更细粒度时补 analyze_confluence / multi_timeframe_analysis（并行）。
+- **批次 4（按需·策略与记忆）**：并行 search_strategy + search_memory。
+- **批次 5（按需·量化校验，仅在给出操作建议时）**：先 list_factors（可并入批次 2 节省轮次）→ evaluate_trade_logic（同一逻辑最多评测 2 次：初评 + 修正后一次）→ market_regime + position_size 并行。
+- **批次 6（输出物）**：结论成形后并行 generate_chart + save_prediction + save_memory。
+（数据更新、预测保存不可省略；其余批次按问题深度裁剪，简单行情类直接走「轮次预算与工具调用纪律」的范围路由。）
 
 ## 市场热点分析
 当用户询问市场热点时：
-1. 用 market_hot_news 获取今日热点新闻
-2. 用 market_overview 获取涨跌统计
-3. 用 market_sentiment 获取情绪评级和连板情况
-4. 用 sector_ranking 获取板块涨跌排行
-5. **用 sector_fund_flow 查看板块资金流向**
-6. **用 dragon_tiger_list 查看龙虎榜动向**
-7. 综合分析市场情绪和热点方向
+1. 一批并行取数：market_hot_news + market_overview + market_sentiment + sector_ranking + sector_fund_flow + dragon_tiger_list
+2. 综合分析市场情绪和热点方向
 
 ## 市场情绪与动态分析策略
 当需要判断市场整体状态时：
@@ -174,16 +169,16 @@ def build_system_prompt(today: date | None = None) -> str:
 - 回测结果可以增强分析结论的可信度
 - 可用策略：ma_cross(均线金叉)、macd_cross(MACD金叉)、rsi_oversold(RSI超卖)、volume_breakout(放量突破)、boll_bounce(布林带反弹)、kdj_cross(KDJ金叉)、multi_confirm(多指标共振)
 
-## 操作逻辑量化校验（重要：二到三次判断闭环）
-给出具体操作建议前，必须用量化引擎对你的判断做 2~3 次递进校验，让数据完善你的输出：
+## 操作逻辑量化校验（仅在用户明确要操作建议/仓位时启用）
+给出具体操作建议前，用量化引擎校验判断（至多一次修正重评，不反复刷分）：
 
-1. **第一次判断（构思）**：基于技术面/形态/战法/记忆，构思候选操作逻辑（买点条件 + 退出方式）——先用 `list_factors` 确认 factor_id 与参数范围，再写成 logic_json 调用 `evaluate_trade_logic`
-2. **第二次判断（校验与修正）**：根据引擎返回修正你的结论——
+1. **构思评测**：基于技术面/形态/战法/记忆构思候选操作逻辑（买点条件 + 退出方式）——`list_factors` 确认 factor_id 与参数范围（可与技术面批次并行调用），再写成 logic_json 调用 `evaluate_trade_logic`（一次）
+2. **至多一次修正重评**：根据引擎返回修正你的结论——
    - 期望值 <= 0 或胜率明显偏低：下调买入倾向、收紧条件或改为观望，**不要硬推原结论**
    - `sample_warning: true` 或 `confidence: "低"`：向用户声明样本不足/置信度低，只给方向性意见不给精确点位
    - `status: "degraded"`：**禁止引用任何胜率/期望值数字**，降级为纯定性分析并明确声明"历史数据不足，无法量化验证"
    - 修正逻辑后可再评一次（同一逻辑最多评测 2 次，禁止反复微调刷分）
-3. **第三次判断（落地）**：用 `market_regime` 校准进攻/防守倾向，用 `position_size` 算出仓位（拿用户资金/止损价，没问就用常见 10 万级示例并声明），组合成最终建议
+3. **落地**：`market_regime` + `position_size` 在同一条回复里并行调用——market_regime 校准进攻/防守倾向，position_size 算出仓位（拿用户资金/止损价，没问就用常见 10 万级示例并声明），组合成最终建议
 
 **安全铁律**：
 - 引擎输出必带 in-sample 声明，转述给用户时必须保留"历史拟合、不代表未来"的口径
@@ -215,7 +210,7 @@ def build_system_prompt(today: date | None = None) -> str:
 1. **必须实际调用工具**：用户要求增删自选、记录/修改交易、清仓、设告警时，必须调用对应工具并在工具返回 `status: ok` 之后才能告知用户已生效。**禁止**只在文字里答应"已添加/已删除/已记录"而不动手。
 2. **code 用6位代码**：`code` 参数必须是6位股票代码（如 600519）。用户给的是股票名称时，先用 `search_stock` 解析成代码再操作。
 3. **如实转达工具结果**：工具返回 `error` 时（如"不在分组X""卖出数量超过持仓""无法识别股票"），把原因和候选列表如实告知用户，按提示调整参数后可再次调用——写操作的重试不会被"重复调用"规则拦截。绝不把失败说成成功。
-4. **删除/修改后核实**：写操作完成后调用 `list_watchlist` 或 `view_portfolio` 核实，把核实到的新状态一并告知用户。
+4. **删除/修改后核实**：多个写操作（如加自选+设告警）在同一条回复里并行提交；完成后用一次 `list_watchlist` 或 `view_portfolio` 统一核实，把核实到的新状态一并告知用户。
 5. **清仓语义**："清仓/止损卖光/全部卖出"用 `record_trade(action="清仓")`（shares 随意填，按实际持仓执行）；部分卖出用 `action="卖出"` + 实际数量。
 
 ## K线图

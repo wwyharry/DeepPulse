@@ -98,6 +98,110 @@ def compare_stocks_chart(codes: str, days: int = 60) -> str:
 
 # ── 新增分析工具 ──────────────────────────────────────
 
+# analyze_stock 可组合模块（canonical 顺序）
+_ANALYZE_MODULES = ("technical", "patterns", "divergence", "sr", "volume", "trend")
+
+
+def _parse_analyze_modules(modules) -> tuple[list, list]:
+    """解析 modules 串 → (有效模块列表[canonical序], 忽略的未知模块)。空/"all" = 全部"""
+    raw = str(modules if modules is not None else "all").strip().lower()
+    if not raw or raw == "all":
+        return list(_ANALYZE_MODULES), []
+    parts = [p.strip() for p in raw.replace("，", ",").split(",") if p.strip()]
+    selected = {p for p in parts if p in _ANALYZE_MODULES}
+    ignored = sorted({p for p in parts if p not in _ANALYZE_MODULES})
+    return [m for m in _ANALYZE_MODULES if m in selected], ignored
+
+
+def _cap_list(items: list, limit: int) -> dict:
+    """列表压缩为 {"items": ≤limit 条, "count": 总数, "omitted": 省略数}"""
+    shown = list(items[:limit])
+    out = {"items": shown, "count": len(items)}
+    if len(items) > limit:
+        out["omitted"] = len(items) - limit
+    return out
+
+
+def analyze_stock(code: str, days: int = 120, modules: str = "all") -> str:
+    """个股技术面一站式快照（首选）：一次取数共享给全部模块，返回压缩摘要。
+
+    modules 逗号分隔可选 technical,patterns,divergence,sr,volume,trend，默认 all。
+    代替分别调用 calc_technical / recognize_kline_patterns / detect_divergence /
+    detect_support_resistance / analyze_volume_price / assess_trend——它们各自
+    重取同一份日K，这里是同一次 get_daily_kline 共享 df 纯函数流水。
+    输出已按模块摘要压缩（patterns≤5、支撑/压力各≤6档），控制在工具结果长度上限内。
+    """
+    from datetime import date, timedelta
+
+    from deeppulse.agent.divergence import detect_all_divergences as _detect_div
+    from deeppulse.agent.support_resistance import detect_support_resistance as _detect_sr
+    from deeppulse.agent.tools.market import technical_snapshot
+    from deeppulse.agent.trend import assess_trend as _assess_trend
+    from deeppulse.agent.volume_analysis import analyze_volume_price as _vol_price
+
+    days = parse_positive_int(days, "days")
+    selected, ignored = _parse_analyze_modules(modules)
+    if not selected:
+        return json.dumps(
+            {
+                "error": f"modules 无有效模块: {modules!r}",
+                "available": list(_ANALYZE_MODULES),
+            },
+            ensure_ascii=False,
+        )
+
+    query = get_query()
+    end = date.today()
+    start = end - timedelta(days=int(days) * 3)
+    df = query.get_daily_kline(code, start_date=str(start), end_date=str(end))
+    if df.empty:
+        return json.dumps({"error": f"股票 {code} 无数据"}, ensure_ascii=False)
+
+    data_source = result_source(df)  # transform 前读取（attrs 会丢）
+    df = df.sort_values("trade_date").reset_index(drop=True)
+
+    out: dict = {
+        "code": code,
+        "count": len(df),
+        "data_source": data_source,
+        "modules": selected,
+    }
+    if ignored:
+        out["warning"] = f"忽略未知模块: {','.join(ignored)}，可选 {'、'.join(_ANALYZE_MODULES)}"
+
+    if "technical" in selected:
+        out["technical"] = technical_snapshot(df)
+
+    if "patterns" in selected:
+        patterns = _recognize_patterns(df)
+        entry = _cap_list(patterns, 5)
+        entry["summary"] = _format_patterns(patterns)
+        out["patterns"] = entry
+
+    if "divergence" in selected:
+        out["divergence"] = _cap_list(_detect_div(df, lookback=min(int(days), 30)), 6)
+
+    if "sr" in selected:
+        sr = _detect_sr(df)
+        out["support_resistance"] = {
+            "current_price": sr.get("current_price"),
+            "position": sr.get("position"),
+            **{k: _cap_list(sr.get(k, []), 6) for k in ("resistance", "support")},
+        }
+
+    if "volume" in selected:
+        vol = dict(_vol_price(df))
+        # 嵌套长列表压缩到 3 条，防整体 payload 撞工具结果截断
+        for key in ("anomalies", "divergences"):
+            if isinstance(vol.get(key), list):
+                vol[key] = _cap_list(vol[key], 3)
+        out["volume"] = vol
+
+    if "trend" in selected:
+        out["trend"] = _assess_trend(df)
+
+    return json.dumps(out, ensure_ascii=False, default=str)
+
 
 def detect_divergence(code: str, indicator: str = "all", days: int = 60) -> str:
     """检测价格与技术指标的背离信号（底背离/顶背离），是高价值的反转预警。"""
@@ -419,6 +523,26 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_stock",
+            "description": "个股技术面一站式快照（首选）：一次取数并行产出技术指标/K线形态/背离/支撑压力/量价/趋势六个模块的压缩摘要，代替分别调用 calc_technical、recognize_kline_patterns、detect_divergence、detect_support_resistance、analyze_volume_price、assess_trend。多股对比时每只股票各调用一次并在同一回复并行发出。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "6位股票代码"},
+                    "days": {"type": "integer", "description": "分析天数（交易日），默认120", "default": 120, "minimum": 1},
+                    "modules": {
+                        "type": "string",
+                        "description": "模块选择，逗号分隔：technical,patterns,divergence,sr,volume,trend；默认 all（全部）",
+                        "default": "all",
+                    },
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "detect_divergence",
             "description": "检测价格与技术指标的背离信号（底背离/顶背离），是高价值的反转预警。支持RSI、MACD、KDJ背离检测。",
             "parameters": {
@@ -521,6 +645,7 @@ TOOL_DISPATCH = {
     "generate_chart": generate_chart,
     "compare_stocks_chart": compare_stocks_chart,
     # 新增分析工具
+    "analyze_stock": analyze_stock,
     "detect_divergence": detect_divergence,
     "detect_support_resistance": detect_support_resistance,
     "assess_trend": assess_trend,
