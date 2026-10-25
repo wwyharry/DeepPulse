@@ -14,7 +14,7 @@
 | **📊 量化引擎** | **Agent 面向的计算后端：操作逻辑历史验证（含蒙特卡洛）、参数校准、市场状态、保守仓位计算（只出数，供 Agent 完善判断）** |
 | **📊 因子库** | **104 个量化因子，覆盖均线、动量、量能、形态等 13 个大类，供多因子逻辑组合** |
 | **🖥️ TUI 全屏界面** | **暗色金融主题，三栏布局，命令系统和快捷键** |
-| **🌐 Web 浏览器界面** | **FastAPI + 流式输出：市场看板（连板梯队/涨停池/炸板池/跌停池/市场概况/行业板块/资讯要闻七面板纯数据整理，多源自动切换）、历史会话、可视化配置、自选/持仓/指数实时面板、深浅双主题（详见 [WEB_GUIDE.md](WEB_GUIDE.md)）** |
+| **🌐 Web 浏览器界面** | **FastAPI + 流式输出：市场看板（连板梯队/涨停池/炸板池/跌停池/市场概况/行业板块/资讯要闻七面板纯数据整理，多源自动切换）、历史会话、可视化配置、自选/持仓/指数实时面板、深浅双主题** |
 | **⌨️ CLI 命令行** | **快速单次分析或交互式对话** |
 | 自然语言交互 | 中文提问，Agent 自动调度 68 个工具完成分析 |
 | **⚖️ 评判Agent** | **自适应评测：根据问题类型评分 1-10，快速给出改进建议**（默认关闭；仅 TUI：`python -m tui --judge` 启动或 `setting.agent.enable_judge=true` 开启后由 `/judge`、`Ctrl+J` 手动触发） |
@@ -249,7 +249,7 @@ pip install -r requirements.txt
 cp setting.example.json setting.json
 ```
 
-编辑 `setting.json`，填入你的 API Key。除 API Key 外还可按需调整 `llm.max_tokens/temperature/timeout`、`agent`（轮次预算 max_rounds/max_rounds_extension、消息历史预算 max_history_*、enable_judge）与 `data` 段，完整字段说明见 [CONFIG_GUIDE.md](CONFIG_GUIDE.md)。
+编辑 `setting.json`，填入你的 API Key。除 API Key 外还可按需调整 `llm.max_tokens/temperature/timeout`、`agent`（轮次预算 max_rounds/max_rounds_extension、消息历史预算 max_history_*、enable_judge）与 `data` 段（可参考 `setting.example.json` 的字段骨架）。
 
 支持 OpenAI 和 Anthropic 两种主流 API 调用协议。
 
@@ -376,7 +376,7 @@ python -m web --port 9000
 - 斜杠命令菜单（与 TUI 基本同系：`/help` `/memory` `/strategy` `/watchlist` `/portfolio` `/chart` `/fetch` `/stats` `/stop` `/clear`；Web 不提供 `/judge` 评判触发，另有本地 `/reset`）、会话中途可停止
 - 浅色/深色双主题（顶栏一键切换，首访跟随系统；两主题均锁定 A 股涨红跌绿）
 
-详见 [WEB_GUIDE.md](WEB_GUIDE.md)（完整端点表、SSE 事件、常见问题）。服务无注册登录/鉴权（内置跨站 CSRF 同源校验，但不挡直接访问端口的人），默认仅绑定本机 127.0.0.1，不要直接暴露公网。
+服务无注册登录/鉴权（内置跨站 CSRF 同源校验，但不挡直接访问端口的人），默认仅绑定本机 127.0.0.1，不要直接暴露公网。
 
 > **启动速度**
 >
