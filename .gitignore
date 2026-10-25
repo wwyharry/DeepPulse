@@ -53,7 +53,6 @@ deeppulse/data/
 # Non-essential / dev docs — kept local, deliberately not published
 /CHANGELOG.md
 /CONFIG_GUIDE.md
-/CONTRIBUTING.md
 /QUICK_START.md
 /STRATEGY_PLATFORM.md
 /TUI_GUIDE.md
