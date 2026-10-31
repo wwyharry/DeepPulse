@@ -25,16 +25,20 @@ Mac 可能需要使用 python3 -m web
 
 浏览器打开  http://127.0.0.1:8000（默认仅绑定本机；换端口加 `--port 9000`）。
 
-### 3. 在界面里配置 API Key
+### 3. 配置 API Key
+```bash
+cp setting.example.json setting.json
+```
+打开setting.json文件，按格式配置完成后，重新启动一下服务。
 
-点击顶栏 **设置**（齿轮图标）→ 填入 API Key → 点 **测试连接** 验证 → **保存**即生效，回到对话页直接提问。
+点击顶栏 **设置**（齿轮图标）→ 查看是否有API Key（如果没有，则可以填入 API Key） → 点 **测试连接** 验证 → **保存**即生效，回到对话页直接提问。
 
 - 支持 OpenAI / Anthropic 两种协议，可配 `base_url`、模型、`max_tokens`、`temperature`、超时、Agent 轮次预算等
 - **API Key 全程掩码**：查询接口绝不回显明文，仅返回掩码形态；保存后原子写入 `setting.json`
 - 密钥可不落盘：填 `"${环境变量名}"` 引用环境变量即可
 - 各配置项留空保存 = 回落默认值（以面板提示为准）
 
-<img width="1480" height="888" alt="截屏2026-10-25 18 01 13" src="https://github.com/user-attachments/assets/21ea8f1e-562f-4909-b42f-e83732f1f1ac" />
+
 
 
 数据开箱即用：本地未落库时在线数据自动兜底并标注来源，无需先跑采集。
